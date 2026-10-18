@@ -68,6 +68,7 @@ pub(super) struct IconSet {
     pub syncing: ThemedIcon,
     pub warning: ThemedIcon,
     pub paused: ThemedIcon,
+    pub offline: ThemedIcon,
 }
 
 impl IconSet {
@@ -78,6 +79,7 @@ impl IconSet {
             syncing: ThemedIcon::from(CLOUD_SYNC_OUTLINE),
             warning: ThemedIcon::from(icondata::TbCloudExclamationOutline),
             paused: ThemedIcon::from(icondata::TbCloudPauseOutline),
+            offline: ThemedIcon::from(icondata::TbCloudOffOutline),
         }
     }
 }
@@ -146,12 +148,13 @@ mod tests {
     #[test]
     fn every_state_rasterises_to_visible_pixels() {
         let set = IconSet::load();
-        let buckets: [(&str, &ThemedIcon); 5] = [
+        let buckets: [(&str, &ThemedIcon); 6] = [
             ("synced", &set.synced),
             ("auth_needed", &set.auth_needed),
             ("syncing", &set.syncing),
             ("warning", &set.warning),
             ("paused", &set.paused),
+            ("offline", &set.offline),
         ];
         for (name, themed) in buckets {
             for (variant, icons) in [("light", &themed.light), ("dark", &themed.dark)] {

@@ -186,7 +186,8 @@ impl SyncativeTray {
     fn pixmap_for_current_status(&self) -> Vec<Icon> {
         let icon = match &self.status {
             TrayStatus::Loading | TrayStatus::Syncing { .. } => &self.icons.syncing,
-            TrayStatus::Disconnected | TrayStatus::Paused | TrayStatus::Offline => &self.icons.paused,
+            TrayStatus::Disconnected | TrayStatus::Paused => &self.icons.paused,
+            TrayStatus::Offline => &self.icons.offline,
             TrayStatus::AuthNeeded { .. } => &self.icons.auth_needed,
             TrayStatus::Warning { .. } => &self.icons.warning,
             TrayStatus::Done { .. } => &self.icons.synced,
