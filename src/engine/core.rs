@@ -158,11 +158,8 @@ impl Core {
         }
     }
 
-    /// A remote's interval under the current cadence; `None` while held or offline.
+    /// A remote's interval under the current cadence; `None` while held.
     fn interval(&self, remote: &Remote) -> Option<std::time::Duration> {
-        if self.offline {
-            return None;
-        }
         self.cadence.floor().map(|floor| remote.policy.interval.duration().max(floor))
     }
 
@@ -262,8 +259,15 @@ impl Core {
             .filter(|r| self.is_schedulable(r.id) && !self.syncing.contains(&r.id))
             .filter_map(|r| Some((r.id, self.interval(r)?)))
             .collect();
+        let mut recheck = false;
         for (id, interval) in candidates {
             if self.last_sync_at.get(&id).is_some_and(|t| now.duration_since(*t) < interval) {
+                continue;
+            }
+            // Offline a due remote only asks the platform again, in case it missed telling us that the network is back; that then syncs everything.
+            if self.offline {
+                self.last_sync_at.insert(id, now);
+                recheck = true;
                 continue;
             }
             if self.state.should_skip_and_decrement(id) {
@@ -271,6 +275,9 @@ impl Core {
                 continue;
             }
             self.start_sync(id);
+        }
+        if recheck {
+            tokio::task::spawn_blocking(crate::services::network::recheck);
         }
     }
 

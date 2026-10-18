@@ -54,7 +54,7 @@ pub enum Command {
     Log(SyncDirId, String),
     /// How often to sync to save battery, e.g. less often with the phone's screen off (see [`crate::services::power`]). A less restrictive cadence syncs everything right away.
     Cadence(Cadence),
-    /// Whether the device has a network that reaches the internet, as Android reports it. While it hasn't, scheduled passes wait and idle folders show Offline; "Sync now" still tries. Once it is back, everything syncs right away.
+    /// Whether the device has a network that reaches the internet, as the platform reports it. While it hasn't, folders show Offline, and a remote that is due only makes the platform check again (see [`crate::services::network::recheck`]). Once it is back, everything syncs right away.
     Online(bool),
 }
 

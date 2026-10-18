@@ -29,3 +29,12 @@ fn log_change(online: bool) {
 fn log_change(online: bool) {
     eprintln!("syncative: {}", if online { "online" } else { "offline" });
 }
+
+/// Ask the platform again while offline, in case it missed telling us that the network is back. The engine calls it whenever a remote would be due, so it follows the sync intervals and the power settings. Blocking; Android's callback is reliable, so there it does nothing.
+#[cfg(target_os = "android")]
+pub fn recheck() {}
+
+#[cfg(not(target_os = "android"))]
+pub fn recheck() {
+    crate::infrastructure::network_monitor::recheck();
+}

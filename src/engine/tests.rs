@@ -145,8 +145,10 @@ async fn offline_holds_the_schedule_and_coming_back_syncs_at_once() {
     let snap = rig.snap();
     assert!(snap.offline);
     assert_eq!(snap.state.roll_up(R1), Some(RunState::Offline));
-    assert_eq!(rig.core.next_due(), None);
+    // Still due at the interval, but only to check the network again.
+    assert!(rig.core.next_due().is_some());
     rig.core.start_due(Instant::now() + Duration::from_secs(3600));
+    assert!(rig.snap().syncing.is_empty(), "synced while offline");
     rig.send(Command::SyncNow(R1)).await;
     assert!(rig.snap().syncing.is_empty(), "synced while offline");
 

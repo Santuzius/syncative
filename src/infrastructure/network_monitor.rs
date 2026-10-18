@@ -1,6 +1,6 @@
 //! Whether the computer has a network, from the XDG desktop portal's network monitor (`org.freedesktop.portal.NetworkMonitor`). It asks NetworkManager where there is one and otherwise looks for a default route, so it works whatever manages the network. Without a portal Syncative counts as online, and failed connections show as Offline anyway.
 
-use std::time::Duration;
+use std::{sync::Mutex, time::Duration};
 
 use dbus::{blocking::Connection, channel::MatchingReceiver, message::MatchRule, Message};
 
@@ -8,11 +8,17 @@ const DESTINATION: &str = "org.freedesktop.portal.Desktop";
 const PATH: &str = "/org/freedesktop/portal/desktop";
 const INTERFACE: &str = "org.freedesktop.portal.NetworkMonitor";
 
+/// A connection of its own for [`recheck`], so it doesn't wait for the thread that follows the signal; set once the portal answered.
+static RECHECK: Mutex<Option<Connection>> = Mutex::new(None);
+
 /// Ask once, so the first pass and the resuming of sessions already know, then follow the portal's changes on a thread of its own.
 pub fn start() {
     let Ok(conn) = Connection::new_session() else { return };
     match available(&conn) {
-        Ok(online) => crate::services::network::set_online(online),
+        Ok(online) => {
+            crate::services::network::set_online(online);
+            *RECHECK.lock().unwrap_or_else(|e| e.into_inner()) = Connection::new_session().ok();
+        }
         Err(err) => {
             eprintln!("syncative: no network monitor in the desktop portal ({err}); offline is noticed from failed connections only.");
             return;
@@ -39,6 +45,16 @@ pub fn start() {
     });
     if let Err(err) = spawned {
         eprintln!("syncative: can't start the network monitor ({err}).");
+    }
+}
+
+/// Ask the portal again, for when its signal didn't come: it sends `changed` when the routes change, and when Wi-Fi comes back that is before NetworkManager reports the connection, so the answer is still "unavailable" and no further signal follows. Blocks for up to two seconds; does nothing without a portal.
+pub fn recheck() {
+    let guard = RECHECK.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(conn) = guard.as_ref() else { return };
+    if let Ok(online) = available(conn) {
+        drop(guard);
+        crate::services::network::set_online(online);
     }
 }
 
