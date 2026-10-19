@@ -18,14 +18,15 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 ## Quick start
 1. **Install** Syncative
    - **Linux, any distribution:**
-     - **[AppImage](#appimage)**:
+     - **AppImage**:
         1. (recommended) to be informed about updates with bug fixes and new features, install/use [Gear Lever](https://gearlever.mijorus.it) and enable "Check updates on system startup"
         2. install the [latest release](https://github.com/Santuzius/syncative/releases/latest)
-     - **[Nix package manager](#nix)**: `nix profile add github:Santuzius/syncative`
+     - **Nix package manager**: `nix profile add github:Santuzius/syncative`
    - **NixOS:** the [module](#nixos)
-   - **[Android 8 or newer](#android)** ([note on Android's future](#android)):
-     - (recommended) install/use [Obtainium](https://wiki.obtainium.imranr.dev), which will keep Syncative up to date
-     - install the APK pasting the link `https://github.com/Santuzius/syncative` in Obtainium or manually from the [latest release](https://github.com/Santuzius/syncative/releases/latest)
+   - **Android 8 or newer**:
+     1. (recommended) install/use [Obtainium](https://wiki.obtainium.imranr.dev), which will keep Syncative up to date
+     2. install the APK pasting the link `https://github.com/Santuzius/syncative` in Obtainium or manually from the [latest release](https://github.com/Santuzius/syncative/releases/latest)
+     3. ([note on Android's future](#android))
 2. **Start Syncative.** On Linux it lives in the system tray (on GNOME with the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/)), and closing the window keeps it syncing in the background. On Android it syncs in the background with a silent notification. (You can switch this off in Preferences.)
 3. **Add a remote:** click *Add remote* and choose the provider.
    - **Proton Drive:** sign in with your Proton username and password.
