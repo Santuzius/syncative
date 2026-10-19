@@ -69,7 +69,6 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 
 ## Installing
 ### AppImage
-For x86_64 distributions with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36 and later). Needs a Secret Service keyring such as GNOME Keyring or KWallet, which most desktops include.
 
 1. (optional) To be informed about updates with bug fixes and new features, install [Gear Lever](https://gearlever.mijorus.it) and enable "Check updates on system startup".
 2. Download `Syncative-<version>-x86_64.AppImage` from the [latest release](https://github.com/Santuzius/syncative/releases/latest).
@@ -77,7 +76,10 @@ For x86_64 distributions with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedo
 4. Start it once (from the app menu if you used Gear Lever). Syncative then starts itself at login from exactly this file. (You can switch this off in Preferences.)
 5. (optional) On GNOME install the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) to see the tray icon
 
-Without Gear Lever, update by replacing the file or with AppImageUpdate.
+Without an update app like Gear Lever, you can update Syncative by replacing the file.
+
+> [!NOTE]
+> For x86_64 distributions with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36 and later). Needs a Secret Service keyring such as GNOME Keyring or KWallet, which most desktops include.
 
 ### Nix
 `github:Santuzius/syncative` always gives the latest release; `nix profile upgrade syncative` moves you to a newer one. Nix downloads the released program; to build it from source instead, install `github:Santuzius/syncative#syncative-source`.
