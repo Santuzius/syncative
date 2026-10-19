@@ -18,8 +18,10 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 ## Quick start
 1. **Install** Syncative
    - **Linux, any distribution:**
-     - the [AppImage](#appimage) from the [latest release](https://github.com/Santuzius/syncative/releases/latest)
-     - the [Nix package manager](#nix): `nix profile add github:Santuzius/syncative`
+     - **[AppImage](#appimage)**:
+        1. (optional) to be informed about updates with bug fixes and new features, install [Gear Lever](https://gearlever.mijorus.it) and enable "Check updates on system startup"
+        2. install the [latest release](https://github.com/Santuzius/syncative/releases/latest)
+     - **[Nix package manager](#nix)**: `nix profile add github:Santuzius/syncative`
    - **NixOS:** the [module](#nixos)
    - **Android 8 or newer** ([note on Android's future](#android)):
      - [Obtainium](#android) (recommended), which keeps it up to date
@@ -68,11 +70,12 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 ### AppImage
 For x86_64 distributions with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36 and later). Needs a Secret Service keyring such as GNOME Keyring or KWallet, which most desktops include.
 
-1. Download `Syncative-<version>-x86_64.AppImage` from the [latest release](https://github.com/Santuzius/syncative/releases/latest).
-2. Move it to a fixed place under a fixed name, e.g. `~/Applications/Syncative.AppImage`, and make it executable (`chmod +x`).
-3. Start it once. Syncative then starts itself at login from exactly this file (switch this off in Preferences).
+1. (optional) To be informed about updates with bug fixes and new features, install [Gear Lever](https://gearlever.mijorus.it) and enable "Check updates on system startup".
+2. Download `Syncative-<version>-x86_64.AppImage` from the [latest release](https://github.com/Santuzius/syncative/releases/latest).
+3. Install it using Gear Lever or move it to a fixed place under a fixed name, e.g. `~/Applications/Syncative.AppImage`, and make it executable (`chmod +x`).
+4. Start it once (from the app menu if you used Gear Lever). Syncative then starts itself at login from exactly this file (switch this off in Preferences).
 
-To update, replace the file, or let [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) or AppImageUpdate do it.
+Without Gear Lever, update by replacing the file or with AppImageUpdate.
 
 ### Nix
 `github:Santuzius/syncative` always gives the latest release; `nix profile upgrade syncative` moves you to a newer one. Nix downloads the released program; to build it from source instead, install `github:Santuzius/syncative#syncative-source`.
