@@ -19,14 +19,14 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 1. **Install** Syncative
    - **Linux, any distribution:**
      - **[AppImage](#appimage)**:
-        1. (optional) to be informed about updates with bug fixes and new features, install [Gear Lever](https://gearlever.mijorus.it) and enable "Check updates on system startup"
+        1. (recommended) to be informed about updates with bug fixes and new features, install/use [Gear Lever](https://gearlever.mijorus.it) and enable "Check updates on system startup"
         2. install the [latest release](https://github.com/Santuzius/syncative/releases/latest)
      - **[Nix package manager](#nix)**: `nix profile add github:Santuzius/syncative`
    - **NixOS:** the [module](#nixos)
-   - **Android 8 or newer** ([note on Android's future](#android)):
-     - [Obtainium](#android) (recommended), which keeps it up to date
-     - the APK from the [latest release](https://github.com/Santuzius/syncative/releases/latest)
-2. **Start Syncative.** On Linux it lives in the system tray (on GNOME with the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/)), and closing the window keeps it syncing in the background. On Android it syncs in the background with a silent notification.
+   - **[Android 8 or newer](#android)** ([note on Android's future](#android)):
+     - (recommended) install/use [Obtainium](https://wiki.obtainium.imranr.dev), which will keep Syncative up to date
+     - install the APK pasting the link `https://github.com/Santuzius/syncative` in Obtainium or manually from the [latest release](https://github.com/Santuzius/syncative/releases/latest)
+2. **Start Syncative.** On Linux it lives in the system tray (on GNOME with the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/)), and closing the window keeps it syncing in the background. On Android it syncs in the background with a silent notification. (You can switch this off in Preferences.)
 3. **Add a remote:** click *Add remote* and choose the provider.
    - **Proton Drive:** sign in with your Proton username and password.
    - **Google Drive:** needs your own OAuth client ID, which takes a few minutes in the Google Cloud console ([rclone's guide](https://rclone.org/drive/#making-your-own-client-id)). In the consent screen's **Branding** settings, enter [`https://github.com/Santuzius/syncative/blob/main/PRIVACY.md`](./PRIVACY.md) as **Application privacy policy link** and your own website or social media profile as **Application home page**, e.g. `https://t.me/YourTelegramName`. Then paste client ID and secret into Syncative, click *Connect* and grant access in your browser.
@@ -73,7 +73,8 @@ For x86_64 distributions with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedo
 1. (optional) To be informed about updates with bug fixes and new features, install [Gear Lever](https://gearlever.mijorus.it) and enable "Check updates on system startup".
 2. Download `Syncative-<version>-x86_64.AppImage` from the [latest release](https://github.com/Santuzius/syncative/releases/latest).
 3. Install it using Gear Lever or move it to a fixed place under a fixed name, e.g. `~/Applications/Syncative.AppImage`, and make it executable (`chmod +x`).
-4. Start it once (from the app menu if you used Gear Lever). Syncative then starts itself at login from exactly this file (switch this off in Preferences).
+4. Start it once (from the app menu if you used Gear Lever). Syncative then starts itself at login from exactly this file. (You can switch this off in Preferences.)
+5. (optional) On GNOME install the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) to see the tray icon
 
 Without Gear Lever, update by replacing the file or with AppImageUpdate.
 
