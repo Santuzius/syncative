@@ -6,7 +6,7 @@
 Two-way file sync between folders on your Linux computer or Android phone and Google Drive or Proton Drive.
 
 <p>
-  <a href="https://github.com/Santuzius/syncative/releases/latest"><img src="assets/badge-appimage.svg" alt="Download as an AppImage" height="56"></a>
+  <a href="https://github.com/Santuzius/syncative#appimage"><img src="assets/badge-appimage.svg" alt="Download as an AppImage" height="56"></a>
   <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22io.github.santuzius.syncative%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FSantuzius%2Fsyncative%22%2C%22author%22%3A%22Santuzius%22%2C%22name%22%3A%22Syncative%22%7D"><img src="assets/badge-obtainium.png" alt="Get it on Obtainium" height="56"></a>
 </p>
 
