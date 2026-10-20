@@ -27,6 +27,9 @@ pub enum Msg {
     /// "Not now" in [`background_dialog`].
     KeepOptimized,
     AutostartToggled(bool),
+    StartHiddenToggled(bool),
+    /// "OK" in [`tray_hint_dialog`], or its backdrop.
+    TrayHintClosed,
     DetailedLogToggled(bool),
     /// Put the captured log on the clipboard.
     CopyLog,
@@ -53,7 +56,7 @@ pub struct Power {
 
 /// `compact`: the phone layout, where the button groups go below their labels.
 /// `log_note`: how the last copy or clear of the log went; `note`: how the last export or import went.
-pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, detailed_log: bool, log_note: Option<&'a str>, note: Option<&'a str>, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
+pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, start_hidden: bool, detailed_log: bool, log_note: Option<&'a str>, note: Option<&'a str>, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
     let android = cfg!(target_os = "android");
     let size_hint = if android { "Text and everything else in this window, relative to the system's font and display size." } else { "Text and everything else in this window." };
     let mut rows = column![
@@ -99,11 +102,15 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, d
                 ));
         }
         None => {
-            rows = rows.push(separator()).push(setting_row(
-                "Start Syncative when you log in",
-                "It starts hidden in the system tray and syncs in the background.",
-                toggler(autostart).on_toggle(Msg::AutostartToggled).size(20).into(),
-            ));
+            rows = rows
+                .push(separator())
+                .push(setting_row("Start Syncative when you log in", "It syncs in the background.", toggler(autostart).on_toggle(Msg::AutostartToggled).size(20).into()))
+                .push(separator())
+                .push(setting_row(
+                    "Start hidden",
+                    if autostart { "At login only the tray icon appears; when off, the window opens too." } else { "Needs Start Syncative when you log in." },
+                    toggler(autostart && start_hidden).on_toggle_maybe(autostart.then_some(Msg::StartHiddenToggled)).size(20).into(),
+                ));
         }
     }
 
@@ -202,6 +209,19 @@ pub fn background_dialog<'a>() -> Element<'a, Msg> {
             button(text("Allow…").size(TEXT)).padding([6, 16]).style(theme::button_primary).on_press(Msg::AllowBackground),
         ]
         .spacing(8),
+    ]
+    .spacing(12);
+    container(content).padding(22).max_width(520).style(theme::dialog).into()
+}
+
+/// Shown once on the desktop, the first time the window opens with a tray icon: panels differ in colour, so the icon's may need changing.
+pub fn tray_hint_dialog<'a>(tray_icon: TrayIconChoice) -> Element<'a, Msg> {
+    let content = column![
+        text("Syncative lives in the system tray").size(HEADING + 2.0),
+        text("Closing this window keeps Syncative syncing in the background. Its icon in the panel shows how syncing goes and opens this window again.").size(TEXT),
+        text("If the icon is hard to see on your panel, pick another colour. You can change it later in Preferences → Tray icon.").size(TEXT),
+        segmented(&TrayIconChoice::ALL, TrayIconChoice::label, tray_icon, Msg::TrayIconChanged),
+        row![Space::new().width(Length::Fill), button(text("OK").size(TEXT)).padding([6, 16]).style(theme::button_primary).on_press(Msg::TrayHintClosed)],
     ]
     .spacing(12);
     container(content).padding(22).max_width(520).style(theme::dialog).into()

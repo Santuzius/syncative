@@ -9,7 +9,7 @@
 #     desktop  window on the real desktop via XWayland (e.g. to log in throwaway accounts)
 #   SYNCATIVE_TEST_RESET=1 wipes the test state first.
 #   SYNCATIVE_TEST_BIN=/path/to/syncative runs another build (e.g. an older version for comparisons).
-#   SYNCATIVE_TEST_SHOW=0 starts hidden (tray mode) instead of passing --show.
+#   SYNCATIVE_TEST_SHOW=0 starts hidden (tray mode) with --hidden instead of passing --show (builds without --hidden start hidden without arguments).
 #   SYNCATIVE_COLOR_SCHEME=light|dark forces the window theme (e.g. for README screenshots); passed through to Syncative.
 set -euo pipefail
 
@@ -20,7 +20,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 T="${SYNCATIVE_TEST_DIR:-/tmp/syncative-test}"
 BIN="${SYNCATIVE_TEST_BIN:-$REPO/target/$PROFILE/syncative}"
 SHOW_ARG=--show
-[ "${SYNCATIVE_TEST_SHOW:-1}" = 0 ] && SHOW_ARG=
+[ "${SYNCATIVE_TEST_SHOW:-1}" = 0 ] && SHOW_ARG=--hidden
 
 if [ -z "${IN_NIX_SHELL:-}" ]; then
   exec nix-shell "$REPO/shell.nix" --run "$(printf '%q ' "$0" "$@")"

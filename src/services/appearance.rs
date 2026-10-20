@@ -167,6 +167,21 @@ impl Appearance {
     }
 }
 
+/// Marks that the tray icon's colour was explained once ([`crate::screens::preferences::tray_hint_dialog`]). Belongs to this computer, so it isn't part of `appearance.conf` and its export.
+fn tray_hint_path() -> std::path::PathBuf {
+    crate::util::get_data_dir().join("tray-hint-seen")
+}
+
+/// Whether the explanation of the tray icon's colour was closed before.
+pub fn tray_hint_seen() -> bool {
+    tray_hint_path().exists()
+}
+
+/// Don't show the explanation again.
+pub fn mark_tray_hint_seen() -> io::Result<()> {
+    std::fs::write(tray_hint_path(), "")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

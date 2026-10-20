@@ -71,7 +71,7 @@ fn move_autostart_entry_at(old: &Path, new: &Path) {
         return;
     }
     if !new.exists() && !autostart::enabled_at(old) {
-        if let Err(err) = autostart::write_at(new, false, &autostart::exec_command()) {
+        if let Err(err) = autostart::write_at(new, false, true, &autostart::exec_command()) {
             eprintln!("syncative: couldn't write {}: {err}", new.display());
         }
     }
@@ -144,13 +144,13 @@ mod tests {
         use crate::services::autostart::{enabled_at, write_at};
         let root = temp_root("autostart");
         let (old, new) = (root.join("celeste.desktop"), root.join("syncative.desktop"));
-        write_at(&old, false, "celeste").unwrap();
+        write_at(&old, false, true, "celeste").unwrap();
         move_autostart_entry_at(&old, &new);
         assert!(!old.exists());
         assert!(new.exists() && !enabled_at(&new));
 
         std::fs::remove_file(&new).unwrap();
-        write_at(&old, true, "celeste").unwrap();
+        write_at(&old, true, true, "celeste").unwrap();
         move_autostart_entry_at(&old, &new);
         assert!(!old.exists());
         // Left to `autostart::refresh`, which creates the entry switched on.

@@ -18,7 +18,7 @@ The result is `syncative_<version>_<arch>.snap`; the version comes from `[worksp
 ```sh
 sudo snap install --dangerous ./syncative_*.snap
 sudo snap connect syncative:password-manager-service   # keyring access, not auto-connected
-snap run syncative --show
+snap run syncative
 ```
 
 What to check on a real desktop:

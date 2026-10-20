@@ -63,7 +63,7 @@ pub fn start_engine() {
     services();
 }
 
-/// Runs the app until it quits, setting it up first unless the engine already runs. `show` opens the main window right away instead of starting hidden in the tray.
+/// Runs the app until it quits, setting it up first unless the engine already runs. `show` opens the main window right away; without it Syncative starts hidden in the tray.
 pub fn start(show: bool) {
     let Some(services) = services() else { return };
     iced_run(services.repo.clone(), services.router.clone(), services.engine.clone(), show).expect("iced app exited with error");

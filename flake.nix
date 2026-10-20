@@ -63,7 +63,7 @@
                 Type=Application
                 Name=Syncative
                 Comment=Sync local folders with Google Drive or Proton Drive
-                Exec=${lib.getExe cfg.package}
+                Exec=${lib.getExe cfg.package} --hidden
                 Icon=syncative-icon
                 Terminal=false
                 X-GNOME-Autostart-enabled=true

@@ -49,7 +49,7 @@ let
     desktopName = "Syncative";
     genericName = "File Synchronization Client";
     comment = "Sync local folders with Google Drive or Proton Drive";
-    exec = "syncative --show";
+    exec = "syncative";
     icon = "syncative-icon";
     categories = [ "Utility" "FileTransfer" "Network" ];
     keywords = [ "sync" "cloud" "backup" "rclone" ];

@@ -1,6 +1,6 @@
 //! Start Syncative in the tray when the desktop session starts, through an XDG autostart entry in `${XDG_CONFIG_HOME:-~/.config}/autostart/syncative.desktop`.
 //!
-//! The entry itself is the setting: missing means "never chosen" and counts as on, so the first start creates it; switching off rewrites it with `Hidden=true` instead of deleting it. The file name matches the system-wide entry of the NixOS module (`/etc/xdg/autostart/syncative.desktop`), which a user entry of the same name overrides. In the Snap, `XDG_CONFIG_HOME` lies inside `~/snap/syncative/current`, where snapd's `autostart:` looks for it.
+//! The entry itself is the setting: missing means "never chosen" and counts as on, so the first start creates it; switching off rewrites it with `Hidden=true` instead of deleting it. It starts Syncative with `--hidden`, in the tray only, unless `X-Syncative-Start-Hidden=false` says to open the window too; entries from before that key count as hidden and get the flag on the next start. The file name matches the system-wide entry of the NixOS module (`/etc/xdg/autostart/syncative.desktop`), which a user entry of the same name overrides. In the Snap, `XDG_CONFIG_HOME` lies inside `~/snap/syncative/current`, where snapd's `autostart:` looks for it.
 
 use std::{
     io,
@@ -25,16 +25,28 @@ pub fn enabled() -> bool {
     enabled_at(&entry_path())
 }
 
+/// Whether the start at login shows only the tray icon, not the window.
+pub fn starts_hidden() -> bool {
+    hidden_at(&entry_path())
+}
+
 /// Switch autostart on or off.
 pub fn set(enabled: bool) -> io::Result<()> {
-    write_at(&entry_path(), enabled, &exec_command())
+    let path = entry_path();
+    write_at(&path, enabled, hidden_at(&path), &exec_command())
+}
+
+/// Start at login in the tray only, or with the window.
+pub fn set_hidden(hidden: bool) -> io::Result<()> {
+    let path = entry_path();
+    write_at(&path, enabled_at(&path), hidden, &exec_command())
 }
 
 /// At startup: create the entry the first time (on by default) and keep its command current, e.g. after the binary moved.
 pub fn refresh() {
     let path = entry_path();
     if enabled_at(&path)
-        && let Err(err) = write_at(&path, true, &exec_command())
+        && let Err(err) = write_at(&path, true, hidden_at(&path), &exec_command())
     {
         eprintln!("autostart: could not write {}: {err}", path.display());
     }
@@ -47,12 +59,20 @@ pub(crate) fn enabled_at(path: &Path) -> bool {
     !content.lines().map(str::trim).any(|line| line.eq_ignore_ascii_case("Hidden=true") || line.eq_ignore_ascii_case("X-GNOME-Autostart-enabled=false"))
 }
 
-pub(crate) fn write_at(path: &Path, enabled: bool, exec: &str) -> io::Result<()> {
+pub(crate) fn hidden_at(path: &Path) -> bool {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return true;
+    };
+    !content.lines().map(str::trim).any(|line| line.eq_ignore_ascii_case("X-Syncative-Start-Hidden=false"))
+}
+
+pub(crate) fn write_at(path: &Path, enabled: bool, start_hidden: bool, exec: &str) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    let flag = if start_hidden { " --hidden" } else { "" };
     let content = format!(
-        "[Desktop Entry]\nType=Application\nName=Syncative\nComment=Sync local folders with Google Drive or Proton Drive\nExec={exec}\nIcon=syncative-icon\nTerminal=false\nHidden={hidden}\nX-GNOME-Autostart-enabled={enabled}\n",
+        "[Desktop Entry]\nType=Application\nName=Syncative\nComment=Sync local folders with Google Drive or Proton Drive\nExec={exec}{flag}\nIcon=syncative-icon\nTerminal=false\nHidden={hidden}\nX-GNOME-Autostart-enabled={enabled}\nX-Syncative-Start-Hidden={start_hidden}\n",
         hidden = !enabled,
     );
     // Write next to it and rename, so a crash never leaves a half-written entry that the desktop ignores.
@@ -120,11 +140,27 @@ mod tests {
     #[test]
     fn switching_off_keeps_a_hidden_entry() {
         let path = temp_entry("toggle");
-        write_at(&path, false, "syncative").unwrap();
+        write_at(&path, false, true, "syncative").unwrap();
         assert!(!enabled_at(&path));
         assert!(std::fs::read_to_string(&path).unwrap().contains("Hidden=true"));
-        write_at(&path, true, "syncative").unwrap();
+        write_at(&path, true, true, "syncative").unwrap();
         assert!(enabled_at(&path));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn starts_hidden_unless_chosen_otherwise_also_from_older_entries() {
+        let path = temp_entry("hidden");
+        assert!(hidden_at(&path));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "[Desktop Entry]\nExec=syncative\nHidden=false\n").unwrap();
+        assert!(hidden_at(&path));
+        write_at(&path, true, false, "syncative").unwrap();
+        assert!(!hidden_at(&path) && enabled_at(&path));
+        assert!(std::fs::read_to_string(&path).unwrap().contains("Exec=syncative\n"));
+        write_at(&path, true, true, "syncative").unwrap();
+        assert!(hidden_at(&path));
+        assert!(std::fs::read_to_string(&path).unwrap().contains("Exec=syncative --hidden\n"));
         let _ = std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap());
     }
 

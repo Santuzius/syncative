@@ -67,6 +67,9 @@ struct Preferences {
     run_in_background: Option<bool>,
     #[serde(default)]
     autostart: Option<bool>,
+    /// The start at login shows only the tray icon; desktop only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    autostart_hidden: Option<bool>,
 }
 
 /// What an import did, for the user.
@@ -117,6 +120,7 @@ pub fn export(repo: &dyn Repository, client: &dyn BackendClient) -> Result<Strin
         sync_metered: android.then_some(power_settings.sync_metered),
         run_in_background: android.then(power::background_enabled),
         autostart: Some(autostart::enabled()),
+        autostart_hidden: (!android).then(autostart::starts_hidden),
     };
     let file = File { format: FORMAT.to_owned(), version: VERSION, remotes: entries, preferences };
     serde_json::to_string_pretty(&file).map_err(|e| e.to_string())
@@ -195,6 +199,9 @@ fn apply_preferences(preferences: &Preferences) -> std::io::Result<()> {
     }
     if let Some(on) = preferences.autostart {
         autostart::set(on)?;
+    }
+    if let Some(hidden) = preferences.autostart_hidden {
+        autostart::set_hidden(hidden)?;
     }
     Ok(())
 }

@@ -82,6 +82,8 @@ pub enum Message {
     /// colour-scheme change. Forwarded to the tray so its rasterised
     /// glyphs flip tone with the panel.
     SystemThemeChanged(iced_theme::Mode),
+    /// There is no tray to sit in; open the window instead of staying invisible.
+    TrayUnavailable,
     /// User-initiated quit — only the tray "Quit Syncative" entry. Handled
     /// by an immediate `std::process::exit` so we don't wait for
     /// in-flight FFI calls (notably librclone listings, which expose no
@@ -157,6 +159,10 @@ pub struct SyncativeApp {
     preferences_open: bool,
     /// Start at login, as last read from or written to the autostart entry.
     autostart: bool,
+    /// The start at login shows only the tray icon, as last read from or written to the autostart entry.
+    start_hidden: bool,
+    /// The one-time explanation of the tray icon's colour is shown; set once the tray is up.
+    tray_hint_open: bool,
     /// Colour choices for the window and the tray icon.
     appearance: Appearance,
     /// The power mode, and whether Syncative asked to run in the background.
@@ -240,6 +246,8 @@ impl SyncativeApp {
             about_open: false,
             preferences_open: false,
             autostart: autostart::enabled(),
+            start_hidden: autostart::starts_hidden(),
+            tray_hint_open: false,
             appearance: Appearance::load(&crate::util::get_data_dir()),
             power: PowerSettings::default(),
             background: power::background_enabled(),
@@ -319,7 +327,7 @@ impl SyncativeApp {
         let tray = tray::subscription().map(|signal| match signal {
             tray::TraySignal::Ready(tx) => Message::TrayReady(tx),
             tray::TraySignal::Action(action) => Message::TrayClick(action),
-            tray::TraySignal::Unavailable => Message::TrayClick(TrayAction::Open),
+            tray::TraySignal::Unavailable => Message::TrayUnavailable,
         });
         // Notice when the window is destroyed (X button, Alt-F4, or
         // our own `Hide` action) so we can drop the cached id. The
@@ -394,6 +402,7 @@ impl SyncativeApp {
                 self.preferences_note = None;
                 self.log_note = None;
                 self.autostart = autostart::enabled();
+                self.start_hidden = autostart::starts_hidden();
                 self.background = power::background_enabled();
                 self.preferences_error = None;
                 Task::none()
@@ -534,6 +543,25 @@ impl SyncativeApp {
                     Err(err) => self.preferences_error = Some(format!("Could not change {}: {err}", autostart::entry_path().display())),
                 }
                 Task::none()
+            }
+            Message::Preferences(preferences::Msg::StartHiddenToggled(hidden)) => {
+                match autostart::set_hidden(hidden) {
+                    Ok(()) => {
+                        self.start_hidden = hidden;
+                        self.preferences_error = None;
+                    }
+                    Err(err) => self.preferences_error = Some(format!("Could not change {}: {err}", autostart::entry_path().display())),
+                }
+                Task::none()
+            }
+            Message::Preferences(preferences::Msg::TrayHintClosed) => {
+                self.close_tray_hint();
+                Task::none()
+            }
+            Message::TrayUnavailable => {
+                // Nothing to explain without a tray; the window is all there is.
+                self.tray_hint_open = false;
+                if self.window_id.is_none() { self.handle_tray_click(TrayAction::Open) } else { Task::none() }
             }
             Message::About(about::Msg::Close) => {
                 self.about_open = false;
@@ -729,9 +757,11 @@ impl SyncativeApp {
             stack![base, remote_page::settings_dialog(remote, auth_needed).map(Message::Remote)].into()
         } else if self.background_dialog_open {
             stack![base, remote_page::modal(preferences::background_dialog().map(Message::Preferences), Some(Message::Preferences(preferences::Msg::KeepOptimized)))].into()
+        } else if self.tray_hint_open {
+            stack![base, remote_page::modal(preferences::tray_hint_dialog(self.appearance.tray_icon).map(Message::Preferences), Some(Message::Preferences(preferences::Msg::TrayHintClosed)))].into()
         } else if self.preferences_open {
             let power = cfg!(target_os = "android").then_some(preferences::Power { mode: self.power.mode, sync_metered: self.power.sync_metered, background: self.background, background_allowed: self.background_allowed });
-            let dialog = preferences::view(self.appearance, power, self.autostart, self.detailed_log, self.log_note.as_deref(), self.preferences_note.as_deref(), self.preferences_error.as_deref(), compact).map(Message::Preferences);
+            let dialog = preferences::view(self.appearance, power, self.autostart, self.start_hidden, self.detailed_log, self.log_note.as_deref(), self.preferences_note.as_deref(), self.preferences_error.as_deref(), compact).map(Message::Preferences);
             stack![base, remote_page::modal(dialog, Some(Message::Preferences(preferences::Msg::Close)))].into()
         } else if self.about_open {
             stack![base, remote_page::modal(about::view().map(Message::About), Some(Message::About(about::Msg::Close)))].into()
@@ -751,6 +781,10 @@ impl SyncativeApp {
         }
         if std::mem::take(&mut self.background_dialog_open) {
             self.set_power(PowerSettings { asked_battery: true, ..self.power });
+            return true;
+        }
+        if self.tray_hint_open {
+            self.close_tray_hint();
             return true;
         }
         if std::mem::take(&mut self.preferences_open) || std::mem::take(&mut self.about_open) {
@@ -894,6 +928,7 @@ impl SyncativeApp {
         self.set_appearance(Appearance::load(&data_dir));
         self.power = PowerSettings::load(&data_dir);
         self.autostart = autostart::enabled();
+        self.start_hidden = autostart::starts_hidden();
         self.background = power::background_enabled();
         let repo = self.repo.clone();
         let engine = self.engine.clone();
@@ -910,6 +945,14 @@ impl SyncativeApp {
     fn set_power(&mut self, power: PowerSettings) {
         self.power = power;
         self.preferences_error = power.save(&crate::util::get_data_dir()).err().map(|err| format!("Could not save the choice: {err}"));
+    }
+
+    /// Close the explanation of the tray icon's colour for good.
+    fn close_tray_hint(&mut self) {
+        self.tray_hint_open = false;
+        if let Err(err) = crate::services::appearance::mark_tray_hint_seen() {
+            eprintln!("syncative: could not remember that the tray hint was shown: {err}");
+        }
     }
 
     /// Store a changed appearance and apply it; the window re-reads it through `theme()`.
@@ -993,8 +1036,8 @@ pub(crate) fn map_domain_provider_to_add_remote(
 /// (matching Signal / Telegram / WhatsApp behaviour). The tray's "Open
 /// Syncative" entry then opens a fresh window via [`window::open`].
 ///
-/// Boot opens no window unless `show_window` (`--show`) is set: Syncative
-/// typically autostarts at login, where a pop-up would steal focus. The
+/// Boot opens the window unless `show_window` is unset (`--hidden`, which
+/// the autostart entry passes): at login a pop-up would steal focus. The
 /// user surfaces it through the tray or by launching the binary again.
 pub fn run(
     repo: Arc<dyn Repository>,
