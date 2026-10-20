@@ -36,8 +36,9 @@ impl SyncativeApp {
     /// portal's broadcasts. On Wayland sessions where the portal is a
     /// hair slow, those two arrive in either order, and a stale
     /// `Mode::None` from the one-shot can land *after* a real `Light`
-    /// or `Dark` from the subscription. Treat `None` as "no fresh
-    /// information" so the most recent concrete value sticks.
+    /// or `Dark` from the subscription. So `None` only counts once the
+    /// portal itself confirms "no preference" (Ubuntu's light style,
+    /// for one); on Android there is no portal to ask and it is ignored.
     pub(in crate::app) fn handle_system_theme_changed(
         &mut self,
         mode: iced_theme::Mode,
@@ -46,12 +47,26 @@ impl SyncativeApp {
             return Task::none();
         }
         if mode == iced_theme::Mode::None {
+            #[cfg(not(target_os = "android"))]
+            return Task::perform(
+                async { tokio::task::spawn_blocking(crate::infrastructure::color_scheme::read).await.ok().flatten() },
+                Message::SystemThemeConfirmed,
+            );
+            #[cfg(target_os = "android")]
             return Task::none();
+        }
+        self.apply_system_theme(mode);
+        Task::none()
+    }
+
+    /// Take over the system's colour scheme for the window, the tray icon and Android's system bars.
+    pub(in crate::app) fn apply_system_theme(&mut self, mode: iced_theme::Mode) {
+        if mode == self.system_theme {
+            return;
         }
         self.system_theme = mode;
         self.push_tray_theme();
         self.update_system_bars();
-        Task::none()
     }
 
     /// Handle [`Message::TrayClick`] — translate the user-action into

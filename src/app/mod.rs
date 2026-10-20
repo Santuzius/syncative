@@ -82,6 +82,8 @@ pub enum Message {
     /// colour-scheme change. Forwarded to the tray so its rasterised
     /// glyphs flip tone with the panel.
     SystemThemeChanged(iced_theme::Mode),
+    /// The colour scheme as the portal itself states it, asked after iced reported "no preference"; `None` when it didn't answer.
+    SystemThemeConfirmed(Option<iced_theme::Mode>),
     /// There is no tray to sit in; open the window instead of staying invisible.
     TrayUnavailable,
     /// User-initiated quit — only the tray "Quit Syncative" entry. Handled
@@ -633,6 +635,12 @@ impl SyncativeApp {
             Message::TrayReady(tx) => self.handle_tray_ready(tx),
             Message::TrayClick(action) => self.handle_tray_click(action),
             Message::SystemThemeChanged(mode) => self.handle_system_theme_changed(mode),
+            Message::SystemThemeConfirmed(mode) => {
+                if let Some(mode) = mode {
+                    self.apply_system_theme(mode);
+                }
+                Task::none()
+            }
             Message::Quit => self.handle_quit(),
             Message::WindowClosed(id) => self.handle_window_closed(id),
             Message::Escape => {
