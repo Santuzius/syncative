@@ -138,11 +138,11 @@ static FORCED_MODE: LazyLock<Option<theme::Mode>> = LazyLock::new(|| match std::
     _ => None,
 });
 
-/// Pick the theme that mirrors the system colour-scheme iced reports (freedesktop `color-scheme` portal), unless [`FORCED_MODE`] is set. `Mode::None` falls back to dark, matching the libadwaita default the GTK build inherited from upstream.
+/// Pick the theme that mirrors the system colour-scheme iced reports (freedesktop `color-scheme` portal), unless [`FORCED_MODE`] is set. `Mode::None`, "no preference", is light as in GNOME's own apps: Ubuntu's light style reports it rather than `prefer-light`.
 pub fn syncative_theme(mode: theme::Mode) -> Theme {
     match FORCED_MODE.unwrap_or(mode) {
-        theme::Mode::Light => LIGHT_THEME.clone(),
-        theme::Mode::Dark | theme::Mode::None => DARK_THEME.clone(),
+        theme::Mode::Light | theme::Mode::None => LIGHT_THEME.clone(),
+        theme::Mode::Dark => DARK_THEME.clone(),
     }
 }
 
