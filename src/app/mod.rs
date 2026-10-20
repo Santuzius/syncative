@@ -319,6 +319,7 @@ impl SyncativeApp {
         let tray = tray::subscription().map(|signal| match signal {
             tray::TraySignal::Ready(tx) => Message::TrayReady(tx),
             tray::TraySignal::Action(action) => Message::TrayClick(action),
+            tray::TraySignal::Unavailable => Message::TrayClick(TrayAction::Open),
         });
         // Notice when the window is destroyed (X button, Alt-F4, or
         // our own `Hide` action) so we can drop the cached id. The

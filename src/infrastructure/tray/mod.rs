@@ -101,6 +101,8 @@ pub enum TraySignal {
     Ready(mpsc::Sender<TrayUpdate>),
     /// A tray action the user triggered.
     Action(TrayAction),
+    /// Delivered once after [`TraySignal::Ready`] when there is no tray to sit in (no StatusNotifierWatcher, e.g. GNOME without the AppIndicator extension), so the app opens its window instead of starting invisible.
+    Unavailable,
 }
 
 /// Build the Iced subscription that owns the ksni service. Batch this
@@ -155,6 +157,7 @@ pub fn subscription() -> Subscription<TraySignal> {
                     // stays wired to *something*; drain the receiver
                     // forever so the bounded channel can't backpressure.
                     let _ = output.send(TraySignal::Ready(update_tx)).await;
+                    let _ = output.send(TraySignal::Unavailable).await;
                     while update_rx.recv().await.is_some() {}
                 }
             }
