@@ -14,7 +14,7 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 > This is a third-party application not officially supported by Google or Proton. Built and tested only on Linux and Android ([other platforms](https://github.com/Santuzius/syncative/issues/1)).
 
 ![Syncative's main window in the dark theme, with two remotes and several synced folders](doc/img/Screenshot_dark.png)
-
+# Syncative
 ## Quick start
 1. **Install** Syncative
    - **Linux, any distribution:**
