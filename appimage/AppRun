@@ -1,4 +1,8 @@
 #!/bin/sh
 # Entry point of the AppImage. The runtime sets $APPIMAGE to the .AppImage file, which Syncative puts into its autostart entry.
 here="$(dirname "$(readlink -f "$0")")"
+# The bundled xkbcommon libraries only where the system has none, so they never shadow the system's.
+if ! /sbin/ldconfig -p 2>/dev/null | grep -q 'libxkbcommon-x11\.so\.0 '; then
+  export LD_LIBRARY_PATH="$here/usr/lib/fallback${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 exec "$here/usr/bin/syncative" "$@"

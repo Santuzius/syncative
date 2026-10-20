@@ -10,6 +10,10 @@ app=/cache/AppDir
 rm -rf "$app"
 install -Dm755 "$CARGO_TARGET_DIR/release/syncative" "$app/usr/bin/syncative"
 install -Dm755 appimage/AppRun "$app/AppRun"
+# winit's X11 backend loads libxkbcommon-x11, which some distributions and AppImageHub's test runner lack; AppRun uses these copies only then.
+for lib in libxkbcommon-x11.so.0 libxkbcommon.so.0 libxcb-xkb.so.1; do
+  install -Dm644 "$(readlink -f "/usr/lib/x86_64-linux-gnu/$lib")" "$app/usr/lib/fallback/$lib"
+done
 install -Dm644 appimage/syncative.desktop "$app/syncative.desktop"
 install -Dm644 appimage/syncative.desktop "$app/usr/share/applications/syncative.desktop"
 install -Dm644 assets/syncative-icon.svg "$app/syncative-icon.svg"

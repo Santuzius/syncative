@@ -5,14 +5,16 @@ ARG GO_VERSION=1.26.1
 ARG APPIMAGETOOL_VERSION=1.9.1
 
 RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libdbus-1-dev libclang-dev clang curl ca-certificates git file desktop-file-utils \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libdbus-1-dev libclang-dev clang curl ca-certificates git file desktop-file-utils libxkbcommon-x11-0 \
  && rm -rf /var/lib/apt/lists/*
 
 ENV RUSTUP_HOME=/opt/rustup PATH=/opt/cargo/bin:/opt/go/bin:$PATH
 RUN curl -sSf https://sh.rustup.rs | CARGO_HOME=/opt/cargo sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path \
  && chmod -R a+rX /opt/rustup /opt/cargo
 RUN curl -sSfL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -xz -C /opt
+# Its AppImage magic bytes are blanked so that a host which runs AppImages through binfmt_misc (NixOS's programs.appimage.binfmt) starts it directly; the kernel's handler points to a path that doesn't exist in here.
 RUN curl -sSfLo /opt/appimagetool https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage \
- && chmod a+x /opt/appimagetool
+ && chmod a+x /opt/appimagetool \
+ && printf '\0\0\0' | dd of=/opt/appimagetool bs=1 seek=8 conv=notrunc status=none
 
 COPY build-inside.sh /opt/build-inside.sh
