@@ -118,9 +118,12 @@ fn main() {
         .allowlist_function("ProtonDrive_UploadFile")
         .allowlist_function("ProtonDrive_TrashLink")
         .allowlist_function("ProtonDrive_PermanentDeleteLink")
+        .allowlist_function("ProtonDrive_Quota")
         .allowlist_type("RcloneRPCResult")
         // The header is our own output; watching it would mark the build script stale after every run and rebuild the Go archive each time.
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new().rerun_on_header_files(false)))
+        .parse_callbacks(Box::new(
+            bindgen::CargoCallbacks::new().rerun_on_header_files(false),
+        ))
         .generate()
         .expect("Unable to generate bindings");
     bindings
@@ -138,21 +141,32 @@ fn cross_compile_for_android(go: &mut Command, target_triple: &str) {
         other => panic!("no Go architecture for {other}"),
     };
     let target_env = |prefix: &str| {
-        let names = [format!("{prefix}_{}", target_triple.replace('-', "_")), format!("{prefix}_{target_triple}"), format!("TARGET_{prefix}")];
+        let names = [
+            format!("{prefix}_{}", target_triple.replace('-', "_")),
+            format!("{prefix}_{target_triple}"),
+            format!("TARGET_{prefix}"),
+        ];
         for name in &names {
             println!("cargo:rerun-if-env-changed={name}");
         }
         names.iter().find_map(|name| env::var(name).ok())
     };
-    let cc = target_env("CC").expect("building for Android needs the NDK's clang in CC_<target>; build with cargo-ndk");
+    let cc = target_env("CC")
+        .expect("building for Android needs the NDK's clang in CC_<target>; build with cargo-ndk");
     // cargo-ndk hands over the bare clang and the target (`--target=aarch64-linux-android26`) in CFLAGS; Go needs both in CC.
     let cc = match target_env("CFLAGS") {
         Some(flags) => format!("{cc} {flags}"),
         None => cc,
     };
-    go.env("GOOS", "android").env("GOARCH", goarch).env("CGO_ENABLED", "1").env("CC", cc);
+    go.env("GOOS", "android")
+        .env("GOARCH", goarch)
+        .env("CGO_ENABLED", "1")
+        .env("CC", cc);
     // The soname lets Android's linker find the library in the APK's lib directory when it loads libsyncative.so; -s -w leave out the symbol and debug tables, which only cost APK size.
-    go.args(["-ldflags", "-s -w -extldflags=-Wl,-soname,libsyncative_go.so"]);
+    go.args([
+        "-ldflags",
+        "-s -w -extldflags=-Wl,-soname,libsyncative_go.so",
+    ]);
     if goarch == "arm" {
         go.env("GOARM", "7");
     }

@@ -3,7 +3,11 @@ use std::path::PathBuf;
 use futures::future::Future;
 
 /// How the UI names the machine Syncative runs on.
-pub const THIS_DEVICE: &str = if cfg!(target_os = "android") { "this device" } else { "this computer" };
+pub const THIS_DEVICE: &str = if cfg!(target_os = "android") {
+    "this device"
+} else {
+    "this computer"
+};
 
 /// Block the current thread on a future. Safe from any thread;
 /// `block_on` has no main-context requirements.
@@ -44,7 +48,9 @@ pub fn open_folder(path: &str) {
 
 /// Local wall-clock time as `HH:MM:SS` for log prefixes. Uses libc's `localtime_r` because the `time` crate refuses local offsets in multi-threaded processes.
 pub fn local_clock() -> String {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as libc::time_t;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs()) as libc::time_t;
     // SAFETY: `localtime_r` only writes into the zeroed `tm` we own.
     let tm = unsafe {
         let mut tm: libc::tm = std::mem::zeroed();
@@ -56,7 +62,10 @@ pub fn local_clock() -> String {
 
 /// The user's real home directory, as the user knows it. Inside a snap `$HOME` points to the snap's private data directory, the real one is in `$SNAP_REAL_HOME`; data files stay under `$HOME` either way.
 pub fn user_home() -> Option<String> {
-    std::env::var("SNAP_REAL_HOME").or_else(|_| std::env::var("HOME")).ok().filter(|h| !h.is_empty())
+    std::env::var("SNAP_REAL_HOME")
+        .or_else(|_| std::env::var("HOME"))
+        .ok()
+        .filter(|h| !h.is_empty())
 }
 
 /// Replace the user's home-directory prefix with `~` for friendlier UI
@@ -69,6 +78,21 @@ pub fn fmt_home(dir: &str) -> String {
         Some(rest) => "~".to_string() + rest,
         None => dir.to_string(),
     }
+}
+
+/// `155.1 KiB`, `9.7 MiB` — binary units like Dolphin.
+pub fn fmt_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["KiB", "MiB", "GiB", "TiB", "PiB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64 / 1024.0;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    format!("{value:.1} {}", UNITS[unit])
 }
 
 /// `${XDG_DATA_HOME:-$HOME/.local/share}/syncative`.

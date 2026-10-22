@@ -3,22 +3,30 @@
 use std::{collections::HashMap, time::Duration};
 
 use iced::{
-    widget::{
-        button, center, column, container, mouse_area, opaque, row, rule, scrollable, stack, text::Wrapping,
-        text_editor, text_input, tooltip, Space,
-    },
     Alignment, Element, Length,
+    widget::{
+        Column, Space, button, center, column, container, mouse_area, opaque, row, rule,
+        scrollable, stack, text::Wrapping, text_editor, text_input, tooltip,
+    },
 };
+
+use iced_storage_bar::storage_bar;
 
 use crate::{
     domain::{
-        remote::{Remote, RemoteId},
+        remote::{Remote, RemoteId, RemoteUsage},
         run_state::RunState,
         sync::{Conflict, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId},
     },
-    screens::{main_page::{status_label, NO_FOLDERS}, settings},
-    theme::{self, CAPTION, COMPACT_PADDING, HEADING, PAGE_PADDING, ROW_SPACING, SECTION_SPACING, TEXT, TITLE},
-    util::fmt_home,
+    screens::{
+        main_page::{NO_FOLDERS, status_label},
+        settings,
+    },
+    theme::{
+        self, CAPTION, COMPACT_PADDING, HEADING, PAGE_PADDING, ROW_SPACING, SECTION_SPACING, TEXT,
+        TITLE,
+    },
+    util::{fmt_home, fmt_size},
     widgets::{
         bullet,
         icon::{icon, muted_icon, on_fill_icon, status_icon},
@@ -79,9 +87,19 @@ pub enum Msg {
 pub enum PendingDelete {
     Remote(RemoteId, String),
     /// `remote_label` is the display form (`Name:/path`) for the dialog text.
-    SyncDir { local: String, remote: String, remote_label: String },
+    SyncDir {
+        local: String,
+        remote: String,
+        remote_label: String,
+    },
     /// Synced files still on this computer under an excluded path. `root` is the absolute local path, `relative` the exclusion as the user typed it.
-    Leftovers { sync_dir: SyncDirId, root: String, relative: String, remote_name: String, count: crate::services::leftovers::Found },
+    Leftovers {
+        sync_dir: SyncDirId,
+        root: String,
+        relative: String,
+        remote_name: String,
+        count: crate::services::leftovers::Found,
+    },
 }
 
 /// Everything the page renders, prepared by the app.
@@ -101,6 +119,8 @@ pub struct Page<'a> {
     pub add_error: Option<&'a str>,
     /// Google Drive remote still on rclone's retiring shared OAuth client.
     pub shared_oauth_client: bool,
+    /// Space at the provider, as last fetched at a pass end or when the page opened; `None` while unknown or the backend has no quota.
+    pub usage: Option<RemoteUsage>,
     /// Phone layout: a top bar with icon buttons, and the add-folder form behind a floating button.
     pub compact: bool,
 }
@@ -130,34 +150,67 @@ pub fn view<'a>(page: Page<'a>) -> Element<'a, Msg> {
     let auth_needed = page.state == RunState::AuthNeeded;
 
     let compact = page.compact;
-    let header = if compact { compact_header(&page) } else { row![
-        column![
-            text(&remote.name).size(TITLE),
-            row![status_icon(page.state, 14.0), text(status_line(&page)).size(CAPTION).style(theme::muted)]
+    let header = if compact {
+        compact_header(&page)
+    } else {
+        // Name, status and actions on one line; the provider's space sits at the top of the body under the separator.
+        row![
+            column![
+                text(&remote.name).size(TITLE),
+                row![
+                    status_icon(page.state, 14.0),
+                    text(status_line(&page)).size(CAPTION).style(theme::muted)
+                ]
                 .spacing(6)
                 .align_y(Alignment::Center),
-        ]
-        .spacing(2)
-        .width(Length::Fill),
-        backoff_hint(page.next_sync),
-        start_pause_button(remote),
-        button(row![icon(icondata::TbRefreshOutline, 16.0), text("Sync now").size(TEXT)].spacing(6).align_y(Alignment::Center))
+            ]
+            .spacing(2)
+            .width(Length::Fill),
+            backoff_hint(page.next_sync),
+            start_pause_button(remote),
+            button(
+                row![
+                    icon(icondata::TbRefreshOutline, 16.0),
+                    text("Sync now").size(TEXT)
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center)
+            )
             .padding([6, 12])
             .style(theme::button_secondary)
             .on_press_maybe((!auth_needed && !page.syncing).then_some(Msg::RefreshNow(remote.id))),
-        button(row![icon(icondata::TbSettingsOutline, 16.0), text("Settings").size(TEXT)].spacing(6).align_y(Alignment::Center))
+            button(
+                row![
+                    icon(icondata::TbSettingsOutline, 16.0),
+                    text("Settings").size(TEXT)
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center)
+            )
             .padding([6, 12])
             .style(theme::button_secondary)
             .on_press(Msg::OpenSettings),
-    ]
-    .spacing(ROW_SPACING)
-    .align_y(Alignment::Center)
-    .into() };
+        ]
+        .spacing(ROW_SPACING)
+        .align_y(Alignment::Center)
+        .into()
+    };
 
     let mut body = column![].spacing(SECTION_SPACING);
 
+    // The provider's space directly under the header separator, closed by a second
+    // hairline; the first section under that line attaches with a tight gap (under_strip).
+    let mut strip = page.usage.map(|usage| {
+        column![
+            usage_row(usage),
+            rule::horizontal(1).style(theme::separator)
+        ]
+        .spacing(10)
+    });
+
     if auth_needed {
-        body = body.push(
+        body = body.push(under_strip(
+            &mut strip,
             container(
                 row![
                     icon(icondata::TbLockOutline, 20.0),
@@ -167,22 +220,23 @@ pub fn view<'a>(page: Page<'a>) -> Element<'a, Msg> {
                     ))
                     .size(TEXT)
                     .width(Length::Fill),
-                    button(text("Sign in again").size(TEXT))
-                        .padding([6, 14])
-                        .style(theme::button_primary)
-                        .on_press(Msg::Reauthenticate(remote.id, remote.name.clone())),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
-            )
-            .padding([10, 14])
-            .width(Length::Fill)
-            .style(theme::warning_bar),
-        );
+                button(text("Sign in again").size(TEXT))
+                    .padding([6, 14])
+                    .style(theme::button_primary)
+                    .on_press(Msg::Reauthenticate(remote.id, remote.name.clone())),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .padding([10, 14])
+        .width(Length::Fill)
+        .style(theme::warning_bar),
+    ));
     }
 
     if page.shared_oauth_client && !auth_needed {
-        body = body.push(
+        body = body.push(under_strip(
+            &mut strip,
             container(
                 row![
                     icon(icondata::TbAlertTriangleOutline, 20.0),
@@ -200,13 +254,17 @@ pub fn view<'a>(page: Page<'a>) -> Element<'a, Msg> {
             .padding([10, 14])
             .width(Length::Fill)
             .style(theme::warning_bar),
-        );
+        ));
     }
 
     // ── Folders ─────────────────────────────────────────────────────────
     let mut folders = column![section_heading("Folders")].spacing(6);
     if page.dirs.is_empty() {
-        let hint = if compact { "No folders yet. Tap + to add one." } else { "No folders yet. Add one below to start syncing." };
+        let hint = if compact {
+            "No folders yet. Tap + to add one."
+        } else {
+            "No folders yet. Add one below to start syncing."
+        };
         folders = folders.push(
             container(text(hint).size(TEXT).style(theme::muted))
                 .padding(16)
@@ -217,18 +275,32 @@ pub fn view<'a>(page: Page<'a>) -> Element<'a, Msg> {
     for folder in page.dirs {
         folders = folders.push(folder_card(remote, folder));
     }
-    body = body.push(folders);
+    body = body.push(under_strip(&mut strip, folders));
     if compact {
         // Room for the floating button below the last folder.
         body = body.push(Space::new().height(Length::Fixed(64.0)));
-        let fab = button(on_fill_icon(icondata::TbPlusOutline, 24.0)).padding(16).style(theme::fab).on_press(Msg::OpenAddFolder);
+        let fab = button(on_fill_icon(icondata::TbPlusOutline, 24.0))
+            .padding(16)
+            .style(theme::fab)
+            .on_press(Msg::OpenAddFolder);
         return stack![
             frame(header, body, true),
-            container(fab).width(Length::Fill).height(Length::Fill).padding(16).align_right(Length::Fill).align_bottom(Length::Fill),
+            container(fab)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .padding(16)
+                .align_right(Length::Fill)
+                .align_bottom(Length::Fill),
         ]
         .into();
     }
-    body = body.push(add_folder_card(remote, page.draft_local, page.draft_remote, page.add_error, false));
+    body = body.push(add_folder_card(
+        remote,
+        page.draft_local,
+        page.draft_remote,
+        page.add_error,
+        false,
+    ));
 
     frame(header, body, false)
 }
@@ -238,21 +310,57 @@ fn compact_header<'a>(page: &Page<'a>) -> Element<'a, Msg> {
     let remote = page.remote;
     let auth_needed = page.state == RunState::AuthNeeded;
     let running = remote.policy.enabled;
-    let icon_button = |glyph, msg: Option<Msg>| button(icon(glyph, 20.0)).padding(8).style(theme::button_flat).on_press_maybe(msg);
-    let (pause_glyph, pause_tip) = if running { (icondata::TbPlayerPauseOutline, "Pause") } else { (icondata::TbPlayerPlayOutline, "Start") };
+    let icon_button = |glyph, msg: Option<Msg>| {
+        button(icon(glyph, 20.0))
+            .padding(8)
+            .style(theme::button_flat)
+            .on_press_maybe(msg)
+    };
+    let (pause_glyph, pause_tip) = if running {
+        (icondata::TbPlayerPauseOutline, "Pause")
+    } else {
+        (icondata::TbPlayerPlayOutline, "Start")
+    };
     row![
-        icon_button(icondata::TbMenu2Outline, Some(Msg::OpenDrawer)),
+        // The drawer button gets a larger tap target than the other icon buttons.
+        button(icon(icondata::TbMenu2Outline, 20.0))
+            .padding(12)
+            .style(theme::button_flat)
+            .on_press(Msg::OpenDrawer),
         column![
-            text(&remote.name).size(HEADING).wrapping(Wrapping::WordOrGlyph),
-            row![status_icon(page.state, 12.0), text(status_line(page)).size(CAPTION).style(theme::muted).wrapping(Wrapping::WordOrGlyph)]
-                .spacing(4)
-                .align_y(Alignment::Center),
+            text(&remote.name)
+                .size(HEADING)
+                .wrapping(Wrapping::WordOrGlyph),
+            row![
+                status_icon(page.state, 12.0),
+                text(status_line(page))
+                    .size(CAPTION)
+                    .style(theme::muted)
+                    .wrapping(Wrapping::WordOrGlyph)
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center),
         ]
         .spacing(1)
         .width(Length::Fill),
-        tip_below(icon_button(pause_glyph, Some(Msg::Settings(settings::Msg::EnabledToggled(!running)))), pause_tip),
-        tip_below(icon_button(icondata::TbRefreshOutline, (!auth_needed && !page.syncing).then_some(Msg::RefreshNow(remote.id))), "Sync now"),
-        tip_below(icon_button(icondata::TbSettingsOutline, Some(Msg::OpenSettings)), "Settings"),
+        tip_below(
+            icon_button(
+                pause_glyph,
+                Some(Msg::Settings(settings::Msg::EnabledToggled(!running)))
+            ),
+            pause_tip
+        ),
+        tip_below(
+            icon_button(
+                icondata::TbRefreshOutline,
+                (!auth_needed && !page.syncing).then_some(Msg::RefreshNow(remote.id))
+            ),
+            "Sync now"
+        ),
+        tip_below(
+            icon_button(icondata::TbSettingsOutline, Some(Msg::OpenSettings)),
+            "Settings"
+        ),
     ]
     .spacing(2)
     .align_y(Alignment::Center)
@@ -260,36 +368,92 @@ fn compact_header<'a>(page: &Page<'a>) -> Element<'a, Msg> {
 }
 
 /// The add-folder form as a dialog, for the compact layout.
-pub fn add_folder_dialog<'a>(remote: &'a Remote, draft_local: &'a str, draft_remote: &'a str, error: Option<&'a str>) -> Element<'a, Msg> {
-    container(add_folder_card(remote, draft_local, draft_remote, error, true)).padding(COMPACT_PADDING).max_width(520).into()
+pub fn add_folder_dialog<'a>(
+    remote: &'a Remote,
+    draft_local: &'a str,
+    draft_remote: &'a str,
+    error: Option<&'a str>,
+) -> Element<'a, Msg> {
+    container(add_folder_card(
+        remote,
+        draft_local,
+        draft_remote,
+        error,
+        true,
+    ))
+    .padding(COMPACT_PADDING)
+    .max_width(520)
+    .into()
+}
+
+/// The first section pushed after the usage strip hangs 8 px under its hairline
+/// instead of a full section spacing; every later section uses the body spacing.
+fn under_strip<'a>(
+    strip: &mut Option<Column<'a, Msg>>,
+    element: impl Into<Element<'a, Msg>>,
+) -> Element<'a, Msg> {
+    match strip.take() {
+        Some(open) => column![open, element.into()].spacing(8).into(),
+        None => element.into(),
+    }
 }
 
 /// Header bar on top, a hairline, then the scrolling body — the KDE page layout. Both share the same capped content width.
-fn frame<'a>(header: impl Into<Element<'a, Msg>>, body: impl Into<Element<'a, Msg>>, compact: bool) -> Element<'a, Msg> {
-    let pad = if compact { COMPACT_PADDING } else { PAGE_PADDING };
-    let header_padding = if compact {
-        iced::Padding { top: 6.0, left: 4.0, right: 4.0, bottom: 6.0 }
+fn frame<'a>(
+    header: impl Into<Element<'a, Msg>>,
+    body: impl Into<Element<'a, Msg>>,
+    compact: bool,
+) -> Element<'a, Msg> {
+    let pad = if compact {
+        COMPACT_PADDING
     } else {
-        iced::Padding { top: PAGE_PADDING - 6.0, left: PAGE_PADDING, right: PAGE_PADDING, bottom: 14.0 }
+        PAGE_PADDING
+    };
+    let header_padding = if compact {
+        iced::Padding {
+            top: 6.0,
+            left: 4.0,
+            right: 4.0,
+            bottom: 6.0,
+        }
+    } else {
+        iced::Padding {
+            top: PAGE_PADDING - 6.0,
+            left: PAGE_PADDING,
+            right: PAGE_PADDING,
+            bottom: 14.0,
+        }
     };
     let header_bar = container(container(header).max_width(MAX_CONTENT_WIDTH))
         .padding(header_padding)
         .width(Length::Fill)
         .style(theme::header_bar);
     let scroll = scrollable(
-        container(container(body).max_width(MAX_CONTENT_WIDTH))
-            .padding(iced::Padding { top: if compact { COMPACT_PADDING } else { SECTION_SPACING - 4.0 }, left: pad, right: if compact { pad } else { pad - 10.0 }, bottom: pad }),
+        container(container(body).max_width(MAX_CONTENT_WIDTH)).padding(iced::Padding {
+            top: if compact {
+                COMPACT_PADDING
+            } else {
+                SECTION_SPACING - 4.0
+            },
+            left: pad,
+            right: if compact { pad } else { pad - 10.0 },
+            bottom: pad,
+        }),
     )
     .height(Length::Fill)
     .direction(theme::slim_scrollbar())
     .style(theme::scrollbar)
     .spacing(2);
 
-    container(column![header_bar, rule::horizontal(1).style(theme::separator), scroll])
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .style(theme::page)
-        .into()
+    container(column![
+        header_bar,
+        rule::horizontal(1).style(theme::separator),
+        scroll
+    ])
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(theme::page)
+    .into()
 }
 
 impl Msg {
@@ -304,6 +468,61 @@ impl Msg {
 
 fn section_heading<'a>(label: &'a str) -> Element<'a, Msg> {
     container(text(label).size(HEADING)).padding([4, 2]).into()
+}
+
+/// `68 %` of a quota, or `None` when the provider doesn't give one.
+pub fn usage_fraction(usage: RemoteUsage) -> Option<f32> {
+    usage
+        .total
+        .filter(|total| *total > 0)
+        .map(|total| (usage.used as f64 / total as f64) as f32)
+}
+
+/// `12.3 GiB of 15 GiB used (82 %)`, or just `12.3 GiB used` without a quota.
+pub fn usage_note(usage: RemoteUsage) -> String {
+    match usage_fraction(usage) {
+        Some(fraction) => format!(
+            "{} of {} used ({} %)",
+            fmt_size(usage.used),
+            fmt_size(usage.total.unwrap()),
+            (fraction * 100.0).round() as u32
+        ),
+        None => format!("{} used", fmt_size(usage.used)),
+    }
+}
+
+/// Horizontal bar filled to `fraction`, stretching to its container, in Syncative's tones: yellow from 70 %, the bin buttons' red from 90 %.
+fn usage_bar<'a, M: 'a>(fraction: f32, height: f32) -> Element<'a, M> {
+    storage_bar(fraction)
+        .height(height)
+        .style(|t| {
+            let tones = theme::tones(t);
+            iced_storage_bar::Style {
+                accent: tones.accent,
+                warning: tones.warning,
+                danger: tones.danger_fill,
+                track: tones.surface_hover,
+            }
+        })
+        .into()
+}
+
+/// The provider's space as the first line of the body: the note, then a bar filling whatever room is left; no bar where no quota is known.
+fn usage_row<'a, M: 'a>(usage: RemoteUsage) -> Element<'a, M> {
+    let note = text(usage_note(usage))
+        .size(CAPTION)
+        .style(theme::muted)
+        .width(Length::Shrink);
+    match usage_fraction(usage) {
+        Some(fraction) => row![
+            note,
+            container(usage_bar(fraction, 6.0)).width(Length::Fill)
+        ]
+        .spacing(14)
+        .align_y(Alignment::Center)
+        .into(),
+        None => note.into(),
+    }
 }
 
 /// One-line summary under the remote's name.
@@ -331,16 +550,31 @@ fn status_line(page: &Page<'_>) -> String {
 /// Switches automatic sync like the toggle in the settings: green Start while paused, yellow Pause while running.
 fn start_pause_button<'a>(remote: &Remote) -> Element<'a, Msg> {
     let running = remote.policy.enabled;
-    let (glyph, label, style, tip): (_, _, fn(&iced::Theme, button::Status) -> button::Style, _) = if running {
-        (icondata::TbPlayerPauseFilled, "Pause", theme::button_warning, "Stop syncing in the background")
-    } else {
-        (icondata::TbPlayerPlayFilled, "Start", theme::button_success, "Sync in the background again")
-    };
+    let (glyph, label, style, tip): (_, _, fn(&iced::Theme, button::Status) -> button::Style, _) =
+        if running {
+            (
+                icondata::TbPlayerPauseFilled,
+                "Pause",
+                theme::button_warning,
+                "Stop syncing in the background",
+            )
+        } else {
+            (
+                icondata::TbPlayerPlayFilled,
+                "Start",
+                theme::button_success,
+                "Sync in the background again",
+            )
+        };
     with_tip(
-        button(row![on_fill_icon(glyph, 16.0), text(label).size(TEXT)].spacing(6).align_y(Alignment::Center))
-            .padding([6, 12])
-            .style(style)
-            .on_press(Msg::Settings(settings::Msg::EnabledToggled(!running))),
+        button(
+            row![on_fill_icon(glyph, 16.0), text(label).size(TEXT)]
+                .spacing(6)
+                .align_y(Alignment::Center),
+        )
+        .padding([6, 12])
+        .style(style)
+        .on_press(Msg::Settings(settings::Msg::EnabledToggled(!running))),
         tip,
     )
 }
@@ -367,7 +601,11 @@ fn backoff_hint<'a>(next_sync: Option<(Duration, bool)>) -> Element<'a, Msg> {
 
 fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
     let sd = folder.dir;
-    let remote_display = if sd.remote_path.is_empty() { "/".to_owned() } else { format!("/{}", sd.remote_path) };
+    let remote_display = if sd.remote_path.is_empty() {
+        "/".to_owned()
+    } else {
+        format!("/{}", sd.remote_path)
+    };
 
     // Second caption line: live progress while syncing, the latest problem while in trouble, otherwise the plain state.
     let conflict_note = match folder.conflicts.len() {
@@ -376,10 +614,18 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         n => Some(format!("{n} files differ on both sides")),
     };
     let detail: String = match folder.state {
-        RunState::Syncing(_) => folder.latest_line.unwrap_or(status_label(folder.state)).to_owned(),
+        RunState::Syncing(_) => folder
+            .latest_line
+            .unwrap_or(status_label(folder.state))
+            .to_owned(),
         _ if conflict_note.is_some() => "Choose which version to keep".to_owned(),
         // The status icon already shows the warning sign that starts the log line.
-        RunState::Warning | RunState::Error => folder.latest_problem.map_or(status_label(folder.state), |line| line.trim_start_matches('⚠').trim_start()).to_owned(),
+        RunState::Warning | RunState::Error => folder
+            .latest_problem
+            .map_or(status_label(folder.state), |line| {
+                line.trim_start_matches('⚠').trim_start()
+            })
+            .to_owned(),
         state => status_label(state).to_owned(),
     };
     let detail_text = text(detail).size(CAPTION).wrapping(Wrapping::WordOrGlyph);
@@ -393,10 +639,17 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
     let top = row![
         status_icon(folder.state, 20.0),
         column![
-            text(fmt_home(&sd.local_path)).size(TEXT).wrapping(Wrapping::WordOrGlyph),
-            row![muted_icon(icondata::TbArrowsLeftRightOutline, 12.0), text(format!("{}:{remote_display}", remote.name)).size(CAPTION).style(theme::muted)]
-                .spacing(6)
-                .align_y(Alignment::Center),
+            text(fmt_home(&sd.local_path))
+                .size(TEXT)
+                .wrapping(Wrapping::WordOrGlyph),
+            row![
+                muted_icon(icondata::TbArrowsLeftRightOutline, 12.0),
+                text(format!("{}:{remote_display}", remote.name))
+                    .size(CAPTION)
+                    .style(theme::muted)
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
             detail_text,
         ]
         .spacing(2)
@@ -405,14 +658,24 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
             button(icon(icondata::TbFolderOpenOutline, 16.0))
                 .padding(6)
                 .style(theme::button_toggle(false))
-                .on_press_maybe(crate::util::can_open_folder(&sd.local_path).then(|| Msg::OpenFolder(sd.local_path.clone()))),
+                .on_press_maybe(
+                    crate::util::can_open_folder(&sd.local_path)
+                        .then(|| Msg::OpenFolder(sd.local_path.clone()))
+                ),
             "Open in the file manager",
         ),
         with_tip(
-            button(row![icon(icondata::TbFilterOutline, 16.0), text(excluded.to_string()).size(CAPTION)].spacing(4).align_y(Alignment::Center))
-                .padding([5, 8])
-                .style(theme::button_toggle(folder.exclusions_open))
-                .on_press(Msg::ToggleExclusions(sd.id)),
+            button(
+                row![
+                    icon(icondata::TbFilterOutline, 16.0),
+                    text(excluded.to_string()).size(CAPTION)
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center)
+            )
+            .padding([5, 8])
+            .style(theme::button_toggle(folder.exclusions_open))
+            .on_press(Msg::ToggleExclusions(sd.id)),
             "Exclusions",
         ),
         with_tip(
@@ -426,7 +689,11 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
             button(on_fill_icon(icondata::TbTrashOutline, 16.0))
                 .padding(6)
                 .style(theme::button_danger)
-                .on_press(Msg::RequestDeleteSyncDir(sd.local_path.clone(), sd.remote_path.clone(), format!("{}:{remote_display}", remote.name))),
+                .on_press(Msg::RequestDeleteSyncDir(
+                    sd.local_path.clone(),
+                    sd.remote_path.clone(),
+                    format!("{}:{remote_display}", remote.name)
+                )),
             "Stop syncing this folder",
         ),
     ]
@@ -439,10 +706,15 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         card = card.push(
             container(
                 row![
-                    icon(icondata::TbAlertTriangleOutline, 16.0).style(|theme: &iced::Theme, _| iced::widget::svg::Style {
-                        color: Some(theme::status_color(theme, RunState::Warning)),
+                    icon(icondata::TbAlertTriangleOutline, 16.0).style(|theme: &iced::Theme, _| {
+                        iced::widget::svg::Style {
+                            color: Some(theme::status_color(theme, RunState::Warning)),
+                        }
                     }),
-                    text(note.to_owned()).size(TEXT).wrapping(Wrapping::WordOrGlyph).width(Length::Fill),
+                    text(note.to_owned())
+                        .size(TEXT)
+                        .wrapping(Wrapping::WordOrGlyph)
+                        .width(Length::Fill),
                     button(text("Resolve…").size(TEXT))
                         .padding([5, 12])
                         .style(theme::button_secondary)
@@ -470,19 +742,44 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
     }
 
     if folder.exclusions_open {
-        card = card.push(exclusion_panel(sd, &remote_display, &folder.auto_excluded, folder.custom_excluded, folder.leftovers, folder.draft_exclusion));
+        card = card.push(exclusion_panel(
+            sd,
+            &remote_display,
+            &folder.auto_excluded,
+            folder.custom_excluded,
+            folder.leftovers,
+            folder.draft_exclusion,
+        ));
     }
 
-    container(card).padding([12, 14]).width(Length::Fill).style(theme::card).into()
+    container(card)
+        .padding([12, 14])
+        .width(Length::Fill)
+        .style(theme::card)
+        .into()
 }
 
 fn with_tip<'a>(content: impl Into<Element<'a, Msg>>, tip: &'a str) -> Element<'a, Msg> {
-    tooltip(content, container(text(tip).size(CAPTION)).padding([4, 8]).style(theme::card), tooltip::Position::Top).into()
+    tooltip(
+        content,
+        container(text(tip).size(CAPTION))
+            .padding([4, 8])
+            .style(theme::card),
+        tooltip::Position::Top,
+    )
+    .into()
 }
 
 /// [`with_tip`] for the top bar, whose tips would otherwise cover the status bar.
 fn tip_below<'a>(content: impl Into<Element<'a, Msg>>, tip: &'a str) -> Element<'a, Msg> {
-    tooltip(content, container(text(tip).size(CAPTION)).padding([4, 8]).style(theme::card), tooltip::Position::Bottom).into()
+    tooltip(
+        content,
+        container(text(tip).size(CAPTION))
+            .padding([4, 8])
+            .style(theme::card),
+        tooltip::Position::Bottom,
+    )
+    .into()
 }
 
 /// `desc`'s remote path relative to `sd`, i.e. where it sits inside `sd`.
@@ -490,7 +787,9 @@ pub fn relative_to<'a>(sd: &SyncDir, desc: &'a SyncDir) -> &'a str {
     if sd.remote_path.is_empty() {
         desc.remote_path.as_str()
     } else {
-        desc.remote_path.strip_prefix(&format!("{}/", sd.remote_path)).unwrap_or(&desc.remote_path)
+        desc.remote_path
+            .strip_prefix(&format!("{}/", sd.remote_path))
+            .unwrap_or(&desc.remote_path)
     }
 }
 
@@ -509,8 +808,20 @@ fn exclusion_panel<'a>(
     let broom = |relative: &str| {
         leftovers.and_then(|m| m.get(relative)).map(|&n| {
             tooltip(
-                button(on_fill_icon(icondata::MdiBroom, 14.0)).padding(4).style(theme::button_warning).on_press(Msg::RequestCleanLeftovers(sd.id, relative.to_owned())),
-                container(text(format!("Delete what is left on {}: {}", crate::util::THIS_DEVICE, n.describe())).size(CAPTION)).padding([4, 8]).style(theme::card),
+                button(on_fill_icon(icondata::MdiBroom, 14.0))
+                    .padding(4)
+                    .style(theme::button_warning)
+                    .on_press(Msg::RequestCleanLeftovers(sd.id, relative.to_owned())),
+                container(
+                    text(format!(
+                        "Delete what is left on {}: {}",
+                        crate::util::THIS_DEVICE,
+                        n.describe()
+                    ))
+                    .size(CAPTION),
+                )
+                .padding([4, 8])
+                .style(theme::card),
                 tooltip::Position::Top,
             )
         })
@@ -522,7 +833,9 @@ fn exclusion_panel<'a>(
         let mut line = row![
             muted_icon(icondata::TbFolderOutline, 14.0),
             text(relative.to_owned()).size(CAPTION).width(Length::Fill),
-            text("synced as its own folder").size(CAPTION).style(theme::muted),
+            text("synced as its own folder")
+                .size(CAPTION)
+                .style(theme::muted),
         ]
         .push(broom(relative))
         .spacing(8)
@@ -541,22 +854,24 @@ fn exclusion_panel<'a>(
                 text(&excl.remote_path).size(CAPTION).width(Length::Fill),
             ]
             .push(broom(&excl.remote_path))
-            .push(
-                with_tip(
-                    button(icon(icondata::TbXOutline, 14.0))
-                        .padding(4)
-                        .style(theme::button_flat)
-                        .on_press(Msg::RemoveExclusion(excl.id, sd.id)),
-                    "Sync this again",
-                ),
-            )
+            .push(with_tip(
+                button(icon(icondata::TbXOutline, 14.0))
+                    .padding(4)
+                    .style(theme::button_flat)
+                    .on_press(Msg::RemoveExclusion(excl.id, sd.id)),
+                "Sync this again",
+            ))
             .spacing(8)
             .align_y(Alignment::Center),
         );
     }
 
     if auto_excl.is_empty() && custom_excl.is_empty() {
-        list = list.push(text("Nothing is excluded.").size(CAPTION).style(theme::muted));
+        list = list.push(
+            text("Nothing is excluded.")
+                .size(CAPTION)
+                .style(theme::muted),
+        );
     }
 
     let sd_id = sd.id;
@@ -578,7 +893,11 @@ fn exclusion_panel<'a>(
 
     container(
         column![
-            text(format!("Excluded from sync — paths relative to {remote_display}")).size(CAPTION).style(theme::muted),
+            text(format!(
+                "Excluded from sync — paths relative to {remote_display}"
+            ))
+            .size(CAPTION)
+            .style(theme::muted),
             list,
             form,
         ]
@@ -590,17 +909,37 @@ fn exclusion_panel<'a>(
     .into()
 }
 
-fn add_folder_card<'a>(remote: &'a Remote, draft_local: &'a str, draft_remote: &'a str, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
+fn add_folder_card<'a>(
+    remote: &'a Remote,
+    draft_local: &'a str,
+    draft_remote: &'a str,
+    error: Option<&'a str>,
+    compact: bool,
+) -> Element<'a, Msg> {
     let can_add = !draft_local.trim().is_empty();
     // Labels beside the fields on the desktop, above them on a phone.
     let field = |label: String, input: Element<'a, Msg>| -> Element<'a, Msg> {
         if compact {
-            column![text(label).size(CAPTION).style(theme::muted), input].spacing(4).into()
+            column![text(label).size(CAPTION).style(theme::muted), input]
+                .spacing(4)
+                .into()
         } else {
-            row![text(label).size(TEXT).width(Length::Fixed(FORM_LABEL_WIDTH)), input].spacing(ROW_SPACING).align_y(Alignment::Center).into()
+            row![
+                text(label)
+                    .size(TEXT)
+                    .width(Length::Fixed(FORM_LABEL_WIDTH)),
+                input
+            ]
+            .spacing(ROW_SPACING)
+            .align_y(Alignment::Center)
+            .into()
         }
     };
-    let local_example = if cfg!(target_os = "android") { "e.g. /storage/emulated/0/Documents" } else { "e.g. /home/you/Documents/Scans" };
+    let local_example = if cfg!(target_os = "android") {
+        "e.g. /storage/emulated/0/Documents"
+    } else {
+        "e.g. /home/you/Documents/Scans"
+    };
 
     let mut col = column![
         text("Add a folder").size(TEXT),
@@ -613,10 +952,17 @@ fn add_folder_card<'a>(remote: &'a Remote, draft_local: &'a str, draft_remote: &
                     .padding(7)
                     .size(TEXT)
                     .style(theme::input),
-                button(row![icon(icondata::TbFolderOpenOutline, 16.0), text("Browse…").size(TEXT)].spacing(6).align_y(Alignment::Center))
-                    .padding([6, 12])
-                    .style(theme::button_secondary)
-                    .on_press(Msg::BrowseLocalPath),
+                button(
+                    row![
+                        icon(icondata::TbFolderOpenOutline, 16.0),
+                        text("Browse…").size(TEXT)
+                    ]
+                    .spacing(6)
+                    .align_y(Alignment::Center)
+                )
+                .padding([6, 12])
+                .style(theme::button_secondary)
+                .on_press(Msg::BrowseLocalPath),
             ]
             .spacing(ROW_SPACING)
             .align_y(Alignment::Center)
@@ -639,18 +985,36 @@ fn add_folder_card<'a>(remote: &'a Remote, draft_local: &'a str, draft_remote: &
         col = col.push(text(err).size(CAPTION).style(theme::danger_text));
     }
 
-    let mut buttons = row![text("Missing folders are created on both sides.").size(CAPTION).style(theme::muted).width(Length::Fill)].spacing(ROW_SPACING).align_y(Alignment::Center);
+    let mut buttons = row![
+        text("Missing folders are created on both sides.")
+            .size(CAPTION)
+            .style(theme::muted)
+            .width(Length::Fill)
+    ]
+    .spacing(ROW_SPACING)
+    .align_y(Alignment::Center);
     if compact {
-        buttons = buttons.push(button(text("Cancel").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::CloseAddFolder));
+        buttons = buttons.push(
+            button(text("Cancel").size(TEXT))
+                .padding([6, 14])
+                .style(theme::button_secondary)
+                .on_press(Msg::CloseAddFolder),
+        );
     }
-    col = col.push(buttons.push(
-        button(text("Add folder").size(TEXT))
-            .padding([6, 14])
-            .style(theme::button_primary)
-            .on_press_maybe(can_add.then_some(Msg::AddSyncDir)),
-    ));
+    col = col.push(
+        buttons.push(
+            button(text("Add folder").size(TEXT))
+                .padding([6, 14])
+                .style(theme::button_primary)
+                .on_press_maybe(can_add.then_some(Msg::AddSyncDir)),
+        ),
+    );
 
-    container(col).padding([12, 14]).width(Length::Fill).style(theme::card).into()
+    container(col)
+        .padding([12, 14])
+        .width(Length::Fill)
+        .style(theme::card)
+        .into()
 }
 
 /// Settings dialog of a remote, shown over the page like the Add remote dialog.
@@ -661,7 +1025,10 @@ pub fn settings_dialog<'a>(remote: &'a Remote, auth_needed: bool) -> Element<'a,
             settings::view(remote, auth_needed).map(Msg::from_settings),
             row![
                 Space::new().width(Length::Fill),
-                button(text("Close").size(TEXT)).padding([6, 16]).style(theme::button_secondary).on_press(Msg::CloseSettings),
+                button(text("Close").size(TEXT))
+                    .padding([6, 16])
+                    .style(theme::button_secondary)
+                    .on_press(Msg::CloseSettings),
             ],
         ]
         .spacing(16),
@@ -675,7 +1042,14 @@ pub fn settings_dialog<'a>(remote: &'a Remote, auth_needed: bool) -> Element<'a,
 
 /// Dimmed backdrop + centred confirmation card for a pending delete.
 pub fn confirm_delete_overlay<'a>(pending: &'a PendingDelete) -> Element<'a, Msg> {
-    if let PendingDelete::Leftovers { root, relative, remote_name, count, .. } = pending {
+    if let PendingDelete::Leftovers {
+        root,
+        relative,
+        remote_name,
+        count,
+        ..
+    } = pending
+    {
         return confirm_card(
             format!("Delete the leftovers of '{relative}'?"),
             column![
@@ -692,21 +1066,26 @@ pub fn confirm_delete_overlay<'a>(pending: &'a PendingDelete) -> Element<'a, Msg
     let (title, body, confirm) = match pending {
         PendingDelete::Remote(_id, name) => (
             format!("Remove {name}?"),
-            format!("Syncative stops syncing this remote and forgets its folders and exclusions. No files are deleted — neither on {} nor in the cloud.", crate::util::THIS_DEVICE),
+            format!(
+                "Syncative stops syncing this remote and forgets its folders and exclusions. No files are deleted — neither on {} nor in the cloud.",
+                crate::util::THIS_DEVICE
+            ),
             "Remove remote",
         ),
         PendingDelete::Leftovers { .. } => unreachable!("handled above"),
-        PendingDelete::SyncDir { local, remote_label, .. } => {
-            (
-                "Stop syncing this folder?".to_owned(),
-                format!(
-                    "{} and {remote_label} will no longer be kept in sync. No files are deleted — neither on {} nor in the cloud.",
-                    fmt_home(local),
-                    crate::util::THIS_DEVICE
-                ),
-                "Stop syncing",
-            )
-        }
+        PendingDelete::SyncDir {
+            local,
+            remote_label,
+            ..
+        } => (
+            "Stop syncing this folder?".to_owned(),
+            format!(
+                "{} and {remote_label} will no longer be kept in sync. No files are deleted — neither on {} nor in the cloud.",
+                fmt_home(local),
+                crate::util::THIS_DEVICE
+            ),
+            "Stop syncing",
+        ),
     };
 
     confirm_card(title, text(body).size(TEXT).into(), confirm.to_owned())
@@ -719,8 +1098,14 @@ fn confirm_card<'a>(title: String, body: Element<'a, Msg>, confirm: String) -> E
             body,
             row![
                 Space::new().width(Length::Fill),
-                button(text("Cancel").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::CancelDelete),
-                button(text(confirm).size(TEXT)).padding([6, 14]).style(theme::button_danger).on_press(Msg::ConfirmDelete),
+                button(text("Cancel").size(TEXT))
+                    .padding([6, 14])
+                    .style(theme::button_secondary)
+                    .on_press(Msg::CancelDelete),
+                button(text(confirm).size(TEXT))
+                    .padding([6, 14])
+                    .style(theme::button_danger)
+                    .on_press(Msg::ConfirmDelete),
             ]
             .spacing(ROW_SPACING),
         ]
@@ -735,12 +1120,19 @@ fn confirm_card<'a>(title: String, body: Element<'a, Msg>, confirm: String) -> E
 
 /// Centre `content` over a dimmed backdrop that swallows clicks; clicking the backdrop itself sends `on_dismiss`.
 pub fn modal<'a, M: Clone + 'a>(content: Element<'a, M>, on_dismiss: Option<M>) -> Element<'a, M> {
-    let mut backdrop = mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(theme::backdrop));
+    let mut backdrop = mouse_area(
+        container(Space::new())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(theme::backdrop),
+    );
     if let Some(msg) = on_dismiss {
         backdrop = backdrop.on_press(msg);
     }
     // The padding keeps dialogs off the edges of a phone screen; scrolling keeps tall ones, or ones the soft keyboard squeezes, reachable.
-    let dialog = scrollable(container(opaque(content)).center_x(Length::Fill)).direction(theme::slim_scrollbar()).style(theme::scrollbar);
+    let dialog = scrollable(container(opaque(content)).center_x(Length::Fill))
+        .direction(theme::slim_scrollbar())
+        .style(theme::scrollbar);
     stack![opaque(backdrop), center(dialog).padding(12)].into()
 }
 
@@ -758,7 +1150,8 @@ fn format_duration(d: Duration) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::format_duration;
+    use super::{format_duration, usage_fraction, usage_note};
+    use crate::domain::remote::RemoteUsage;
     use std::time::Duration;
 
     #[test]
@@ -767,5 +1160,40 @@ mod tests {
         assert_eq!(format_duration(Duration::from_secs(9)), "9 s");
         assert_eq!(format_duration(Duration::from_secs(65)), "1 min 05 s");
         assert_eq!(format_duration(Duration::from_secs(3_900)), "1 h 05 min");
+    }
+
+    #[test]
+    fn usage_notes_show_the_quota_when_there_is_one() {
+        assert_eq!(
+            usage_note(RemoteUsage {
+                used: 700,
+                total: Some(1_000)
+            }),
+            "700 B of 1000 B used (70 %)"
+        );
+        assert_eq!(
+            usage_note(RemoteUsage {
+                used: 12 * 1024,
+                total: None
+            }),
+            "12.0 KiB used"
+        );
+        assert_eq!(
+            usage_note(RemoteUsage {
+                used: 700,
+                total: Some(0)
+            }),
+            "700 B used"
+        );
+        assert!(
+            matches!(usage_fraction(RemoteUsage { used: 1_500, total: Some(1_800) }), Some(f) if (f - 0.833_3).abs() < 1e-3)
+        );
+        assert_eq!(
+            usage_fraction(RemoteUsage {
+                used: 700,
+                total: None
+            }),
+            None
+        );
     }
 }

@@ -13,7 +13,7 @@ use crate::{
     util::open_in_browser,
 };
 
-use super::super::{map_domain_provider_to_add_remote, SyncativeApp, Message};
+use super::super::{Message, SyncativeApp, map_domain_provider_to_add_remote};
 
 impl SyncativeApp {
     /// Handle [`Message::RemotesLoaded`] — refresh the in-memory list.
@@ -75,6 +75,8 @@ impl SyncativeApp {
             self.sync_dir_log_content.clear();
         }
         self.selected = Some(id);
+        // Show the storage line without waiting for the next pass to finish.
+        self.engine.send(Command::Usage(id));
         let repo = self.repo.clone();
         let repo2 = self.repo.clone();
         Task::batch([
@@ -106,10 +108,7 @@ impl SyncativeApp {
     /// Handle [`Message::AddRemote`] — drive the add/reauth dialog
     /// state machine (form-field updates plus `Submit` dispatching to
     /// the appropriate auth flow).
-    pub(in crate::app) fn handle_add_remote_msg(
-        &mut self,
-        sub: add_remote::Msg,
-    ) -> Task<Message> {
+    pub(in crate::app) fn handle_add_remote_msg(&mut self, sub: add_remote::Msg) -> Task<Message> {
         let Some(draft) = self.add_remote_draft.as_mut() else {
             return Task::none();
         };
@@ -119,11 +118,21 @@ impl SyncativeApp {
                 // Suggest a name (unique among the existing remotes)
                 // until the user types their own.
                 let suggested = |p: add_remote::ProviderKind| p.to_string().replace(' ', "");
-                if draft.name.trim().is_empty() || draft.provider.is_some_and(|old| draft.name.starts_with(&suggested(old))) {
+                if draft.name.trim().is_empty()
+                    || draft
+                        .provider
+                        .is_some_and(|old| draft.name.starts_with(&suggested(old)))
+                {
                     let base = suggested(p);
                     let taken = |n: &str| self.remotes.iter().any(|r| r.name == n);
                     draft.name = (1..)
-                        .map(|i| if i == 1 { base.clone() } else { format!("{base}{i}") })
+                        .map(|i| {
+                            if i == 1 {
+                                base.clone()
+                            } else {
+                                format!("{base}{i}")
+                            }
+                        })
                         .find(|n| !taken(n))
                         .unwrap_or(base);
                 }
@@ -149,7 +158,9 @@ impl SyncativeApp {
                 self.add_remote_draft = None;
                 return Task::none();
             }
-            add_remote::Msg::OpenClientIdGuide => open_in_browser(add_remote::GDRIVE_CLIENT_ID_GUIDE),
+            add_remote::Msg::OpenClientIdGuide => {
+                open_in_browser(add_remote::GDRIVE_CLIENT_ID_GUIDE)
+            }
             add_remote::Msg::CopyPrivacyLink => {
                 draft.privacy_link_copied = true;
                 return iced::clipboard::write(add_remote::PRIVACY_POLICY.to_owned());
@@ -180,8 +191,7 @@ impl SyncativeApp {
 
                 if let Some(vendor) = kind.webdav_vendor() {
                     if draft.url.trim().is_empty() || draft.user.trim().is_empty() {
-                        draft.error =
-                            Some("URL and username are required.".to_owned());
+                        draft.error = Some("URL and username are required.".to_owned());
                         return Task::none();
                     }
                     let url = draft.url.clone();
@@ -190,12 +200,16 @@ impl SyncativeApp {
                     draft.busy = true;
                     if draft.reauth {
                         // Keep the DB row and its folders; only the config is replaced.
-                        let existing_id = self.remotes.iter().find(|r| r.name == name).map(|r| r.id);
+                        let existing_id =
+                            self.remotes.iter().find(|r| r.name == name).map(|r| r.id);
                         return Task::perform(
                             async move {
                                 tokio::task::spawn_blocking(move || {
-                                    crate::services::auth::reauth_webdav_remote(&name, &url, &user, &pass, vendor, &*rclone)?;
-                                    existing_id.ok_or_else(|| "Remote not found after reauth.".to_owned())
+                                    crate::services::auth::reauth_webdav_remote(
+                                        &name, &url, &user, &pass, vendor, &*rclone,
+                                    )?;
+                                    existing_id
+                                        .ok_or_else(|| "Remote not found after reauth.".to_owned())
                                 })
                                 .await
                                 .unwrap_or_else(|e| Err(e.to_string()))
@@ -235,11 +249,8 @@ impl SyncativeApp {
                         // session. Look up the existing id so
                         // AddRemoteResult can reuse the normal refresh
                         // path.
-                        let existing_id = self
-                            .remotes
-                            .iter()
-                            .find(|r| r.name == name)
-                            .map(|r| r.id);
+                        let existing_id =
+                            self.remotes.iter().find(|r| r.name == name).map(|r| r.id);
                         return Task::perform(
                             async move {
                                 let router_inner = router.clone();
@@ -289,14 +300,17 @@ impl SyncativeApp {
                 if let Some(provider) = kind.oauth_provider() {
                     let client_id = draft.client_id.trim().to_owned();
                     let client_secret = draft.client_secret.trim().to_owned();
-                    if kind.needs_own_client_id() && (client_id.is_empty() || client_secret.is_empty()) {
+                    if kind.needs_own_client_id()
+                        && (client_id.is_empty() || client_secret.is_empty())
+                    {
                         draft.error = Some(
                             "Enter your own client ID and secret — see \"How to create a client ID\".".to_owned(),
                         );
                         return Task::none();
                     }
                     let is_reauth = draft.reauth;
-                    let handle = std::sync::Arc::new(crate::services::auth::AuthorizeHandle::default());
+                    let handle =
+                        std::sync::Arc::new(crate::services::auth::AuthorizeHandle::default());
                     draft.oauth = Some(handle.clone());
                     draft.busy = true;
                     if is_reauth {
@@ -306,17 +320,14 @@ impl SyncativeApp {
                         // Inserting a new row would create a
                         // duplicate-name entry and make subsequent
                         // delete-by-name flows ambiguous.
-                        let existing_id = self
-                            .remotes
-                            .iter()
-                            .find(|r| r.name == name)
-                            .map(|r| r.id);
+                        let existing_id =
+                            self.remotes.iter().find(|r| r.name == name).map(|r| r.id);
                         let rclone_inner = rclone.clone();
                         return Task::perform(
                             async move {
                                 let res = tokio::task::spawn_blocking(move || {
-                                    let client_id = (!client_id.is_empty())
-                                        .then_some(client_id.as_str());
+                                    let client_id =
+                                        (!client_id.is_empty()).then_some(client_id.as_str());
                                     let client_secret = (!client_secret.is_empty())
                                         .then_some(client_secret.as_str());
                                     crate::services::auth::reauth_oauth_remote(
@@ -332,9 +343,9 @@ impl SyncativeApp {
                                 .unwrap_or_else(|e| Err(e.to_string()));
                                 match (res, existing_id) {
                                     (Ok(()), Some(id)) => Ok(id),
-                                    (Ok(()), None) => Err(
-                                        "Remote not found after reauth.".to_owned(),
-                                    ),
+                                    (Ok(()), None) => {
+                                        Err("Remote not found after reauth.".to_owned())
+                                    }
                                     (Err(e), _) => Err(e),
                                 }
                             },
@@ -344,10 +355,10 @@ impl SyncativeApp {
                     return Task::perform(
                         async move {
                             tokio::task::spawn_blocking(move || {
-                                let client_id = (!client_id.is_empty())
-                                    .then_some(client_id.as_str());
-                                let client_secret = (!client_secret.is_empty())
-                                    .then_some(client_secret.as_str());
+                                let client_id =
+                                    (!client_id.is_empty()).then_some(client_id.as_str());
+                                let client_secret =
+                                    (!client_secret.is_empty()).then_some(client_secret.as_str());
                                 crate::services::auth::add_oauth_remote(
                                     &name,
                                     provider,
@@ -454,8 +465,11 @@ impl SyncativeApp {
         remote: String,
         remote_label: String,
     ) -> Task<Message> {
-        self.pending_delete =
-            Some(remote_page::PendingDelete::SyncDir { local, remote, remote_label });
+        self.pending_delete = Some(remote_page::PendingDelete::SyncDir {
+            local,
+            remote,
+            remote_label,
+        });
         Task::none()
     }
 
@@ -470,9 +484,12 @@ impl SyncativeApp {
             Some(remote_page::PendingDelete::SyncDir { local, remote, .. }) => {
                 self.handle_delete_sync_dir(local, remote)
             }
-            Some(remote_page::PendingDelete::Leftovers { sync_dir, root, relative, .. }) => {
-                self.handle_clean_leftovers(sync_dir, root, relative)
-            }
+            Some(remote_page::PendingDelete::Leftovers {
+                sync_dir,
+                root,
+                relative,
+                ..
+            }) => self.handle_clean_leftovers(sync_dir, root, relative),
             None => Task::none(),
         }
     }
@@ -507,7 +524,11 @@ impl SyncativeApp {
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    if let Err(err) = crate::services::remote_lifecycle::delete_remote(&name, &*repo_blocking, &*rclone) {
+                    if let Err(err) = crate::services::remote_lifecycle::delete_remote(
+                        &name,
+                        &*repo_blocking,
+                        &*rclone,
+                    ) {
                         eprintln!("syncative: could not remove '{name}': {err}");
                     }
                 })
@@ -537,8 +558,18 @@ impl SyncativeApp {
         let mut draft = add_remote::Draft::default();
         draft.provider = provider;
         // WebDAV: where and as whom stay as they were; only the password is asked for again.
-        if let Some(config) = self.rclone.config(&name).filter(|c| c.get("type").and_then(|v| v.as_str()) == Some("webdav")) {
-            let field = |key: &str| config.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_owned();
+        if let Some(config) = self
+            .rclone
+            .config(&name)
+            .filter(|c| c.get("type").and_then(|v| v.as_str()) == Some("webdav"))
+        {
+            let field = |key: &str| {
+                config
+                    .get(key)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_owned()
+            };
             let kind = match field("vendor").as_str() {
                 "nextcloud" => add_remote::ProviderKind::Nextcloud,
                 "owncloud" => add_remote::ProviderKind::Owncloud,
@@ -546,7 +577,8 @@ impl SyncativeApp {
             };
             draft.user = field("user");
             if let Some(vendor) = kind.webdav_vendor() {
-                draft.url = crate::services::auth::webdav::form_url(&field("url"), &draft.user, vendor);
+                draft.url =
+                    crate::services::auth::webdav::form_url(&field("url"), &draft.user, vendor);
             }
             draft.provider = Some(kind);
         }

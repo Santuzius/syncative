@@ -20,6 +20,7 @@ use std::{
 
 use crate::domain::{
     ports::{BackendClient, Cancel},
+    remote::RemoteUsage,
     sync::{FileDetails, ListFilter, RemoteItem},
 };
 use crate::services::secrets;
@@ -59,7 +60,10 @@ impl LibrcloneClient {
     /// to. After every mutation we read the file back from this path
     /// and sync the contents to the keyring.
     pub fn new(rclone_config_path: PathBuf) -> Self {
-        Self { rclone_config_path, listings: Arc::default() }
+        Self {
+            rclone_config_path,
+            listings: Arc::default(),
+        }
     }
 
     /// Drop the cached listings of `remote` after Syncative changed it itself, so the rest of the pass sees the change right away.
@@ -108,7 +112,12 @@ fn map_filter(filter: ListFilter) -> BackendListFilter {
 }
 
 impl BackendClient for LibrcloneClient {
-    fn stat(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<Option<RemoteItem>, String> {
+    fn stat(
+        &self,
+        remote: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<RemoteItem>, String> {
         rpc::sync::stat(remote, path, cancel)
             .map(|opt| opt.map(map_item))
             .map_err(|err| err.error)
@@ -126,21 +135,31 @@ impl BackendClient for LibrcloneClient {
         let changed = syncative_go::remote_changed(remote, cancel);
         if let Ok(mut listings) = self.listings.lock() {
             let cached = listings.entry(remote.to_owned()).or_default();
-            if changed || cached.filled_at.is_some_and(|at| at.elapsed() > LISTING_MAX_AGE) {
+            if changed
+                || cached
+                    .filled_at
+                    .is_some_and(|at| at.elapsed() > LISTING_MAX_AGE)
+            {
                 *cached = Listings::default();
             }
             if let Some(items) = cached.entries.get(&key) {
-                if cached.reached_at.is_some_and(|at| at.elapsed() < REACHED_WITHIN) {
+                if cached
+                    .reached_at
+                    .is_some_and(|at| at.elapsed() < REACHED_WITHIN)
+                {
                     return Ok(items.clone());
                 }
                 let items = items.clone();
                 drop(listings);
                 // One small request instead of the whole tree. Only a missing connection counts; a backend without `about` keeps the cache.
                 match rpc::sync::about(remote, cancel) {
-                    Err(err) if crate::infrastructure::translators::is_offline(&err.error) => return Err(err.error),
+                    Err(err) if crate::infrastructure::translators::is_offline(&err.error) => {
+                        return Err(err.error);
+                    }
                     _ => {
                         if let Ok(mut listings) = self.listings.lock() {
-                            listings.entry(remote.to_owned()).or_default().reached_at = Some(Instant::now());
+                            listings.entry(remote.to_owned()).or_default().reached_at =
+                                Some(Instant::now());
                         }
                         return Ok(items);
                     }
@@ -148,9 +167,10 @@ impl BackendClient for LibrcloneClient {
             }
         }
 
-        let items: Vec<RemoteItem> = rpc::sync::list(remote, path, recursive, map_filter(filter), cancel)
-            .map(|items| items.into_iter().map(map_item).collect())
-            .map_err(|err| err.error)?;
+        let items: Vec<RemoteItem> =
+            rpc::sync::list(remote, path, recursive, map_filter(filter), cancel)
+                .map(|items| items.into_iter().map(map_item).collect())
+                .map_err(|err| err.error)?;
         // A change landing during the listing raises the change flag again, so the next call drops this entry.
         if let Ok(mut listings) = self.listings.lock() {
             let cached = listings.entry(remote.to_owned()).or_default();
@@ -161,12 +181,21 @@ impl BackendClient for LibrcloneClient {
         Ok(items)
     }
 
-    fn details(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<Option<FileDetails>, String> {
+    fn details(
+        &self,
+        remote: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<FileDetails>, String> {
         let item = rpc::sync::details(remote, path, cancel).map_err(|err| err.error)?;
         Ok(item.filter(|item| !item.is_dir).map(|item| FileDetails {
             size: u64::try_from(item.size).ok(),
             mod_time: item.mod_time,
-            sha1: item.hashes.get("sha1").filter(|h| !h.is_empty()).map(|h| h.to_lowercase()),
+            sha1: item
+                .hashes
+                .get("sha1")
+                .filter(|h| !h.is_empty())
+                .map(|h| h.to_lowercase()),
         }))
     }
 
@@ -195,7 +224,8 @@ impl BackendClient for LibrcloneClient {
         remote_path: &str,
         cancel: &Cancel,
     ) -> Result<(), String> {
-        let result = rpc::sync::copy_to_remote(local_path, remote, remote_path, cancel).map_err(|err| err.error);
+        let result = rpc::sync::copy_to_remote(local_path, remote, remote_path, cancel)
+            .map_err(|err| err.error);
         self.invalidate(remote);
         result
     }
@@ -222,7 +252,10 @@ impl BackendClient for LibrcloneClient {
 
     fn create_config(&self, payload_json: String) -> Result<(), String> {
         // Reauthentication replaces an existing remote; start its change tracking over with the new credentials.
-        if let Some(name) = serde_json::from_str::<serde_json::Value>(&payload_json).ok().and_then(|v| v.get("name")?.as_str().map(str::to_owned)) {
+        if let Some(name) = serde_json::from_str::<serde_json::Value>(&payload_json)
+            .ok()
+            .and_then(|v| v.get("name")?.as_str().map(str::to_owned))
+        {
             self.invalidate(&name);
             syncative_go::forget_remote(&name);
         }
@@ -243,7 +276,10 @@ impl BackendClient for LibrcloneClient {
                 if parsed.as_object().map(|m| m.is_empty()).unwrap_or(true) {
                     return Ok(None);
                 }
-                Ok(parsed.get("type").and_then(|v| v.as_str()).map(str::to_owned))
+                Ok(parsed
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned))
             }
             Err(err) => Err(err),
         }
@@ -254,7 +290,10 @@ impl BackendClient for LibrcloneClient {
             return false;
         };
         config.get("type").and_then(|v| v.as_str()) == Some("drive")
-            && config.get("client_id").and_then(|v| v.as_str()).is_none_or(str::is_empty)
+            && config
+                .get("client_id")
+                .and_then(|v| v.as_str())
+                .is_none_or(str::is_empty)
     }
 
     /// A remote without its token or password, e.g. one imported from a settings file, waits for the user to sign in.
@@ -262,7 +301,12 @@ impl BackendClient for LibrcloneClient {
         let Some(config) = self.config(remote) else {
             return false;
         };
-        let missing = |key: &str| config.get(key).and_then(|v| v.as_str()).is_none_or(str::is_empty);
+        let missing = |key: &str| {
+            config
+                .get(key)
+                .and_then(|v| v.as_str())
+                .is_none_or(str::is_empty)
+        };
         match config.get("type").and_then(|v| v.as_str()) {
             Some("drive" | "dropbox" | "pcloud") => missing("token"),
             Some("webdav") => missing("pass"),
@@ -274,6 +318,20 @@ impl BackendClient for LibrcloneClient {
         let payload = serde_json::json!({ "name": remote }).to_string();
         let body = syncative_go::rpc("config/get", payload).ok()?;
         // `config/get` returns {} for unknown remotes.
-        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&body).ok().filter(|m| !m.is_empty())
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&body)
+            .ok()
+            .filter(|m| !m.is_empty())
+    }
+
+    fn usage(&self, remote: &str, cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {
+        let about = rpc::sync::about_usage(remote, cancel).map_err(|err| err.error)?;
+        // -1 (or a missing field) means the backend doesn't know; drive reports -1 for an unlimited plan.
+        if about.used < 0 {
+            return Ok(None);
+        }
+        Ok(Some(RemoteUsage {
+            used: about.used as u64,
+            total: (about.total > 0).then_some(about.total as u64),
+        }))
     }
 }

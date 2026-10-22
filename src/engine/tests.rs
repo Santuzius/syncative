@@ -8,16 +8,16 @@ use std::{
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 
-use super::{core::Core, Cadence, Command, Input, Logs, PassVerdict, Snapshot};
+use super::{Cadence, Command, Input, Logs, PassVerdict, Snapshot, core::Core};
 use crate::{
     domain::{
         events::SyncEvent,
-        remote::RemoteId,
+        remote::{RemoteId, RemoteUsage},
         run_state::RunState,
         sync::{Conflict, ConflictChoice, FileDetails, Resolution, SyncDirId, SyncError},
     },
     infrastructure::stderr_capture,
-    test_support::{remote, sync_dir, FakeBackend, FakeRepo, TempDir},
+    test_support::{FakeBackend, FakeRepo, TempDir, remote, sync_dir},
 };
 
 const R1: RemoteId = RemoteId(1);
@@ -38,12 +38,27 @@ async fn rig() -> Rig {
     let repo = Arc::new(FakeRepo::new());
     let dirs = vec![TempDir::new("engine-1"), TempDir::new("engine-2")];
     *repo.remotes.lock().unwrap() = vec![remote(1, "One"), remote(2, "Two")];
-    *repo.sync_dirs.lock().unwrap() = vec![sync_dir(1, 1, dirs[0].as_str(), "a"), sync_dir(2, 2, dirs[1].as_str(), "b")];
+    *repo.sync_dirs.lock().unwrap() = vec![
+        sync_dir(1, 1, dirs[0].as_str(), "a"),
+        sync_dir(2, 2, dirs[1].as_str(), "b"),
+    ];
     let (tx, rx) = mpsc::unbounded_channel();
     let logs = Logs::default();
-    let mut core = Core::new(repo.clone(), Arc::new(FakeBackend::default()), stderr_capture::handle(), logs.clone(), tx);
+    let mut core = Core::new(
+        repo.clone(),
+        Arc::new(FakeBackend::default()),
+        stderr_capture::handle(),
+        logs.clone(),
+        tx,
+    );
     core.reload().await;
-    Rig { core, rx, repo, logs, _dirs: dirs }
+    Rig {
+        core,
+        rx,
+        repo,
+        logs,
+        _dirs: dirs,
+    }
 }
 
 impl Rig {
@@ -58,7 +73,10 @@ impl Rig {
     /// Feed the passes' events and ends back in until no pass is running.
     async fn settle(&mut self) {
         while !self.snap().syncing.is_empty() {
-            let input = tokio::time::timeout(Duration::from_secs(10), self.rx.recv()).await.expect("pass hangs").expect("channel closed");
+            let input = tokio::time::timeout(Duration::from_secs(10), self.rx.recv())
+                .await
+                .expect("pass hangs")
+                .expect("channel closed");
             self.core.handle(input).await;
         }
     }
@@ -68,25 +86,60 @@ impl Rig {
     }
 
     fn log(&self, dir: SyncDirId) -> Vec<String> {
-        self.logs.lock().unwrap().get(&dir).map(|lines| lines.iter().map(|l| l.text.clone()).collect()).unwrap_or_default()
+        self.logs
+            .lock()
+            .unwrap()
+            .get(&dir)
+            .map(|lines| lines.iter().map(|l| l.text.clone()).collect())
+            .unwrap_or_default()
     }
 
     fn set_enabled(&self, id: RemoteId, enabled: bool) {
-        self.repo.remotes.lock().unwrap().iter_mut().find(|r| r.id == id).unwrap().policy.enabled = enabled;
+        self.repo
+            .remotes
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .find(|r| r.id == id)
+            .unwrap()
+            .policy
+            .enabled = enabled;
     }
 }
 
 fn conflict(path: &str) -> Conflict {
-    let details = FileDetails { size: Some(1), mod_time: OffsetDateTime::UNIX_EPOCH, sha1: None };
-    Conflict { local_path: format!("/tmp/{path}"), remote_path: path.to_owned(), local: details.clone(), remote: details, local_stamp: 1, remote_stamp: 2, first_sync: false }
+    let details = FileDetails {
+        size: Some(1),
+        mod_time: OffsetDateTime::UNIX_EPOCH,
+        sha1: None,
+    };
+    Conflict {
+        local_path: format!("/tmp/{path}"),
+        remote_path: path.to_owned(),
+        local: details.clone(),
+        remote: details,
+        local_stamp: 1,
+        remote_stamp: 2,
+        first_sync: false,
+    }
 }
 
 fn resolution(path: &str) -> Resolution {
-    Resolution { remote_path: path.to_owned(), choice: ConflictChoice::KeepLocal, local_stamp: 1, remote_stamp: 2 }
+    Resolution {
+        remote_path: path.to_owned(),
+        choice: ConflictChoice::KeepLocal,
+        local_stamp: 1,
+        remote_stamp: 2,
+    }
 }
 
 fn conflicts_event(conflicts: Vec<Conflict>, resolutions: Vec<Resolution>) -> SyncEvent {
-    SyncEvent::SyncDirConflicts { remote_id: R1, sync_dir_id: D1, conflicts, resolutions }
+    SyncEvent::SyncDirConflicts {
+        remote_id: R1,
+        sync_dir_id: D1,
+        conflicts,
+        resolutions,
+    }
 }
 
 #[tokio::test]
@@ -119,9 +172,16 @@ async fn a_cadence_stretches_or_holds_the_interval_and_loosening_it_syncs_at_onc
     let floor = Duration::from_secs(300);
     rig.send(Command::Cadence(Cadence::AtMost(floor))).await;
     let due = rig.core.next_due().expect("scheduled");
-    assert!(due >= now + floor - Duration::from_secs(1), "due {:?} after the pass", due - now);
+    assert!(
+        due >= now + floor - Duration::from_secs(1),
+        "due {:?} after the pass",
+        due - now
+    );
     rig.core.start_due(now + Duration::from_secs(120));
-    assert!(rig.snap().syncing.is_empty(), "synced before the stretched interval");
+    assert!(
+        rig.snap().syncing.is_empty(),
+        "synced before the stretched interval"
+    );
 
     rig.send(Command::Cadence(Cadence::Held)).await;
     assert_eq!(rig.core.next_due(), None);
@@ -147,7 +207,8 @@ async fn offline_holds_the_schedule_and_coming_back_syncs_at_once() {
     assert_eq!(snap.state.roll_up(R1), Some(RunState::Offline));
     // Still due at the interval, but only to check the network again.
     assert!(rig.core.next_due().is_some());
-    rig.core.start_due(Instant::now() + Duration::from_secs(3600));
+    rig.core
+        .start_due(Instant::now() + Duration::from_secs(3600));
     assert!(rig.snap().syncing.is_empty(), "synced while offline");
     rig.send(Command::SyncNow(R1)).await;
     assert!(rig.snap().syncing.is_empty(), "synced while offline");
@@ -173,11 +234,91 @@ async fn losing_the_network_stops_the_running_pass() {
 }
 
 #[tokio::test]
+async fn usage_from_the_provider_reaches_the_snapshot_and_follows_the_remote() {
+    let mut rig = rig().await;
+    rig.core
+        .handle(Input::Usage(
+            R1,
+            Ok(Some(RemoteUsage {
+                used: 700,
+                total: Some(1_000),
+            })),
+        ))
+        .await;
+    assert_eq!(
+        rig.snap().usage.get(&R1),
+        Some(&RemoteUsage {
+            used: 700,
+            total: Some(1_000)
+        })
+    );
+    // A backend without a quota, or a failed request, keeps the last known numbers.
+    rig.core.handle(Input::Usage(R1, Ok(None))).await;
+    rig.core
+        .handle(Input::Usage(R1, Err("webdav doesn't support about".into())))
+        .await;
+    assert_eq!(
+        rig.snap().usage.get(&R1),
+        Some(&RemoteUsage {
+            used: 700,
+            total: Some(1_000)
+        })
+    );
+    // A removed remote leaves the map with it.
+    rig.repo.remotes.lock().unwrap().retain(|r| r.id != R1);
+    rig.repo
+        .sync_dirs
+        .lock()
+        .unwrap()
+        .retain(|d| d.remote_id != R1);
+    rig.send(Command::Reload).await;
+    assert!(!rig.snap().usage.contains_key(&R1));
+}
+
+#[tokio::test]
+async fn opening_a_remote_without_known_usage_fetches_it_once() {
+    let mut rig = rig().await;
+    // Opening the page asks the provider right away — no pass needed. FakeBackend reports no quota by default.
+    rig.send(Command::Usage(R1)).await;
+    let input = tokio::time::timeout(Duration::from_secs(10), rig.rx.recv())
+        .await
+        .expect("no usage request")
+        .expect("channel closed");
+    assert!(matches!(input, Input::Usage(id, Ok(None)) if id == R1));
+    // Once numbers are known, opening the page again sends no request.
+    rig.core
+        .handle(Input::Usage(
+            R1,
+            Ok(Some(RemoteUsage {
+                used: 7,
+                total: Some(10),
+            })),
+        ))
+        .await;
+    rig.send(Command::Usage(R1)).await;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), rig.rx.recv())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
 async fn an_unreachable_provider_shows_offline_not_a_problem() {
     let mut rig = rig().await;
     let msg = "received no response from API: Get \"https://mail.proton.me/api/x\": dial tcp 185.70.42.37:443: connect: connection refused";
-    rig.event(SyncEvent::SyncDirError { remote_id: R1, sync_dir_id: D1, error: SyncError::General("a".into(), msg.into()) }).await;
-    rig.event(SyncEvent::SyncDirStateChanged { remote_id: R1, sync_dir_id: D1, state: RunState::Warning }).await;
+    rig.event(SyncEvent::SyncDirError {
+        remote_id: R1,
+        sync_dir_id: D1,
+        error: SyncError::General("a".into(), msg.into()),
+    })
+    .await;
+    rig.event(SyncEvent::SyncDirStateChanged {
+        remote_id: R1,
+        sync_dir_id: D1,
+        state: RunState::Warning,
+    })
+    .await;
     let snap = rig.snap();
     assert_eq!(snap.state.roll_up(R1), Some(RunState::Offline));
     assert!(!snap.problems.contains_key(&D1));
@@ -215,9 +356,17 @@ async fn auth_failure_holds_the_remote_until_signed_in() {
     rig.set_enabled(R2, false);
     rig.send(Command::Reload).await;
     let msg = "couldn't fetch token: invalid_grant: maybe token expired? - try refreshing with \"rclone config reconnect gdrive:\"";
-    rig.event(SyncEvent::SyncDirError { remote_id: R1, sync_dir_id: D1, error: SyncError::General("a".into(), msg.into()) }).await;
+    rig.event(SyncEvent::SyncDirError {
+        remote_id: R1,
+        sync_dir_id: D1,
+        error: SyncError::General("a".into(), msg.into()),
+    })
+    .await;
     assert!(rig.snap().state.needs_reauth(R1));
-    assert_eq!(rig.snap().problems.get(&D1).map(String::as_str), Some(format!("⚠ a: {msg}").as_str()));
+    assert_eq!(
+        rig.snap().problems.get(&D1).map(String::as_str),
+        Some(format!("⚠ a: {msg}").as_str())
+    );
     assert_eq!(rig.core.next_due(), None);
     rig.send(Command::SyncNow(R1)).await;
     assert!(rig.snap().syncing.is_empty());
@@ -233,11 +382,16 @@ async fn degraded_passes_skip_turns() {
     let mut rig = rig().await;
     rig.set_enabled(R2, false);
     rig.send(Command::Reload).await;
-    rig.core.handle(Input::PassFinished(R1, PassVerdict::Degraded)).await;
+    rig.core
+        .handle(Input::PassFinished(R1, PassVerdict::Degraded))
+        .await;
     assert!(rig.snap().state.in_backoff(R1));
     let later = Instant::now() + Duration::from_secs(16);
     rig.core.start_due(later);
-    assert!(rig.snap().syncing.is_empty(), "the first due turn is skipped");
+    assert!(
+        rig.snap().syncing.is_empty(),
+        "the first due turn is skipped"
+    );
     assert_eq!(rig.snap().last_sync_at.get(&R1), Some(&later));
     assert!(!rig.snap().state.in_backoff(R1));
 }
@@ -245,26 +399,59 @@ async fn degraded_passes_skip_turns() {
 #[tokio::test]
 async fn conflicts_are_logged_once_and_hidden_once_decided() {
     let mut rig = rig().await;
-    rig.event(conflicts_event(vec![conflict("x"), conflict("y")], vec![])).await;
-    rig.event(conflicts_event(vec![conflict("x"), conflict("y")], vec![])).await;
-    let logged = rig.log(D1).iter().filter(|l| l.starts_with("⚠ Changed on both sides")).count();
-    assert_eq!(logged, 2, "a conflict is logged when it shows up, not on every pass");
-    assert!(rig.snap().problems.is_empty(), "conflicts have their own row");
+    rig.event(conflicts_event(vec![conflict("x"), conflict("y")], vec![]))
+        .await;
+    rig.event(conflicts_event(vec![conflict("x"), conflict("y")], vec![]))
+        .await;
+    let logged = rig
+        .log(D1)
+        .iter()
+        .filter(|l| l.starts_with("⚠ Changed on both sides"))
+        .count();
+    assert_eq!(
+        logged, 2,
+        "a conflict is logged when it shows up, not on every pass"
+    );
+    assert!(
+        rig.snap().problems.is_empty(),
+        "conflicts have their own row"
+    );
     assert_eq!(rig.snap().state.dir_state(R1, D1), RunState::Warning);
 
-    rig.send(Command::Resolve { remote_id: R1, sync_dir_id: D1, resolution: resolution("x") }).await;
+    rig.send(Command::Resolve {
+        remote_id: R1,
+        sync_dir_id: D1,
+        resolution: resolution("x"),
+    })
+    .await;
     assert_eq!(rig.snap().conflicts[&D1].len(), 1);
     assert!(rig.snap().syncing.contains(&R1), "a choice starts a pass");
     // A pass that wasn't given the choice still reports x; it stays hidden.
-    rig.event(conflicts_event(vec![conflict("x"), conflict("y")], vec![])).await;
-    assert_eq!(rig.snap().conflicts[&D1].iter().map(|c| c.remote_path.as_str()).collect::<Vec<_>>(), ["y"]);
+    rig.event(conflicts_event(vec![conflict("x"), conflict("y")], vec![]))
+        .await;
+    assert_eq!(
+        rig.snap().conflicts[&D1]
+            .iter()
+            .map(|c| c.remote_path.as_str())
+            .collect::<Vec<_>>(),
+        ["y"]
+    );
 
-    rig.send(Command::Resolve { remote_id: R1, sync_dir_id: D1, resolution: resolution("y") }).await;
+    rig.send(Command::Resolve {
+        remote_id: R1,
+        sync_dir_id: D1,
+        resolution: resolution("y"),
+    })
+    .await;
     assert!(!rig.snap().conflicts.contains_key(&D1));
     assert_eq!(rig.snap().state.dir_state(R1, D1), RunState::Waiting);
     rig.settle().await;
     // The pass that got both choices reports back; x changed again in between and shows up anew.
-    rig.event(conflicts_event(vec![conflict("x")], vec![resolution("x"), resolution("y")])).await;
+    rig.event(conflicts_event(
+        vec![conflict("x")],
+        vec![resolution("x"), resolution("y")],
+    ))
+    .await;
     assert_eq!(rig.snap().conflicts[&D1].len(), 1);
 }
 
@@ -273,12 +460,17 @@ async fn removed_folders_and_remotes_are_forgotten() {
     let mut rig = rig().await;
     rig.send(Command::Log(D1, "⚠ something".into())).await;
     rig.send(Command::Log(D2, "hello".into())).await;
-    rig.event(conflicts_event(vec![conflict("x")], vec![])).await;
+    rig.event(conflicts_event(vec![conflict("x")], vec![]))
+        .await;
     rig.repo.sync_dirs.lock().unwrap().retain(|d| d.id != D1);
     rig.repo.remotes.lock().unwrap().retain(|r| r.id != R2);
     rig.send(Command::Reload).await;
     let snap = rig.snap();
-    assert!(rig.log(D1).is_empty() && !snap.problems.contains_key(&D1) && !snap.conflicts.contains_key(&D1));
+    assert!(
+        rig.log(D1).is_empty()
+            && !snap.problems.contains_key(&D1)
+            && !snap.conflicts.contains_key(&D1)
+    );
     assert_eq!(snap.state.roll_up(R2), None);
     assert_eq!(snap.pass_lines.get(&D2).map(String::as_str), Some("hello"));
 }
@@ -292,5 +484,8 @@ async fn logs_keep_the_newest_lines() {
     let log = rig.log(D1);
     assert_eq!(log.len(), super::MAX_LOG_LINES);
     assert_eq!(log[0], "line 5");
-    assert_eq!(rig.snap().pass_lines[&D1], format!("line {}", super::MAX_LOG_LINES + 4));
+    assert_eq!(
+        rig.snap().pass_lines[&D1],
+        format!("line {}", super::MAX_LOG_LINES + 4)
+    );
 }

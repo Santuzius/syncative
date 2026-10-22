@@ -14,7 +14,7 @@ use crate::{
     domain::{
         events::SyncEvent,
         ports::{BackendClient, Repository},
-        remote::RemoteId,
+        remote::{RemoteId, RemoteUsage},
         run_state::AppState,
         sync::{Conflict, Resolution, SyncDirId},
     },
@@ -33,7 +33,8 @@ pub use self::pass::PassVerdict;
 pub const MAX_LOG_LINES: usize = 200;
 
 /// Starts of the log lines for new conflicts (first sync / changed since the last one).
-pub const CONFLICT_LINE_PREFIXES: [&str; 2] = ["⚠ Different on both sides", "⚠ Changed on both sides"];
+pub const CONFLICT_LINE_PREFIXES: [&str; 2] =
+    ["⚠ Different on both sides", "⚠ Changed on both sides"];
 
 /// What the GUI asks the engine to do.
 #[derive(Debug, Clone)]
@@ -46,10 +47,16 @@ pub enum Command {
     SyncAll,
     /// Sync this remote at the next opportunity without queueing behind a running pass (a folder was added).
     SyncSoon(RemoteId),
+    /// A remote's page was opened: ask its provider for the quota when no pass has reported one yet.
+    Usage(RemoteId),
     /// The remote was added or signed in again (and its setting enabled in the database): clear the sign-in problem and sync it.
     SignedIn(RemoteId),
     /// The user's choice for a conflict, handed to the remote's next pass, which starts right away.
-    Resolve { remote_id: RemoteId, sync_dir_id: SyncDirId, resolution: Resolution },
+    Resolve {
+        remote_id: RemoteId,
+        sync_dir_id: SyncDirId,
+        resolution: Resolution,
+    },
     /// Add a line to a folder's log.
     Log(SyncDirId, String),
     /// How often to sync to save battery, e.g. less often with the phone's screen off (see [`crate::services::power`]). A less restrictive cadence syncs everything right away.
@@ -96,6 +103,8 @@ pub(crate) enum Input {
     Command(Command),
     Event(SyncEvent),
     PassFinished(RemoteId, PassVerdict),
+    /// The provider's space numbers asked for after a pass; `Ok(None)` when the backend has no quota to report.
+    Usage(RemoteId, Result<Option<RemoteUsage>, String>),
 }
 
 /// The engine's state as the GUI sees it. Published after every change.
@@ -120,6 +129,8 @@ pub struct Snapshot {
     pub passes_finished: u64,
     /// The device has no network (see [`Command::Online`]); nothing is scheduled until it has.
     pub offline: bool,
+    /// Space at each provider that reports one, refreshed at the end of every pass and asked right away when a page opens a remote it doesn't know yet. Remotes without a quota (plain WebDAV) stay absent.
+    pub usage: HashMap<RemoteId, RemoteUsage>,
 }
 
 /// One log entry: local `HH:MM:SS` plus the message.
@@ -162,7 +173,11 @@ impl Handle {
 static GLOBAL: OnceLock<Handle> = OnceLock::new();
 
 /// Start the process-wide engine, or return the running one.
-pub fn start(repo: Arc<dyn Repository>, backend: Arc<dyn BackendClient>, stderr: CaptureHandle) -> &'static Handle {
+pub fn start(
+    repo: Arc<dyn Repository>,
+    backend: Arc<dyn BackendClient>,
+    stderr: CaptureHandle,
+) -> &'static Handle {
     GLOBAL.get_or_init(|| spawn(repo, backend, stderr))
 }
 
@@ -171,19 +186,30 @@ pub fn get() -> Option<&'static Handle> {
     GLOBAL.get()
 }
 
-fn spawn(repo: Arc<dyn Repository>, backend: Arc<dyn BackendClient>, stderr: CaptureHandle) -> Handle {
+fn spawn(
+    repo: Arc<dyn Repository>,
+    backend: Arc<dyn BackendClient>,
+    stderr: CaptureHandle,
+) -> Handle {
     let (tx, rx) = mpsc::unbounded_channel();
     let (snapshot_tx, snapshot) = watch::channel(Arc::new(Snapshot::default()));
     let logs = Logs::default();
     let core = Core::new(repo, backend, stderr, logs.clone(), tx.clone());
     // Before the first pass: whether the device is online, and on Android how often the power mode lets it sync.
-    let _ = tx.send(Input::Command(Command::Online(crate::services::network::online())));
+    let _ = tx.send(Input::Command(Command::Online(
+        crate::services::network::online(),
+    )));
     #[cfg(target_os = "android")]
-    let _ = tx.send(Input::Command(Command::Cadence(crate::infrastructure::android::initial_cadence())));
+    let _ = tx.send(Input::Command(Command::Cadence(
+        crate::infrastructure::android::initial_cadence(),
+    )));
     std::thread::Builder::new()
         .name("syncative-engine".to_owned())
         .spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("failed to start the engine's runtime");
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to start the engine's runtime");
             runtime.block_on(run(core, rx, snapshot_tx));
         })
         .expect("failed to start the engine thread");
@@ -191,7 +217,11 @@ fn spawn(repo: Arc<dyn Repository>, backend: Arc<dyn BackendClient>, stderr: Cap
 }
 
 /// The engine loop: sleeps until an input arrives or a remote is due, handles everything that is ready, starts due passes and publishes one snapshot per round.
-async fn run(mut core: Core, mut rx: mpsc::UnboundedReceiver<Input>, snapshot_tx: watch::Sender<Arc<Snapshot>>) {
+async fn run(
+    mut core: Core,
+    mut rx: mpsc::UnboundedReceiver<Input>,
+    snapshot_tx: watch::Sender<Arc<Snapshot>>,
+) {
     core.reload().await;
     while let Ok(input) = rx.try_recv() {
         core.handle(input).await;
@@ -226,14 +256,20 @@ async fn run(mut core: Core, mut rx: mpsc::UnboundedReceiver<Input>, snapshot_tx
 /// Shows the summary that changed where the platform wants it: the desktop tray reads the snapshots itself, Android shows it in the sync service's notification.
 #[cfg(target_os = "android")]
 fn status_changed(status: &crate::infrastructure::tray::TrayStatus) {
-    use crate::infrastructure::tray::{description_for, TrayStatus};
+    use crate::infrastructure::tray::{TrayStatus, description_for};
     // "Up to date" with the time of the last sync, which Android shows as an age that stays current; the engine only reports changes.
     let power = crate::services::power::PowerSettings::load(&crate::util::get_data_dir());
     match status {
-        TrayStatus::Done { .. } if crate::services::power::held_on_metered(power) => crate::infrastructure::android::show_sync_status("Held (metered)", 0),
-        TrayStatus::Done { last_sync_ago: Some(ago) } => {
+        TrayStatus::Done { .. } if crate::services::power::held_on_metered(power) => {
+            crate::infrastructure::android::show_sync_status("Held (metered)", 0)
+        }
+        TrayStatus::Done {
+            last_sync_ago: Some(ago),
+        } => {
             let at = std::time::SystemTime::now() - *ago;
-            let millis = at.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+            let millis = at
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as i64);
             crate::infrastructure::android::show_sync_status("Up to date", millis);
         }
         _ => crate::infrastructure::android::show_sync_status(&description_for(status), 0),
@@ -258,4 +294,3 @@ pub(crate) fn is_auth_failure(msg: &str) -> bool {
     use crate::infrastructure::translators::{proton::ProtonTranslator, rclone::RcloneTranslator};
     RcloneTranslator.is_auth_failure(msg) || ProtonTranslator.is_auth_failure(msg)
 }
-

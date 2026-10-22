@@ -3,8 +3,8 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::Instant,
 };
@@ -14,8 +14,8 @@ use tokio::sync::mpsc;
 use crate::{
     domain::{
         events::SyncEvent,
-        ports::{BackendClient, Repository},
-        remote::{ProviderKind, Remote, RemoteId},
+        ports::{BackendClient, Repository, cancel_never},
+        remote::{ProviderKind, Remote, RemoteId, RemoteUsage},
         run_state::{AppState, RunState, SyncActivity},
         sync::{Conflict, Resolution, SyncDir, SyncDirId, SyncError},
     },
@@ -26,7 +26,10 @@ use crate::{
     util::fmt_home,
 };
 
-use super::{is_auth_failure, Cadence, pass::Pass, Command, Input, LogLine, Logs, PassVerdict, Snapshot, CONFLICT_LINE_PREFIXES, MAX_LOG_LINES};
+use super::{
+    CONFLICT_LINE_PREFIXES, Cadence, Command, Input, LogLine, Logs, MAX_LOG_LINES, PassVerdict,
+    Snapshot, is_auth_failure, pass::Pass,
+};
 
 pub(crate) struct Core {
     repo: Arc<dyn Repository>,
@@ -61,10 +64,18 @@ pub(crate) struct Core {
     offline: bool,
     /// Remotes whose running pass was stopped because the provider couldn't be reached; their folders show Offline when it ends.
     unreachable: HashSet<RemoteId>,
+    /// Space at each provider that reports one, as last fetched at a pass end or when a page opened the remote.
+    usage: HashMap<RemoteId, RemoteUsage>,
 }
 
 impl Core {
-    pub fn new(repo: Arc<dyn Repository>, backend: Arc<dyn BackendClient>, stderr: CaptureHandle, logs: Logs, tx: mpsc::UnboundedSender<Input>) -> Self {
+    pub fn new(
+        repo: Arc<dyn Repository>,
+        backend: Arc<dyn BackendClient>,
+        stderr: CaptureHandle,
+        logs: Logs,
+        tx: mpsc::UnboundedSender<Input>,
+    ) -> Self {
         Self {
             repo,
             backend,
@@ -89,6 +100,7 @@ impl Core {
             cadence: Cadence::Full,
             offline: false,
             unreachable: HashSet::new(),
+            usage: HashMap::new(),
         }
     }
 
@@ -97,7 +109,35 @@ impl Core {
             Input::Command(command) => self.handle_command(command).await,
             Input::Event(event) => self.handle_event(event),
             Input::PassFinished(id, verdict) => self.finish_pass(id, verdict),
+            Input::Usage(id, usage) => self.record_usage(id, usage),
         }
+    }
+
+    /// Keep the last numbers a provider actually reported; an unsupported or failed `about` simply changes nothing.
+    fn record_usage(&mut self, id: RemoteId, usage: Result<Option<RemoteUsage>, String>) {
+        if let Ok(Some(usage)) = usage
+            && self.remotes.iter().any(|r| r.id == id)
+        {
+            self.usage.insert(id, usage);
+        }
+    }
+
+    /// Ask the provider for its space in the background — the call blocks in FFI, so it must not run on the engine loop — and report back through the input channel.
+    fn fetch_usage(&self, id: RemoteId) {
+        let Some(name) = self
+            .remotes
+            .iter()
+            .find(|r| r.id == id)
+            .map(|r| r.name.clone())
+        else {
+            return;
+        };
+        let backend = self.backend.clone();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || {
+            let usage = backend.usage(&name, &cancel_never());
+            let _ = tx.send(Input::Usage(id, usage));
+        });
     }
 
     async fn handle_command(&mut self, command: Command) {
@@ -108,13 +148,23 @@ impl Core {
                 if self.offline {
                     return;
                 }
-                let ids: Vec<RemoteId> = self.remotes.iter().map(|r| r.id).filter(|id| self.is_schedulable(*id)).collect();
+                let ids: Vec<RemoteId> = self
+                    .remotes
+                    .iter()
+                    .map(|r| r.id)
+                    .filter(|id| self.is_schedulable(*id))
+                    .collect();
                 for id in ids {
                     self.start_sync(id);
                 }
             }
             Command::SyncSoon(id) => {
                 self.last_sync_at.remove(&id);
+            }
+            Command::Usage(id) => {
+                if !self.usage.contains_key(&id) {
+                    self.fetch_usage(id);
+                }
             }
             Command::SignedIn(id) => {
                 self.state.reauth_complete(id);
@@ -123,7 +173,11 @@ impl Core {
                 self.last_sync_at.remove(&id);
                 self.reload().await;
             }
-            Command::Resolve { remote_id, sync_dir_id, resolution } => self.resolve(remote_id, sync_dir_id, resolution),
+            Command::Resolve {
+                remote_id,
+                sync_dir_id,
+                resolution,
+            } => self.resolve(remote_id, sync_dir_id, resolution),
             Command::Log(sync_dir_id, line) => self.push_log_line(sync_dir_id, line),
             Command::Online(online) => {
                 let was_offline = std::mem::replace(&mut self.offline, !online);
@@ -160,13 +214,19 @@ impl Core {
 
     /// A remote's interval under the current cadence; `None` while held.
     fn interval(&self, remote: &Remote) -> Option<std::time::Duration> {
-        self.cadence.floor().map(|floor| remote.policy.interval.duration().max(floor))
+        self.cadence
+            .floor()
+            .map(|floor| remote.policy.interval.duration().max(floor))
     }
 
     /// Read remotes and folders from the database and align the state with them.
     pub async fn reload(&mut self) {
-        let Ok(mut remotes) = self.repo.list_remotes().await else { return };
-        let Ok(sync_dirs) = self.repo.list_all_sync_dirs().await else { return };
+        let Ok(mut remotes) = self.repo.list_remotes().await else {
+            return;
+        };
+        let Ok(sync_dirs) = self.repo.list_all_sync_dirs().await else {
+            return;
+        };
         // The provider decides whether a pass watches stderr for rate-limit warnings; a failed lookup only loses that.
         for r in &mut remotes {
             if let Ok(Some(t)) = self.backend.remote_type(&r.name) {
@@ -177,7 +237,11 @@ impl Core {
     }
 
     fn apply(&mut self, remotes: Vec<Remote>, sync_dirs: Vec<SyncDir>) {
-        for gone in self.remotes.iter().filter(|old| !remotes.iter().any(|r| r.id == old.id)) {
+        for gone in self
+            .remotes
+            .iter()
+            .filter(|old| !remotes.iter().any(|r| r.id == old.id))
+        {
             if let Some(flag) = self.cancel_flags.remove(&gone.id) {
                 flag.store(true, Ordering::Release);
             }
@@ -185,9 +249,14 @@ impl Core {
             self.last_sync_at.remove(&gone.id);
             self.refresh_requested_after.remove(&gone.id);
             self.resolutions.remove(&gone.id);
+            self.usage.remove(&gone.id);
         }
         for r in &remotes {
-            let was_enabled = self.remotes.iter().find(|old| old.id == r.id).map(|old| old.policy.enabled);
+            let was_enabled = self
+                .remotes
+                .iter()
+                .find(|old| old.id == r.id)
+                .map(|old| old.policy.enabled);
             // Disabled while syncing: the running pass bails out between actions. Re-enabling waits for the scheduler.
             if was_enabled == Some(true) && !r.policy.enabled {
                 if let Some(flag) = self.cancel_flags.get(&r.id) {
@@ -200,11 +269,20 @@ impl Core {
             if self.backend.needs_reauth(&r.name) {
                 self.state.auth_failure(r.id);
             }
-            let ids: Vec<SyncDirId> = sync_dirs.iter().filter(|d| d.remote_id == r.id).map(|d| d.id).collect();
+            let ids: Vec<SyncDirId> = sync_dirs
+                .iter()
+                .filter(|d| d.remote_id == r.id)
+                .map(|d| d.id)
+                .collect();
             self.state.set_dirs(r.id, &ids);
         }
         // Forget everything about deleted folders, so a stale Error can't keep colouring the remote's roll-up.
-        let gone: Vec<SyncDirId> = self.sync_dirs.iter().map(|d| d.id).filter(|id| !sync_dirs.iter().any(|d| d.id == *id)).collect();
+        let gone: Vec<SyncDirId> = self
+            .sync_dirs
+            .iter()
+            .map(|d| d.id)
+            .filter(|id| !sync_dirs.iter().any(|d| d.id == *id))
+            .collect();
         if !gone.is_empty() {
             let mut logs = self.logs.lock().unwrap();
             for id in &gone {
@@ -233,9 +311,17 @@ impl Core {
     fn sync_now(&mut self, id: RemoteId) {
         // Without any network a pass can only wait for timeouts, which take minutes with Google Drive. Coming back online syncs everything anyway.
         if self.offline {
-            let dirs: Vec<SyncDirId> = self.sync_dirs.iter().filter(|d| d.remote_id == id).map(|d| d.id).collect();
+            let dirs: Vec<SyncDirId> = self
+                .sync_dirs
+                .iter()
+                .filter(|d| d.remote_id == id)
+                .map(|d| d.id)
+                .collect();
             for sd in dirs {
-                self.push_log_line(sd, "Offline — syncs as soon as the connection is back.".to_owned());
+                self.push_log_line(
+                    sd,
+                    "Offline — syncs as soon as the connection is back.".to_owned(),
+                );
             }
             return;
         }
@@ -245,9 +331,17 @@ impl Core {
         }
         // Leave a note on each folder so the click doesn't look lost.
         self.refresh_requested_after.insert(id);
-        let queued: Vec<SyncDirId> = self.sync_dirs.iter().filter(|d| d.remote_id == id).map(|d| d.id).collect();
+        let queued: Vec<SyncDirId> = self
+            .sync_dirs
+            .iter()
+            .filter(|d| d.remote_id == id)
+            .map(|d| d.id)
+            .collect();
         for sd in queued {
-            self.push_log_line(sd, "Refresh queued — starts after the current pass finishes.".to_owned());
+            self.push_log_line(
+                sd,
+                "Refresh queued — starts after the current pass finishes.".to_owned(),
+            );
         }
     }
 
@@ -261,7 +355,11 @@ impl Core {
             .collect();
         let mut recheck = false;
         for (id, interval) in candidates {
-            if self.last_sync_at.get(&id).is_some_and(|t| now.duration_since(*t) < interval) {
+            if self
+                .last_sync_at
+                .get(&id)
+                .is_some_and(|t| now.duration_since(*t) < interval)
+            {
                 continue;
             }
             // Offline a due remote only asks the platform again, in case it missed telling us that the network is back; that then syncs everything.
@@ -288,18 +386,29 @@ impl Core {
             .filter(|r| self.is_schedulable(r.id) && !self.syncing.contains(&r.id))
             .filter_map(|r| {
                 let interval = self.interval(r)?;
-                Some(self.last_sync_at.get(&r.id).map_or_else(Instant::now, |t| *t + interval))
+                Some(
+                    self.last_sync_at
+                        .get(&r.id)
+                        .map_or_else(Instant::now, |t| *t + interval),
+                )
             })
             .min()
     }
 
     /// Spawn a pass for one remote. No-op if one is running or the session is dead.
     fn start_sync(&mut self, id: RemoteId) {
-        if self.syncing.contains(&id) || self.state.needs_reauth(id) || !self.remotes.iter().any(|r| r.id == id) {
+        if self.syncing.contains(&id)
+            || self.state.needs_reauth(id)
+            || !self.remotes.iter().any(|r| r.id == id)
+        {
             return;
         }
         // Reuse the remote's flag (flip it back) rather than swapping the Arc.
-        let cancel = self.cancel_flags.entry(id).or_insert_with(|| Arc::new(AtomicBool::new(false))).clone();
+        let cancel = self
+            .cancel_flags
+            .entry(id)
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone();
         cancel.store(false, Ordering::Release);
         self.syncing.insert(id);
         // Folders after the first would show Offline from the last pass until their turn.
@@ -349,6 +458,10 @@ impl Core {
             // A cancel or list error isn't a sign the backend is overloaded.
             PassVerdict::Aborted => {}
         }
+        // A pass proved the provider is reachable; ask it for its space for the storage line.
+        if !matches!(verdict, PassVerdict::Aborted) {
+            self.fetch_usage(id);
+        }
         if self.refresh_requested_after.remove(&id) {
             self.start_sync(id);
         }
@@ -357,26 +470,47 @@ impl Core {
     /// Route a single sync event through the state machine and the log.
     fn handle_event(&mut self, event: SyncEvent) {
         match event {
-            SyncEvent::SyncDirStatus { sync_dir_id, text, .. } => self.push_log_line(sync_dir_id, text),
-            SyncEvent::SyncDirPending { sync_dir_id, text, .. } => self.push_log_line(sync_dir_id, text),
-            SyncEvent::SyncDirError { remote_id, sync_dir_id, error } => {
+            SyncEvent::SyncDirStatus {
+                sync_dir_id, text, ..
+            } => self.push_log_line(sync_dir_id, text),
+            SyncEvent::SyncDirPending {
+                sync_dir_id, text, ..
+            } => self.push_log_line(sync_dir_id, text),
+            SyncEvent::SyncDirError {
+                remote_id,
+                sync_dir_id,
+                error,
+            } => {
                 let line = match &error {
                     SyncError::General(path, msg) => format!("⚠ {path}: {msg}"),
-                    SyncError::BothMoreCurrent(local, remote) => format!("⚠ Conflict: '{local}' vs '{remote}'"),
+                    SyncError::BothMoreCurrent(local, remote) => {
+                        format!("⚠ Conflict: '{local}' vs '{remote}'")
+                    }
                 };
                 // HTTP 401 and the matching rclone phrasing mean the session is dead and only reauth fixes it. Flag the whole remote (the session is per remote) and stop the running pass. The flag alone keeps the scheduler off the remote; the user's Enabled setting stays, so a successful reauth resumes syncing without a detour through the settings.
-                let auth_failure = matches!(&error, SyncError::General(_, msg) if is_auth_failure(msg));
+                let auth_failure =
+                    matches!(&error, SyncError::General(_, msg) if is_auth_failure(msg));
                 let offline = matches!(&error, SyncError::General(_, msg) if crate::infrastructure::translators::is_offline(msg));
                 // A call cut short because the pass was stopped (network gone, remote paused or deleted) says nothing about the file.
-                let stopped = self.cancel_flags.get(&remote_id).is_some_and(|flag| flag.load(Ordering::Acquire));
+                let stopped = self
+                    .cancel_flags
+                    .get(&remote_id)
+                    .is_some_and(|flag| flag.load(Ordering::Acquire));
                 if stopped && !auth_failure {
-                    self.push_log_line(sync_dir_id, format!("Stopped: {}", line.trim_start_matches('⚠').trim_start()));
+                    self.push_log_line(
+                        sync_dir_id,
+                        format!("Stopped: {}", line.trim_start_matches('⚠').trim_start()),
+                    );
                     return;
                 }
                 if offline && !auth_failure {
                     // Not a problem with the file: logged without ⚠, so it doesn't stay as the folder's problem once the connection is back.
-                    self.push_log_line(sync_dir_id, format!("Offline: {}", line.trim_start_matches('⚠').trim_start()));
-                    self.state.transition_dir(remote_id, sync_dir_id, RunState::Offline);
+                    self.push_log_line(
+                        sync_dir_id,
+                        format!("Offline: {}", line.trim_start_matches('⚠').trim_start()),
+                    );
+                    self.state
+                        .transition_dir(remote_id, sync_dir_id, RunState::Offline);
                     // The remaining actions would each wait out the backend's retries (minutes per call with rclone); stop the pass after this one.
                     if let Some(flag) = self.cancel_flags.get(&remote_id) {
                         flag.store(true, Ordering::Release);
@@ -393,24 +527,47 @@ impl Core {
                     self.refresh_requested_after.remove(&remote_id);
                 } else {
                     // Per-file errors show as Warning even if the pass ends Synced.
-                    self.state.transition_dir(remote_id, sync_dir_id, RunState::Warning);
+                    self.state
+                        .transition_dir(remote_id, sync_dir_id, RunState::Warning);
                 }
             }
-            SyncEvent::SyncDirStateChanged { remote_id, sync_dir_id, state } => {
+            SyncEvent::SyncDirStateChanged {
+                remote_id,
+                sync_dir_id,
+                state,
+            } => {
                 // Every pass starts by listing; from here on only this pass's lines describe what's going on.
                 if state == RunState::Syncing(SyncActivity::Listing) {
                     self.pass_lines.remove(&sync_dir_id);
                 }
                 self.state.transition_dir(remote_id, sync_dir_id, state);
             }
-            SyncEvent::SyncDirConflicts { remote_id, sync_dir_id, conflicts, resolutions } => self.conflicts_reported(remote_id, sync_dir_id, conflicts, resolutions),
-            SyncEvent::RemoteStarted { .. } | SyncEvent::RemoteCompleted { .. } | SyncEvent::RemoteFailed { .. } | SyncEvent::FileProgress { .. } => {}
+            SyncEvent::SyncDirConflicts {
+                remote_id,
+                sync_dir_id,
+                conflicts,
+                resolutions,
+            } => self.conflicts_reported(remote_id, sync_dir_id, conflicts, resolutions),
+            SyncEvent::RemoteStarted { .. }
+            | SyncEvent::RemoteCompleted { .. }
+            | SyncEvent::RemoteFailed { .. }
+            | SyncEvent::FileProgress { .. } => {}
         }
     }
 
     /// A pass reported the complete conflict list of a folder. New entries are logged once (not on every pass); files the user already decided on stay hidden until a pass that was given that choice reports back.
-    fn conflicts_reported(&mut self, remote_id: RemoteId, sync_dir_id: SyncDirId, mut conflicts: Vec<Conflict>, handled: Vec<Resolution>) {
-        if let Some(pending) = self.resolutions.get_mut(&remote_id).and_then(|dirs| dirs.get_mut(&sync_dir_id)) {
+    fn conflicts_reported(
+        &mut self,
+        remote_id: RemoteId,
+        sync_dir_id: SyncDirId,
+        mut conflicts: Vec<Conflict>,
+        handled: Vec<Resolution>,
+    ) {
+        if let Some(pending) = self
+            .resolutions
+            .get_mut(&remote_id)
+            .and_then(|dirs| dirs.get_mut(&sync_dir_id))
+        {
             pending.retain(|r| !handled.contains(r));
             conflicts.retain(|c| !pending.iter().any(|r| r.remote_path == c.remote_path));
         }
@@ -418,11 +575,15 @@ impl Core {
         for c in &conflicts {
             if !known.iter().any(|k| k.remote_path == c.remote_path) {
                 let prefix = CONFLICT_LINE_PREFIXES[usize::from(!c.first_sync)];
-                self.push_log_line(sync_dir_id, format!("{prefix}: {}", fmt_home(&c.local_path)));
+                self.push_log_line(
+                    sync_dir_id,
+                    format!("{prefix}: {}", fmt_home(&c.local_path)),
+                );
             }
         }
         if !conflicts.is_empty() {
-            self.state.transition_dir(remote_id, sync_dir_id, RunState::Warning);
+            self.state
+                .transition_dir(remote_id, sync_dir_id, RunState::Warning);
             self.conflicts.insert(sync_dir_id, conflicts);
         }
         self.conflicts_version += 1;
@@ -435,11 +596,17 @@ impl Core {
             // Nothing left to decide: drop the Warning the conflicts caused (it would outlast the next Synced) until the pass that applies the choices reports.
             if list.is_empty() {
                 self.conflicts.remove(&sync_dir_id);
-                self.state.transition_dir(remote_id, sync_dir_id, RunState::Waiting);
+                self.state
+                    .transition_dir(remote_id, sync_dir_id, RunState::Waiting);
             }
             self.conflicts_version += 1;
         }
-        let pending = self.resolutions.entry(remote_id).or_default().entry(sync_dir_id).or_default();
+        let pending = self
+            .resolutions
+            .entry(remote_id)
+            .or_default()
+            .entry(sync_dir_id)
+            .or_default();
         pending.retain(|r| r.remote_path != resolution.remote_path);
         pending.push(resolution);
         self.sync_now(remote_id);
@@ -453,7 +620,10 @@ impl Core {
         }
         let mut logs = self.logs.lock().unwrap();
         let lines = logs.entry(sync_dir_id).or_default();
-        lines.push_back(LogLine { at: crate::util::local_clock(), text: line });
+        lines.push_back(LogLine {
+            at: crate::util::local_clock(),
+            text: line,
+        });
         while lines.len() > MAX_LOG_LINES {
             lines.pop_front();
         }
@@ -472,12 +642,18 @@ impl Core {
             conflicts_version: self.conflicts_version,
             passes_finished: self.passes_finished,
             offline: self.offline,
+            usage: self.usage.clone(),
         }
     }
 
     /// The one-line summary, when it differs from the last call's.
     pub fn take_status_change(&mut self) -> Option<TrayStatus> {
-        let status = tray::compute_status(&self.state, &self.remotes, &self.syncing, &self.last_sync_at);
+        let status = tray::compute_status(
+            &self.state,
+            &self.remotes,
+            &self.syncing,
+            &self.last_sync_at,
+        );
         if self.last_status.as_ref() == Some(&status) {
             return None;
         }

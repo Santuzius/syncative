@@ -1,8 +1,8 @@
 //! Left navigation pane (one entry per remote with its roll-up status) and the empty state shown before any remote exists.
 
 use iced::{
-    widget::{button, center, column, container, row, rule, scrollable, text::Wrapping, Space},
     Alignment, Element, Length,
+    widget::{Space, button, center, column, container, row, rule, scrollable, text::Wrapping},
 };
 
 use crate::{
@@ -38,7 +38,11 @@ pub struct NavEntry<'a> {
 }
 
 /// The remotes with the app-wide actions below them: the left pane on the desktop, the drawer in the compact layout (`width` says which).
-pub fn nav<'a>(entries: Vec<NavEntry<'a>>, selected: Option<RemoteId>, width: Length) -> Element<'a, Msg> {
+pub fn nav<'a>(
+    entries: Vec<NavEntry<'a>>,
+    selected: Option<RemoteId>,
+    width: Length,
+) -> Element<'a, Msg> {
     let mut list = column![].spacing(2);
     for entry in entries {
         list = list.push(nav_item(entry, selected));
@@ -48,8 +52,16 @@ pub fn nav<'a>(entries: Vec<NavEntry<'a>>, selected: Option<RemoteId>, width: Le
         container(rule::horizontal(1).style(theme::separator)).padding([4, 0]),
         flat_row(icondata::TbPlusOutline, "Add remote", Msg::AddRemote),
         flat_row(icondata::TbRefreshOutline, "Sync all now", Msg::RefreshAll),
-        flat_row(icondata::TbAdjustmentsHorizontalOutline, "Preferences", Msg::OpenPreferences),
-        flat_row(icondata::TbInfoCircleOutline, "About Syncative", Msg::OpenAbout),
+        flat_row(
+            icondata::TbAdjustmentsHorizontalOutline,
+            "Preferences",
+            Msg::OpenPreferences
+        ),
+        flat_row(
+            icondata::TbInfoCircleOutline,
+            "About Syncative",
+            Msg::OpenAbout
+        ),
     ]
     .spacing(2);
 
@@ -83,12 +95,16 @@ fn nav_item<'a>(entry: NavEntry<'a>, selected: Option<RemoteId>) -> Element<'a, 
         Space::new().width(Length::Fixed(3.0)).into()
     };
     let label = column![
-        text(&entry.remote.name).size(TEXT).wrapping(Wrapping::WordOrGlyph),
-        text(if entry.has_folders || entry.state.is_problem() || entry.state == RunState::Paused {
-            status_label(entry.state)
-        } else {
-            NO_FOLDERS
-        })
+        text(&entry.remote.name)
+            .size(TEXT)
+            .wrapping(Wrapping::WordOrGlyph),
+        text(
+            if entry.has_folders || entry.state.is_problem() || entry.state == RunState::Paused {
+                status_label(entry.state)
+            } else {
+                NO_FOLDERS
+            }
+        )
         .size(CAPTION)
         .style(theme::muted),
     ];
@@ -105,12 +121,16 @@ fn nav_item<'a>(entry: NavEntry<'a>, selected: Option<RemoteId>) -> Element<'a, 
 }
 
 fn flat_row<'a>(glyph: icondata::Icon, label: &'a str, msg: Msg) -> Element<'a, Msg> {
-    button(row![icon(glyph, 16.0), text(label).size(TEXT)].spacing(10).align_y(Alignment::Center))
-        .width(Length::Fill)
-        .padding([7, 12])
-        .style(theme::button_flat)
-        .on_press(msg)
-        .into()
+    button(
+        row![icon(glyph, 16.0), text(label).size(TEXT)]
+            .spacing(10)
+            .align_y(Alignment::Center),
+    )
+    .width(Length::Fill)
+    .padding([7, 12])
+    .style(theme::button_flat)
+    .on_press(msg)
+    .into()
 }
 
 /// Label of a remote that has nothing to sync yet.
@@ -139,7 +159,10 @@ pub fn status_label(state: RunState) -> &'static str {
 pub fn compact_bar<'a>() -> Element<'a, Msg> {
     container(
         row![
-            button(icon(icondata::TbMenu2Outline, 20.0)).padding(8).style(theme::button_flat).on_press(Msg::OpenDrawer),
+            button(icon(icondata::TbMenu2Outline, 20.0))
+                .padding(8)
+                .style(theme::button_flat)
+                .on_press(Msg::OpenDrawer),
             text("Syncative").size(theme::HEADING),
         ]
         .spacing(6)
@@ -179,8 +202,13 @@ pub fn storage_warning<'a>() -> Element<'a, Msg> {
     container(
         row![
             icon(icondata::TbAlertTriangleOutline, 16.0),
-            text("Syncative may not read your folders. Allow All files access to sync them.").size(CAPTION).width(Length::Fill),
-            button(text("Allow…").size(CAPTION)).padding([4, 10]).style(theme::button_secondary).on_press(Msg::AllowStorage),
+            text("Syncative may not read your folders. Allow All files access to sync them.")
+                .size(CAPTION)
+                .width(Length::Fill),
+            button(text("Allow…").size(CAPTION))
+                .padding([4, 10])
+                .style(theme::button_secondary)
+                .on_press(Msg::AllowStorage),
         ]
         .spacing(8)
         .align_y(Alignment::Center),

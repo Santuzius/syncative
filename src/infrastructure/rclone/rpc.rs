@@ -12,11 +12,8 @@ use time::OffsetDateTime;
 pub fn get_remote<T: ToString>(remote: T) -> Option<Remote> {
     let remote = remote.to_string();
 
-    let config_str = syncative_go::rpc(
-        "config/get",
-        json!({ "name": remote }).to_string(),
-    )
-    .unwrap();
+    let config_str =
+        syncative_go::rpc("config/get", json!({ "name": remote }).to_string()).unwrap();
     let config: HashMap<String, String> = serde_json::from_str(&config_str).unwrap();
 
     match config["type"].as_str() {
@@ -61,9 +58,8 @@ pub fn get_remote<T: ToString>(remote: T) -> Option<Remote> {
 
 /// Get all the remotes from the config file.
 pub fn get_remotes() -> Vec<Remote> {
-    let configs_str =
-        syncative_go::rpc("config/listremotes", json!({}).to_string())
-            .unwrap_or_else(|_| unreachable!());
+    let configs_str = syncative_go::rpc("config/listremotes", json!({}).to_string())
+        .unwrap_or_else(|_| unreachable!());
     let configs = {
         let config: HashMap<String, Vec<String>> = serde_json::from_str(&configs_str).unwrap();
         config.get(&"remotes".to_string()).unwrap().to_owned()
@@ -191,6 +187,15 @@ pub struct BackendStat {
     item: Option<BackendRemoteItem>,
 }
 
+/// The output of an `operations/about` command. rclone omits what the backend doesn't report, and a reported -1 means "unlimited / unknown".
+#[derive(Clone, Copy, Deserialize, Debug, Default)]
+pub struct BackendAbout {
+    #[serde(default)]
+    pub total: i64,
+    #[serde(default)]
+    pub used: i64,
+}
+
 /// The output of an `operations/list` command.
 #[derive(Clone, Deserialize, Debug)]
 pub struct BackendList {
@@ -233,7 +238,9 @@ pub enum BackendListFilter {
 /// Functions for syncing to a remote. Each call is a blocking librclone
 /// RPC — the caller is expected to be on a blocking tokio task.
 pub mod sync {
-    use super::{RcloneError, BackendList, BackendListFilter, BackendRemoteItem, BackendStat};
+    use super::{
+        BackendAbout, BackendList, BackendListFilter, BackendRemoteItem, BackendStat, RcloneError,
+    };
     use crate::{domain::ports::Cancel, util};
     use serde_json::json;
 
@@ -255,7 +262,12 @@ pub mod sync {
     }
 
     /// Common function for some of the below command.
-    fn common(command: &str, remote_name: &str, path: &str, cancel: &Cancel) -> Result<(), RcloneError> {
+    fn common(
+        command: &str,
+        remote_name: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<(), RcloneError> {
         let resp = run_cancellable(
             command,
             &json!({
@@ -283,7 +295,11 @@ pub mod sync {
     }
 
     /// Get statistics about a file or folder.
-    pub fn stat(remote_name: &str, path: &str, cancel: &Cancel) -> Result<Option<BackendRemoteItem>, RcloneError> {
+    pub fn stat(
+        remote_name: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<BackendRemoteItem>, RcloneError> {
         let resp = run_cancellable(
             "operations/stat",
             &json!({
@@ -301,7 +317,11 @@ pub mod sync {
     }
 
     /// Like [`stat`], with the SHA-1 of the content where the backend has one (Google Drive does).
-    pub fn details(remote_name: &str, path: &str, cancel: &Cancel) -> Result<Option<BackendRemoteItem>, RcloneError> {
+    pub fn details(
+        remote_name: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<BackendRemoteItem>, RcloneError> {
         let resp = run_cancellable(
             "operations/stat",
             &json!({
@@ -320,8 +340,24 @@ pub mod sync {
 
     /// The remote's quota: a single small request, to learn whether the provider can be reached.
     pub fn about(remote_name: &str, cancel: &Cancel) -> Result<(), RcloneError> {
-        match run_cancellable("operations/about", &json!({ "fs": get_remote_name(remote_name) }).to_string(), cancel) {
+        match run_cancellable(
+            "operations/about",
+            &json!({ "fs": get_remote_name(remote_name) }).to_string(),
+            cancel,
+        ) {
             Ok(_) => Ok(()),
+            Err(json_str) => Err(serde_json::from_str(&json_str).unwrap()),
+        }
+    }
+
+    /// Like [`about`], but keeping the used/total numbers the backend reports.
+    pub fn about_usage(remote_name: &str, cancel: &Cancel) -> Result<BackendAbout, RcloneError> {
+        match run_cancellable(
+            "operations/about",
+            &json!({ "fs": get_remote_name(remote_name) }).to_string(),
+            cancel,
+        ) {
+            Ok(json_str) => Ok(serde_json::from_str(&json_str).unwrap_or_default()),
             Err(json_str) => Err(serde_json::from_str(&json_str).unwrap()),
         }
     }

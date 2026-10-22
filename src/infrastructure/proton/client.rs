@@ -30,6 +30,7 @@ use syncative_go::proton as proton_ffi;
 
 use crate::domain::{
     ports::{BackendClient, Cancel, is_cancelled},
+    remote::RemoteUsage,
     sync::{FileDetails, ListFilter, RemoteItem},
 };
 
@@ -83,11 +84,7 @@ impl NativeProtonClient {
     /// create / upload / mkdir where we only have the full remote
     /// path. An empty path resolves to (root, "") which is invalid
     /// for those callers; surface as an error.
-    fn resolve_parent(
-        &self,
-        path: &str,
-        cancel: &Cancel,
-    ) -> Result<(String, String), String> {
+    fn resolve_parent(&self, path: &str, cancel: &Cancel) -> Result<(String, String), String> {
         let trimmed = path.trim_matches('/');
         if trimmed.is_empty() {
             return Err("cannot operate on root itself".to_owned());
@@ -212,15 +209,26 @@ impl BackendClient for NativeProtonClient {
         Ok(out)
     }
 
-    fn details(&self, _remote: &str, path: &str, cancel: &Cancel) -> Result<Option<FileDetails>, String> {
+    fn details(
+        &self,
+        _remote: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<FileDetails>, String> {
         let Some(link_id) = self.resolve_path(path, cancel)? else {
             return Ok(None);
         };
-        Ok(proton_ffi::file_details(&self.uid, &link_id)?.map(|d| FileDetails {
-            size: d.has_size.then_some(d.size).and_then(|s| u64::try_from(s).ok()),
-            mod_time: OffsetDateTime::from_unix_timestamp(d.mod_time_unix).unwrap_or(OffsetDateTime::UNIX_EPOCH),
-            sha1: (!d.sha1.is_empty()).then(|| d.sha1.to_lowercase()),
-        }))
+        Ok(
+            proton_ffi::file_details(&self.uid, &link_id)?.map(|d| FileDetails {
+                size: d
+                    .has_size
+                    .then_some(d.size)
+                    .and_then(|s| u64::try_from(s).ok()),
+                mod_time: OffsetDateTime::from_unix_timestamp(d.mod_time_unix)
+                    .unwrap_or(OffsetDateTime::UNIX_EPOCH),
+                sha1: (!d.sha1.is_empty()).then(|| d.sha1.to_lowercase()),
+            }),
+        )
     }
 
     fn mkdir(&self, _remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {
@@ -286,6 +294,17 @@ impl BackendClient for NativeProtonClient {
 
     fn remote_type(&self, _remote: &str) -> Result<Option<String>, String> {
         Ok(Some("native-proton".to_owned()))
+    }
+
+    /// The account-wide quota: one plan pools Mail, Drive and Calendar, so the numbers shown are the whole account's. Also runs outside a pass (when a page opens), so it saves tokens the call may have rotated itself.
+    fn usage(&self, remote: &str, _cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {
+        let quota = proton_ffi::quota(&self.uid);
+        self.checkpoint_session(remote);
+        let quota = quota?;
+        Ok(Some(RemoteUsage {
+            used: quota.used,
+            total: (quota.max > 0).then_some(quota.max),
+        }))
     }
 
     /// Re-persist the session blob if the access/refresh tokens rotated
@@ -360,12 +379,18 @@ impl PendingProtonClient {
     /// duplicate Go-side session.
     fn resolve(&self) -> Result<NativeProtonClient, String> {
         let mut state = self.state.lock().map_err(|_| {
-            format!("Proton Drive session state for '{}' is poisoned; restart Syncative.", self.remote_name)
+            format!(
+                "Proton Drive session state for '{}' is poisoned; restart Syncative.",
+                self.remote_name
+            )
         })?;
 
         match &*state {
             PendingState::Live(client) => return Ok(client.clone()),
-            PendingState::Waiting { last_attempt, reason } => {
+            PendingState::Waiting {
+                last_attempt,
+                reason,
+            } => {
                 if let Some(at) = last_attempt
                     && at.elapsed() < RESUME_RETRY_COOLDOWN
                 {
@@ -425,7 +450,12 @@ impl PendingProtonClient {
 }
 
 impl BackendClient for PendingProtonClient {
-    fn stat(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<Option<RemoteItem>, String> {
+    fn stat(
+        &self,
+        remote: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<RemoteItem>, String> {
         self.resolve()?.stat(remote, path, cancel)
     }
     fn list(
@@ -436,9 +466,15 @@ impl BackendClient for PendingProtonClient {
         filter: ListFilter,
         cancel: &Cancel,
     ) -> Result<Vec<RemoteItem>, String> {
-        self.resolve()?.list(remote, path, recursive, filter, cancel)
+        self.resolve()?
+            .list(remote, path, recursive, filter, cancel)
     }
-    fn details(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<Option<FileDetails>, String> {
+    fn details(
+        &self,
+        remote: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<FileDetails>, String> {
         self.resolve()?.details(remote, path, cancel)
     }
     fn mkdir(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {

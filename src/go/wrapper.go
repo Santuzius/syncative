@@ -589,5 +589,27 @@ func ProtonDrive_ListRecursive(paramsJSON *C.char) *C.char {
 	return okResult(entries)
 }
 
+// ProtonDrive_Quota reports the account's used and maximum storage in
+// bytes. Input `{"uid":"..."}`; result data is a `drive.Quota`.
+//
+//export ProtonDrive_Quota
+func ProtonDrive_Quota(paramsJSON *C.char) *C.char {
+	var p struct {
+		UID string `json:"uid"`
+	}
+	if err := json.Unmarshal([]byte(C.GoString(paramsJSON)), &p); err != nil {
+		return errResult(err)
+	}
+	sess, err := drive.Lookup(p.UID)
+	if err != nil {
+		return errResult(err)
+	}
+	quota, err := sess.Quota(context.Background())
+	if err != nil {
+		return errResult(err)
+	}
+	return okResult(quota)
+}
+
 // main is required by cgo for c-archive builds; body intentionally empty.
 func main() {}

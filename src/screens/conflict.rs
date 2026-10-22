@@ -3,9 +3,9 @@
 use std::path::Path;
 
 use iced::{
-    font::Weight,
-    widget::{button, column, container, rich_text, row, span, text_input, Space},
     Alignment, Element, Font, Length,
+    font::Weight,
+    widget::{Space, button, column, container, rich_text, row, span, text_input},
 };
 use time::OffsetDateTime;
 
@@ -16,7 +16,7 @@ use crate::{
     },
     services::sync::local_names,
     theme::{self, CAPTION, HEADING, ROW_SPACING, TEXT},
-    util::fmt_home,
+    util::{fmt_home, fmt_size},
     widgets::{icon::icon, text},
 };
 
@@ -50,9 +50,24 @@ pub struct Dialog {
 }
 
 impl Dialog {
-    pub fn new(remote_id: RemoteId, remote_name: String, sync_dir_id: SyncDirId, conflict: Conflict, position: usize, total: usize) -> Self {
+    pub fn new(
+        remote_id: RemoteId,
+        remote_name: String,
+        sync_dir_id: SyncDirId,
+        conflict: Conflict,
+        position: usize,
+        total: usize,
+    ) -> Self {
         let new_name = local_names::from_local(file_name(&conflict.local_path)).into_owned();
-        Self { remote_id, remote_name, sync_dir_id, conflict, new_name, position, total }
+        Self {
+            remote_id,
+            remote_name,
+            sync_dir_id,
+            conflict,
+            new_name,
+            position,
+            total,
+        }
     }
 
     /// The new name is usable for "keep both": changed, a plain file name, and free in the folder.
@@ -63,7 +78,9 @@ impl Dialog {
             && name != "."
             && name != ".."
             && *local_names::to_local(name) != *file_name(&self.conflict.local_path)
-            && !Path::new(&self.conflict.local_path).with_file_name(&*local_names::to_local(name)).exists()
+            && !Path::new(&self.conflict.local_path)
+                .with_file_name(&*local_names::to_local(name))
+                .exists()
     }
 
     /// `name (1).ext`, `name (2).ext`, … — the first one not taken in the local folder.
@@ -77,7 +94,10 @@ impl Dialog {
         let folder = Path::new(&self.conflict.local_path);
         for n in 1.. {
             let candidate = format!("{stem} ({n}){ext}");
-            if !folder.with_file_name(&*local_names::to_local(&candidate)).exists() {
+            if !folder
+                .with_file_name(&*local_names::to_local(&candidate))
+                .exists()
+            {
                 self.new_name = candidate;
                 return;
             }
@@ -94,7 +114,10 @@ fn sentence<'a>(spans: Vec<Span<'a, ()>>) -> Element<'a, Msg> {
 }
 
 fn bold() -> Font {
-    Font { weight: Weight::Bold, ..crate::theme::UI_FONT }
+    Font {
+        weight: Weight::Bold,
+        ..crate::theme::UI_FONT
+    }
 }
 
 /// `compact`: the phone layout, which stacks the two versions and the actions.
@@ -109,7 +132,11 @@ pub fn view(dialog: &Dialog, compact: bool) -> Element<'_, Msg> {
             row![
                 icon(glyph, 36.0),
                 column![
-                    text(format!("Size: {}", details.size.map_or_else(|| "unknown".to_owned(), fmt_size))).size(TEXT),
+                    text(format!(
+                        "Size: {}",
+                        details.size.map_or_else(|| "unknown".to_owned(), fmt_size)
+                    ))
+                    .size(TEXT),
                     text(format!("Modified: {}", fmt_date(details.mod_time))).size(TEXT),
                 ]
                 .spacing(4),
@@ -121,26 +148,67 @@ pub fn view(dialog: &Dialog, compact: bool) -> Element<'_, Msg> {
         .width(Length::Fill)
     };
 
-    let local_side = side(format!("On {}", crate::util::THIS_DEVICE), fmt_home(&c.local_path), if cfg!(target_os = "android") { icondata::TbDeviceMobileOutline } else { icondata::TbDeviceDesktopOutline }, &c.local);
-    let remote_side = side(format!("On {remote}"), format!("{remote}:/{}", c.remote_path), icondata::TbCloudOutline, &c.remote);
-    let sides: Element<'_, Msg> = if compact { column![local_side, remote_side].spacing(16).into() } else { row![local_side, remote_side].spacing(24).into() };
+    let local_side = side(
+        format!("On {}", crate::util::THIS_DEVICE),
+        fmt_home(&c.local_path),
+        if cfg!(target_os = "android") {
+            icondata::TbDeviceMobileOutline
+        } else {
+            icondata::TbDeviceDesktopOutline
+        },
+        &c.local,
+    );
+    let remote_side = side(
+        format!("On {remote}"),
+        format!("{remote}:/{}", c.remote_path),
+        icondata::TbCloudOutline,
+        &c.remote,
+    );
+    let sides: Element<'_, Msg> = if compact {
+        column![local_side, remote_side].spacing(16).into()
+    } else {
+        row![local_side, remote_side].spacing(24).into()
+    };
 
-    let mut comparison = column![].spacing(2).align_x(Alignment::Center).width(Length::Fill);
-    let (local_time, remote_time) = (c.local.mod_time.unix_timestamp(), c.remote.mod_time.unix_timestamp());
+    let mut comparison = column![]
+        .spacing(2)
+        .align_x(Alignment::Center)
+        .width(Length::Fill);
+    let (local_time, remote_time) = (
+        c.local.mod_time.unix_timestamp(),
+        c.remote.mod_time.unix_timestamp(),
+    );
     if local_time != remote_time {
         comparison = comparison.push(sentence(vec![
             span("The local version is "),
-            span(if local_time > remote_time { "newer" } else { "older" }).font(bold()),
+            span(if local_time > remote_time {
+                "newer"
+            } else {
+                "older"
+            })
+            .font(bold()),
             span("."),
         ]));
     }
     if let (Some(local_size), Some(remote_size)) = (c.local.size, c.remote.size) {
         let line = if local_size == remote_size {
-            sentence(vec![span("Both versions have the "), span("same size").font(bold()), span(".")])
+            sentence(vec![
+                span("Both versions have the "),
+                span("same size").font(bold()),
+                span("."),
+            ])
         } else {
             let diff = fmt_size(local_size.abs_diff(remote_size));
-            let word = if local_size > remote_size { "larger" } else { "smaller" };
-            sentence(vec![span("The local version is "), span(format!("{word} by {diff}")).font(bold()), span(".")])
+            let word = if local_size > remote_size {
+                "larger"
+            } else {
+                "smaller"
+            };
+            sentence(vec![
+                span("The local version is "),
+                span(format!("{word} by {diff}")).font(bold()),
+                span("."),
+            ])
         };
         comparison = comparison.push(line);
     }
@@ -154,7 +222,10 @@ pub fn view(dialog: &Dialog, compact: bool) -> Element<'_, Msg> {
                 .padding([6, 10])
                 .size(TEXT)
                 .style(theme::input),
-            button(text("Suggest new name").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::SuggestName),
+            button(text("Suggest new name").size(TEXT))
+                .padding([6, 14])
+                .style(theme::button_secondary)
+                .on_press(Msg::SuggestName),
         ]
         .spacing(ROW_SPACING)
         .align_y(Alignment::Center),
@@ -162,31 +233,82 @@ pub fn view(dialog: &Dialog, compact: bool) -> Element<'_, Msg> {
     .spacing(6);
 
     let action = |glyph: icondata::Icon, label: String, msg: Option<Msg>| {
-        button(row![icon(glyph, 16.0), text(label).size(TEXT)].spacing(6).align_y(Alignment::Center))
-            .padding([6, 12])
-            .style(theme::button_secondary)
-            .on_press_maybe(msg)
+        button(
+            row![icon(glyph, 16.0), text(label).size(TEXT)]
+                .spacing(6)
+                .align_y(Alignment::Center),
+        )
+        .padding([6, 12])
+        .style(theme::button_secondary)
+        .on_press_maybe(msg)
     };
-    let keep_both = action(icondata::TbCopyOutline, "Keep both".to_owned(), dialog.new_name_valid().then_some(Msg::KeepBoth));
-    let keep_local = action(icondata::TbCloudUploadOutline, "Keep local version".to_owned(), Some(Msg::KeepLocal));
-    let keep_remote = action(icondata::TbCloudDownloadOutline, format!("Keep {remote} version"), Some(Msg::KeepRemote));
-    let cancel = button(text("Cancel").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::Cancel);
+    let keep_both = action(
+        icondata::TbCopyOutline,
+        "Keep both".to_owned(),
+        dialog.new_name_valid().then_some(Msg::KeepBoth),
+    );
+    let keep_local = action(
+        icondata::TbCloudUploadOutline,
+        "Keep local version".to_owned(),
+        Some(Msg::KeepLocal),
+    );
+    let keep_remote = action(
+        icondata::TbCloudDownloadOutline,
+        format!("Keep {remote} version"),
+        Some(Msg::KeepRemote),
+    );
+    let cancel = button(text("Cancel").size(TEXT))
+        .padding([6, 14])
+        .style(theme::button_secondary)
+        .on_press(Msg::Cancel);
     let buttons: Element<'_, Msg> = if compact {
         // One full-width button per line: a phone has no room for four side by side.
-        column![keep_local.width(Length::Fill), keep_remote.width(Length::Fill), keep_both.width(Length::Fill), cancel.width(Length::Fill)].spacing(8).into()
+        column![
+            keep_local.width(Length::Fill),
+            keep_remote.width(Length::Fill),
+            keep_both.width(Length::Fill),
+            cancel.width(Length::Fill)
+        ]
+        .spacing(8)
+        .into()
     } else {
-        row![keep_both, Space::new().width(Length::Fill), keep_local, keep_remote, cancel].spacing(ROW_SPACING).align_y(Alignment::Center).into()
+        row![
+            keep_both,
+            Space::new().width(Length::Fill),
+            keep_local,
+            keep_remote,
+            cancel
+        ]
+        .spacing(ROW_SPACING)
+        .align_y(Alignment::Center)
+        .into()
     };
 
-    let title = text(if c.first_sync { "File exists on both sides" } else { "File changed on both sides" }).size(HEADING + 2.0);
+    let title = text(if c.first_sync {
+        "File exists on both sides"
+    } else {
+        "File changed on both sides"
+    })
+    .size(HEADING + 2.0);
     let mut header = row![title, Space::new().width(Length::Fill)].align_y(Alignment::Center);
     if dialog.total > 1 {
-        let arrow = |glyph: icondata::Icon, msg: Option<Msg>| button(icon(glyph, 16.0)).padding(5).style(theme::button_flat).on_press_maybe(msg);
+        let arrow = |glyph: icondata::Icon, msg: Option<Msg>| {
+            button(icon(glyph, 16.0))
+                .padding(5)
+                .style(theme::button_flat)
+                .on_press_maybe(msg)
+        };
         header = header.push(
             row![
-                arrow(icondata::TbChevronLeftOutline, (dialog.position > 0).then_some(Msg::Previous)),
+                arrow(
+                    icondata::TbChevronLeftOutline,
+                    (dialog.position > 0).then_some(Msg::Previous)
+                ),
                 text(format!("{}/{}", dialog.position + 1, dialog.total)).size(TEXT),
-                arrow(icondata::TbChevronRightOutline, (dialog.position + 1 < dialog.total).then_some(Msg::Next)),
+                arrow(
+                    icondata::TbChevronRightOutline,
+                    (dialog.position + 1 < dialog.total).then_some(Msg::Next)
+                ),
             ]
             .spacing(4)
             .align_y(Alignment::Center),
@@ -215,25 +337,31 @@ pub fn view(dialog: &Dialog, compact: bool) -> Element<'_, Msg> {
     .into()
 }
 
-/// `155.1 KiB`, `9.7 MiB` — binary units like Dolphin.
-pub fn fmt_size(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["KiB", "MiB", "GiB", "TiB", "PiB"];
-    if bytes < 1024 {
-        return format!("{bytes} B");
-    }
-    let mut value = bytes as f64 / 1024.0;
-    let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-    format!("{value:.1} {}", UNITS[unit])
-}
-
 /// `Saturday, 15 August 2026 13:55:34` in the local time zone.
 fn fmt_date(at: OffsetDateTime) -> String {
-    const DAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const DAYS: [&str; 7] = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+    ];
+    const MONTHS: [&str; 12] = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
     let secs = at.unix_timestamp() as libc::time_t;
     // SAFETY: `localtime_r` only writes into the zeroed `tm` we own.
     let tm = unsafe {

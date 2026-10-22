@@ -82,6 +82,15 @@ pub struct Remote {
     pub session_path: Option<String>,
 }
 
+/// The space a provider reports for a remote. `total` is the quota —
+/// `None` when the backend knows only what's used (or reports the
+/// quota as unlimited).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RemoteUsage {
+    pub used: u64,
+    pub total: Option<u64>,
+}
+
 /// Which adapter drives a given remote. Kept as a plain enum rather
 /// than a trait object so it can be persisted to the DB as a string
 /// and pattern-matched on in the sync scheduler's routing.

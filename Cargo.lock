@@ -1986,6 +1986,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "iced-storage-bar"
+version = "0.1.0"
+source = "git+https://github.com/Santuzius/iced-storage-bar?rev=9790935aef2de2fceb413d2f76b6b38e7489df7f#9790935aef2de2fceb413d2f76b6b38e7489df7f"
+dependencies = [
+ "iced_widget",
+]
+
+[[package]]
 name = "iced_android"
 version = "0.1.0"
 source = "git+https://github.com/Santuzius/iced_android?tag=v0.1.0#1bd0e22f96c09a48e95e6f9580e50e3b6814bceb"
@@ -4963,6 +4971,7 @@ dependencies = [
  "dbus",
  "futures",
  "iced",
+ "iced-storage-bar",
  "iced_android",
  "icondata",
  "icondata_core",

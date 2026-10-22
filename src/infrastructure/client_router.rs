@@ -11,6 +11,7 @@ use std::{
 
 use crate::domain::{
     ports::{BackendClient, Cancel},
+    remote::RemoteUsage,
     sync::{FileDetails, ListFilter, RemoteItem},
 };
 
@@ -55,7 +56,12 @@ impl ClientRouter {
 }
 
 impl BackendClient for ClientRouter {
-    fn stat(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<Option<RemoteItem>, String> {
+    fn stat(
+        &self,
+        remote: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<RemoteItem>, String> {
         self.pick(remote).stat(remote, path, cancel)
     }
     fn list(
@@ -66,9 +72,15 @@ impl BackendClient for ClientRouter {
         filter: ListFilter,
         cancel: &Cancel,
     ) -> Result<Vec<RemoteItem>, String> {
-        self.pick(remote).list(remote, path, recursive, filter, cancel)
+        self.pick(remote)
+            .list(remote, path, recursive, filter, cancel)
     }
-    fn details(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<Option<FileDetails>, String> {
+    fn details(
+        &self,
+        remote: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<FileDetails>, String> {
         self.pick(remote).details(remote, path, cancel)
     }
     fn mkdir(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {
@@ -87,7 +99,8 @@ impl BackendClient for ClientRouter {
         remote_path: &str,
         cancel: &Cancel,
     ) -> Result<(), String> {
-        self.pick(remote).copy_to_remote(local_path, remote, remote_path, cancel)
+        self.pick(remote)
+            .copy_to_remote(local_path, remote, remote_path, cancel)
     }
     fn copy_to_local(
         &self,
@@ -96,7 +109,8 @@ impl BackendClient for ClientRouter {
         remote_path: &str,
         cancel: &Cancel,
     ) -> Result<(), String> {
-        self.pick(remote).copy_to_local(local_path, remote, remote_path, cancel)
+        self.pick(remote)
+            .copy_to_local(local_path, remote, remote_path, cancel)
     }
     fn delete_config(&self, remote: &str) -> Result<(), String> {
         self.pick(remote).delete_config(remote)
@@ -122,5 +136,8 @@ impl BackendClient for ClientRouter {
     }
     fn config(&self, remote: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
         self.pick(remote).config(remote)
+    }
+    fn usage(&self, remote: &str, cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {
+        self.pick(remote).usage(remote, cancel)
     }
 }

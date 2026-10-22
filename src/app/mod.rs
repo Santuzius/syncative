@@ -10,10 +10,9 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use iced::{
-    stream,
-    theme as iced_theme,
+    Element, Length, Size, Subscription, Task, Theme, stream, theme as iced_theme,
     widget::{container, row, rule, stack},
-    window, Element, Length, Size, Subscription, Task, Theme,
+    window,
 };
 use tokio::sync::mpsc;
 
@@ -59,7 +58,11 @@ pub enum Message {
     SyncDirsLoaded(RemoteId, Vec<SyncDir>),
     AllSyncDirsRefreshed(Vec<SyncDir>),
     /// Exclusions of a sync_dir plus, per exclusion, how many synced files are still on this computer.
-    ExclusionsLoaded(SyncDirId, Vec<SyncDirExclusion>, HashMap<String, leftovers::Found>),
+    ExclusionsLoaded(
+        SyncDirId,
+        Vec<SyncDirExclusion>,
+        HashMap<String, leftovers::Found>,
+    ),
     /// Leftovers of an excluded path were deleted (or not); carries the path relative to the sync_dir for the log.
     LeftoversCleaned(SyncDirId, String, Result<leftovers::Cleaned, String>),
     /// Result of the desktop folder chooser (`None` = cancelled / no portal).
@@ -275,7 +278,8 @@ impl SyncativeApp {
         };
         state.power = PowerSettings::load(&crate::util::get_data_dir());
         state.background_allowed = power::background_allowed();
-        state.background_dialog_open = state.background && !state.background_allowed && !state.power.asked_battery;
+        state.background_dialog_open =
+            state.background && !state.background_allowed && !state.power.asked_battery;
         let load = Task::perform(
             async move { repo.list_remotes().await.unwrap_or_default() },
             Message::RemotesLoaded,
@@ -316,7 +320,9 @@ impl SyncativeApp {
                 };
                 loop {
                     let snapshot = rx.borrow_and_update().clone();
-                    if output.send(Message::Engine(snapshot)).await.is_err() || rx.changed().await.is_err() {
+                    if output.send(Message::Engine(snapshot)).await.is_err()
+                        || rx.changed().await.is_err()
+                    {
                         break;
                     }
                 }
@@ -324,7 +330,11 @@ impl SyncativeApp {
             })
         });
         // The window counts down to the next sync each second; the tray only shows the minutes since the last one.
-        let tick = if self.window_id.is_some() { Duration::from_secs(1) } else { Duration::from_secs(30) };
+        let tick = if self.window_id.is_some() {
+            Duration::from_secs(1)
+        } else {
+            Duration::from_secs(30)
+        };
         let ticker = iced::time::every(tick).map(|_| Message::Tick);
         let tray = tray::subscription().map(|signal| match signal {
             tray::TraySignal::Ready(tx) => Message::TrayReady(tx),
@@ -344,7 +354,8 @@ impl SyncativeApp {
         // those into the tray so the rasterised glyphs follow the panel.
         let system_theme = iced::system::theme_changes().map(Message::SystemThemeChanged);
         // A second launch of the binary asks us (over the single-instance socket) to surface the window.
-        let show_requests = single_instance::show_requests().map(|()| Message::TrayClick(TrayAction::Open));
+        let show_requests =
+            single_instance::show_requests().map(|()| Message::TrayClick(TrayAction::Open));
         let escape = iced::keyboard::listen().filter_map(|event| match event {
             iced::keyboard::Event::KeyPressed {
                 key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
@@ -360,8 +371,23 @@ impl SyncativeApp {
         let insets = iced_android::insets().map(Message::Insets);
         let font_scale = iced_android::system_scale().map(Message::SystemScale);
         // Android's question about battery optimization only pauses the activity; the window gets its focus back when it closes.
-        let focused = iced::event::listen_with(|event, _, _| matches!(event, iced::Event::Window(window::Event::Focused)).then_some(Message::WindowFocused));
-        Subscription::batch([engine, ticker, tray, window_close, system_theme, show_requests, escape, foreground, insets, font_scale, focused])
+        let focused = iced::event::listen_with(|event, _, _| {
+            matches!(event, iced::Event::Window(window::Event::Focused))
+                .then_some(Message::WindowFocused)
+        });
+        Subscription::batch([
+            engine,
+            ticker,
+            tray,
+            window_close,
+            system_theme,
+            show_requests,
+            escape,
+            foreground,
+            insets,
+            font_scale,
+            focused,
+        ])
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -414,11 +440,17 @@ impl SyncativeApp {
                 Task::none()
             }
             Message::Preferences(preferences::Msg::WindowThemeChanged(choice)) => {
-                self.set_appearance(Appearance { window: choice, ..self.appearance });
+                self.set_appearance(Appearance {
+                    window: choice,
+                    ..self.appearance
+                });
                 Task::none()
             }
             Message::Preferences(preferences::Msg::SizeChanged(choice)) => {
-                self.set_appearance(Appearance { size: choice, ..self.appearance });
+                self.set_appearance(Appearance {
+                    size: choice,
+                    ..self.appearance
+                });
                 Task::none()
             }
             Message::WindowFocused => {
@@ -430,7 +462,10 @@ impl SyncativeApp {
                 Task::none()
             }
             Message::Preferences(preferences::Msg::TrayIconChanged(choice)) => {
-                self.set_appearance(Appearance { tray_icon: choice, ..self.appearance });
+                self.set_appearance(Appearance {
+                    tray_icon: choice,
+                    ..self.appearance
+                });
                 Task::none()
             }
             Message::Preferences(preferences::Msg::PowerModeChanged(mode)) => {
@@ -439,13 +474,19 @@ impl SyncativeApp {
                 Task::none()
             }
             Message::Preferences(preferences::Msg::SyncMeteredToggled(on)) => {
-                self.set_power(PowerSettings { sync_metered: on, ..self.power });
+                self.set_power(PowerSettings {
+                    sync_metered: on,
+                    ..self.power
+                });
                 power::apply();
                 Task::none()
             }
             Message::Preferences(preferences::Msg::AllowBackground) => {
                 self.background_dialog_open = false;
-                self.set_power(PowerSettings { asked_battery: true, ..self.power });
+                self.set_power(PowerSettings {
+                    asked_battery: true,
+                    ..self.power
+                });
                 power::allow_background();
                 Task::none()
             }
@@ -459,19 +500,28 @@ impl SyncativeApp {
                             power::allow_background();
                         }
                     }
-                    Err(err) => self.preferences_error = Some(format!("Could not change \"Run in background\": {err}")),
+                    Err(err) => {
+                        self.preferences_error =
+                            Some(format!("Could not change \"Run in background\": {err}"))
+                    }
                 }
                 Task::none()
             }
             Message::Preferences(preferences::Msg::KeepOptimized) => {
                 self.background_dialog_open = false;
-                self.set_power(PowerSettings { asked_battery: true, ..self.power });
+                self.set_power(PowerSettings {
+                    asked_battery: true,
+                    ..self.power
+                });
                 Task::none()
             }
             Message::Preferences(preferences::Msg::DetailedLogToggled(on)) => {
                 match crate::services::diagnostics::set_detailed_log(on) {
                     Ok(()) => self.detailed_log = on,
-                    Err(err) => self.preferences_error = Some(format!("Could not change the detailed log: {err}")),
+                    Err(err) => {
+                        self.preferences_error =
+                            Some(format!("Could not change the detailed log: {err}"))
+                    }
                 }
                 Task::none()
             }
@@ -480,7 +530,11 @@ impl SyncativeApp {
                 let lines = log.lines().count();
                 self.preferences_error = None;
                 self.preferences_note = None;
-                self.log_note = Some(if lines == 1 { "Copied 1 line to the clipboard.".to_owned() } else { format!("Copied {lines} lines to the clipboard.") });
+                self.log_note = Some(if lines == 1 {
+                    "Copied 1 line to the clipboard.".to_owned()
+                } else {
+                    format!("Copied {lines} lines to the clipboard.")
+                });
                 iced::clipboard::write(log)
             }
             Message::Preferences(preferences::Msg::ClearLog) => {
@@ -499,7 +553,11 @@ impl SyncativeApp {
                     async move {
                         tokio::task::spawn_blocking(move || {
                             let text = settings_file::export(&*repo, &*router)?;
-                            crate::infrastructure::portal::save_file("Export Syncative's settings", "syncative-settings.json", text.as_bytes())
+                            crate::infrastructure::portal::save_file(
+                                "Export Syncative's settings",
+                                "syncative-settings.json",
+                                text.as_bytes(),
+                            )
                         })
                         .await
                         .unwrap_or_else(|e| Err(e.to_string()))
@@ -515,10 +573,14 @@ impl SyncativeApp {
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
-                            let Some(bytes) = crate::infrastructure::portal::open_file("Import Syncative's settings")? else {
+                            let Some(bytes) = crate::infrastructure::portal::open_file(
+                                "Import Syncative's settings",
+                            )?
+                            else {
                                 return Ok(None);
                             };
-                            let text = String::from_utf8(bytes).map_err(|_| "Not a Syncative settings file.".to_owned())?;
+                            let text = String::from_utf8(bytes)
+                                .map_err(|_| "Not a Syncative settings file.".to_owned())?;
                             settings_file::import(&text, &*repo, &*router).map(Some)
                         })
                         .await
@@ -542,7 +604,12 @@ impl SyncativeApp {
                         self.autostart = on;
                         self.preferences_error = None;
                     }
-                    Err(err) => self.preferences_error = Some(format!("Could not change {}: {err}", autostart::entry_path().display())),
+                    Err(err) => {
+                        self.preferences_error = Some(format!(
+                            "Could not change {}: {err}",
+                            autostart::entry_path().display()
+                        ))
+                    }
                 }
                 Task::none()
             }
@@ -552,7 +619,12 @@ impl SyncativeApp {
                         self.start_hidden = hidden;
                         self.preferences_error = None;
                     }
-                    Err(err) => self.preferences_error = Some(format!("Could not change {}: {err}", autostart::entry_path().display())),
+                    Err(err) => {
+                        self.preferences_error = Some(format!(
+                            "Could not change {}: {err}",
+                            autostart::entry_path().display()
+                        ))
+                    }
                 }
                 Task::none()
             }
@@ -563,7 +635,11 @@ impl SyncativeApp {
             Message::TrayUnavailable => {
                 // Nothing to explain without a tray; the window is all there is.
                 self.tray_hint_open = false;
-                if self.window_id.is_none() { self.handle_tray_click(TrayAction::Open) } else { Task::none() }
+                if self.window_id.is_none() {
+                    self.handle_tray_click(TrayAction::Open)
+                } else {
+                    Task::none()
+                }
             }
             Message::About(about::Msg::Close) => {
                 self.about_open = false;
@@ -607,8 +683,12 @@ impl SyncativeApp {
             Message::ExclusionsLoaded(sd_id, excls, leftovers) => {
                 self.handle_exclusions_loaded(sd_id, excls, leftovers)
             }
-            Message::Remote(remote_page::Msg::RequestCleanLeftovers(sd_id, relative)) => self.handle_request_clean_leftovers(sd_id, relative),
-            Message::LeftoversCleaned(sd_id, relative, res) => self.handle_leftovers_cleaned(sd_id, relative, res),
+            Message::Remote(remote_page::Msg::RequestCleanLeftovers(sd_id, relative)) => {
+                self.handle_request_clean_leftovers(sd_id, relative)
+            }
+            Message::LeftoversCleaned(sd_id, relative, res) => {
+                self.handle_leftovers_cleaned(sd_id, relative, res)
+            }
             Message::Remote(remote_page::Msg::ToggleExclusions(sd_id)) => {
                 self.handle_toggle_exclusions(sd_id)
             }
@@ -624,7 +704,9 @@ impl SyncativeApp {
             Message::Remote(remote_page::Msg::LogEditorAction(sd_id, action)) => {
                 self.handle_log_editor_action(sd_id, action)
             }
-            Message::Remote(remote_page::Msg::OpenConflicts(sd_id)) => self.handle_open_conflicts(sd_id),
+            Message::Remote(remote_page::Msg::OpenConflicts(sd_id)) => {
+                self.handle_open_conflicts(sd_id)
+            }
             Message::Conflict(sub) => self.handle_conflict_msg(sub),
 
             // Sync engine -------------------------------------------
@@ -658,7 +740,11 @@ impl SyncativeApp {
                 // The keyboard opened (or grew) and may cover the field being typed into.
                 let keyboard_grew = insets.bottom > self.insets.bottom;
                 self.insets = insets;
-                if keyboard_grew { iced_android::scroll_to_focused() } else { Task::none() }
+                if keyboard_grew {
+                    iced_android::scroll_to_focused()
+                } else {
+                    Task::none()
+                }
             }
             Message::CloseDrawer => {
                 self.drawer_open = false;
@@ -686,7 +772,11 @@ impl SyncativeApp {
                 // The user may have just answered Android's question, or changed it in the settings.
                 self.background_allowed = power::background_allowed();
                 let storage = self.refresh_storage_access();
-                let open = if self.window_id.is_none() { self.handle_tray_click(TrayAction::Open) } else { Task::none() };
+                let open = if self.window_id.is_none() {
+                    self.handle_tray_click(TrayAction::Open)
+                } else {
+                    Task::none()
+                };
                 Task::batch([storage, open])
             }
             // Off screen the GUI only costs memory; the engine keeps syncing.
@@ -697,25 +787,42 @@ impl SyncativeApp {
     }
 
     fn view(&self, id: window::Id) -> Element<'_, Message> {
-        let page = iced::widget::responsive(move |size| self.layout(size.width < theme::COMPACT_WIDTH, size.width));
+        let page = iced::widget::responsive(move |size| {
+            self.layout(size.width < theme::COMPACT_WIDTH, size.width)
+        });
         // The insets are in Android's logical pixels; the scale factor would enlarge them along with the content.
         let scale = self.scale_factor(id);
-        let insets = iced::Padding { top: self.insets.top / scale, right: self.insets.right / scale, bottom: self.insets.bottom / scale, left: self.insets.left / scale };
-        container(page).padding(insets).style(theme::header_bar).into()
+        let insets = iced::Padding {
+            top: self.insets.top / scale,
+            right: self.insets.right / scale,
+            bottom: self.insets.bottom / scale,
+            left: self.insets.left / scale,
+        };
+        container(page)
+            .padding(insets)
+            .style(theme::header_bar)
+            .into()
     }
 }
 
 impl SyncativeApp {
     /// The window's content: the navigation pane beside the page, or in the compact layout the page alone with the navigation as a drawer.
     fn layout(&self, compact: bool, width: f32) -> Element<'_, Message> {
-        let nav_width = if compact { Length::Fixed((width * 0.85).min(theme::NAV_WIDTH + 40.0)) } else { Length::Fixed(theme::NAV_WIDTH) };
+        let nav_width = if compact {
+            Length::Fixed((width * 0.85).min(theme::NAV_WIDTH + 40.0))
+        } else {
+            Length::Fixed(theme::NAV_WIDTH)
+        };
         let nav = main_page::nav(
             self.remotes
                 .iter()
                 .map(|remote| main_page::NavEntry {
                     remote,
                     state: self.display_state(remote),
-                    has_folders: self.all_known_sync_dirs.iter().any(|d| d.remote_id == remote.id),
+                    has_folders: self
+                        .all_known_sync_dirs
+                        .iter()
+                        .any(|d| d.remote_id == remote.id),
                 })
                 .collect(),
             self.selected,
@@ -727,11 +834,21 @@ impl SyncativeApp {
             .selected
             .and_then(|id| self.remotes.iter().find(|r| r.id == id))
         {
-            Some(remote) => remote_page::view(self.remote_page(remote, compact)).map(Message::Remote),
+            Some(remote) => {
+                remote_page::view(self.remote_page(remote, compact)).map(Message::Remote)
+            }
             None => {
-                let empty = container(main_page::empty_state().map(Message::Main)).width(Length::Fill).height(Length::Fill).style(theme::page);
+                let empty = container(main_page::empty_state().map(Message::Main))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(theme::page);
                 if compact {
-                    iced::widget::column![main_page::compact_bar().map(Message::Main), rule::horizontal(1).style(theme::separator), empty].into()
+                    iced::widget::column![
+                        main_page::compact_bar().map(Message::Main),
+                        rule::horizontal(1).style(theme::separator),
+                        empty
+                    ]
+                    .into()
                 } else {
                     empty.into()
                 }
@@ -739,7 +856,9 @@ impl SyncativeApp {
         };
 
         // Without All files access no folder syncs; say so above every page.
-        let content: Element<'_, Message> = if !self.storage_access && !self.all_known_sync_dirs.is_empty() {
+        let content: Element<'_, Message> = if !self.storage_access
+            && !self.all_known_sync_dirs.is_empty()
+        {
             iced::widget::column![main_page::storage_warning().map(Message::Main), content].into()
         } else {
             content
@@ -748,35 +867,125 @@ impl SyncativeApp {
         let base: Element<'_, Message> = if !compact {
             row![nav, rule::vertical(1).style(theme::separator), content].into()
         } else if self.drawer_open {
-            let scrim = iced::widget::mouse_area(container(iced::widget::Space::new()).width(Length::Fill).height(Length::Fill).style(theme::backdrop)).on_press(Message::CloseDrawer);
-            stack![content, iced::widget::opaque(scrim), iced::widget::opaque(nav)].into()
+            let scrim = iced::widget::mouse_area(
+                container(iced::widget::Space::new())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(theme::backdrop),
+            )
+            .on_press(Message::CloseDrawer);
+            stack![
+                content,
+                iced::widget::opaque(scrim),
+                iced::widget::opaque(nav)
+            ]
+            .into()
         } else {
             content
         };
         if let Some(draft) = self.add_remote_draft.as_ref() {
-            let dismiss = draft.can_cancel().then_some(Message::AddRemote(add_remote::Msg::Cancel));
-            stack![base, remote_page::modal(add_remote::view(draft).map(Message::AddRemote), dismiss)].into()
+            let dismiss = draft
+                .can_cancel()
+                .then_some(Message::AddRemote(add_remote::Msg::Cancel));
+            stack![
+                base,
+                remote_page::modal(add_remote::view(draft).map(Message::AddRemote), dismiss)
+            ]
+            .into()
         } else if let Some(dialog) = self.conflict_dialog.as_ref() {
-            stack![base, remote_page::modal(conflict::view(dialog, compact).map(Message::Conflict), None)].into()
+            stack![
+                base,
+                remote_page::modal(conflict::view(dialog, compact).map(Message::Conflict), None)
+            ]
+            .into()
         } else if let Some(pending) = self.pending_delete.as_ref() {
-            stack![base, remote_page::confirm_delete_overlay(pending).map(Message::Remote)].into()
+            stack![
+                base,
+                remote_page::confirm_delete_overlay(pending).map(Message::Remote)
+            ]
+            .into()
         } else if let Some(remote) = self.settings_open.then(|| self.selected_remote()).flatten() {
             let auth_needed = self.display_state(remote) == RunState::AuthNeeded;
-            stack![base, remote_page::settings_dialog(remote, auth_needed).map(Message::Remote)].into()
+            stack![
+                base,
+                remote_page::settings_dialog(remote, auth_needed).map(Message::Remote)
+            ]
+            .into()
         } else if self.background_dialog_open {
-            stack![base, remote_page::modal(preferences::background_dialog().map(Message::Preferences), Some(Message::Preferences(preferences::Msg::KeepOptimized)))].into()
+            stack![
+                base,
+                remote_page::modal(
+                    preferences::background_dialog().map(Message::Preferences),
+                    Some(Message::Preferences(preferences::Msg::KeepOptimized))
+                )
+            ]
+            .into()
         } else if self.tray_hint_open {
-            stack![base, remote_page::modal(preferences::tray_hint_dialog(self.appearance.tray_icon).map(Message::Preferences), Some(Message::Preferences(preferences::Msg::TrayHintClosed)))].into()
+            stack![
+                base,
+                remote_page::modal(
+                    preferences::tray_hint_dialog(self.appearance.tray_icon)
+                        .map(Message::Preferences),
+                    Some(Message::Preferences(preferences::Msg::TrayHintClosed))
+                )
+            ]
+            .into()
         } else if self.preferences_open {
-            let power = cfg!(target_os = "android").then_some(preferences::Power { mode: self.power.mode, sync_metered: self.power.sync_metered, background: self.background, background_allowed: self.background_allowed });
-            let dialog = preferences::view(self.appearance, power, self.autostart, self.start_hidden, self.detailed_log, self.log_note.as_deref(), self.preferences_note.as_deref(), self.preferences_error.as_deref(), compact).map(Message::Preferences);
-            stack![base, remote_page::modal(dialog, Some(Message::Preferences(preferences::Msg::Close)))].into()
+            let power = cfg!(target_os = "android").then_some(preferences::Power {
+                mode: self.power.mode,
+                sync_metered: self.power.sync_metered,
+                background: self.background,
+                background_allowed: self.background_allowed,
+            });
+            let dialog = preferences::view(
+                self.appearance,
+                power,
+                self.autostart,
+                self.start_hidden,
+                self.detailed_log,
+                self.log_note.as_deref(),
+                self.preferences_note.as_deref(),
+                self.preferences_error.as_deref(),
+                compact,
+            )
+            .map(Message::Preferences);
+            stack![
+                base,
+                remote_page::modal(dialog, Some(Message::Preferences(preferences::Msg::Close)))
+            ]
+            .into()
         } else if self.about_open {
-            stack![base, remote_page::modal(about::view().map(Message::About), Some(Message::About(about::Msg::Close)))].into()
-        } else if let Some(remote) = (compact && self.add_folder_open).then(|| self.selected_remote()).flatten() {
-            let (draft_local, draft_remote) = self.sync_dir_drafts.get(&remote.id).map_or(("", ""), |(l, r)| (l.as_str(), r.as_str()));
-            let dialog = remote_page::add_folder_dialog(remote, draft_local, draft_remote, self.add_sync_dir_error.as_deref()).map(Message::Remote);
-            stack![base, remote_page::modal(dialog, Some(Message::Remote(remote_page::Msg::CloseAddFolder)))].into()
+            stack![
+                base,
+                remote_page::modal(
+                    about::view().map(Message::About),
+                    Some(Message::About(about::Msg::Close))
+                )
+            ]
+            .into()
+        } else if let Some(remote) = (compact && self.add_folder_open)
+            .then(|| self.selected_remote())
+            .flatten()
+        {
+            let (draft_local, draft_remote) = self
+                .sync_dir_drafts
+                .get(&remote.id)
+                .map_or(("", ""), |(l, r)| (l.as_str(), r.as_str()));
+            let dialog = remote_page::add_folder_dialog(
+                remote,
+                draft_local,
+                draft_remote,
+                self.add_sync_dir_error.as_deref(),
+            )
+            .map(Message::Remote);
+            stack![
+                base,
+                remote_page::modal(
+                    dialog,
+                    Some(Message::Remote(remote_page::Msg::CloseAddFolder))
+                )
+            ]
+            .into()
         } else {
             base
         }
@@ -788,7 +997,10 @@ impl SyncativeApp {
             return true;
         }
         if std::mem::take(&mut self.background_dialog_open) {
-            self.set_power(PowerSettings { asked_battery: true, ..self.power });
+            self.set_power(PowerSettings {
+                asked_battery: true,
+                ..self.power
+            });
             return true;
         }
         if self.tray_hint_open {
@@ -804,7 +1016,10 @@ impl SyncativeApp {
             }
             return true;
         }
-        if std::mem::take(&mut self.settings_open) || std::mem::take(&mut self.add_folder_open) || std::mem::take(&mut self.drawer_open) {
+        if std::mem::take(&mut self.settings_open)
+            || std::mem::take(&mut self.add_folder_open)
+            || std::mem::take(&mut self.drawer_open)
+        {
             return true;
         }
         self.exclusion_panel.take().is_some()
@@ -812,28 +1027,43 @@ impl SyncativeApp {
 
     /// Read All files access again; once it is back, sync right away instead of at the next interval.
     fn refresh_storage_access(&mut self) -> Task<Message> {
-        let was = std::mem::replace(&mut self.storage_access, crate::services::storage_access::granted());
-        if self.storage_access && !was { self.handle_refresh_all() } else { Task::none() }
+        let was = std::mem::replace(
+            &mut self.storage_access,
+            crate::services::storage_access::granted(),
+        );
+        if self.storage_access && !was {
+            self.handle_refresh_all()
+        } else {
+            Task::none()
+        }
     }
 
     fn selected_remote(&self) -> Option<&Remote> {
-        self.selected.and_then(|id| self.remotes.iter().find(|r| r.id == id))
+        self.selected
+            .and_then(|id| self.remotes.iter().find(|r| r.id == id))
     }
 
     /// Roll-up shown for a remote; falls back to the policy before the
     /// state machine knows the remote.
     fn display_state(&self, remote: &Remote) -> RunState {
-        let state = self.snapshot.state.roll_up(remote.id).unwrap_or(if remote.policy.enabled {
-            RunState::Waiting
-        } else {
-            RunState::Paused
-        });
+        let state = self
+            .snapshot
+            .state
+            .roll_up(remote.id)
+            .unwrap_or(if remote.policy.enabled {
+                RunState::Waiting
+            } else {
+                RunState::Paused
+            });
         self.held(remote, state)
     }
 
     /// `Held` in place of an idle state while scheduled passes wait for an unmetered network; problems, passes and pauses show as they are.
     fn held(&self, remote: &Remote, state: RunState) -> RunState {
-        if remote.policy.enabled && matches!(state, RunState::Synced | RunState::Waiting) && power::held_on_metered(self.power) {
+        if remote.policy.enabled
+            && matches!(state, RunState::Synced | RunState::Waiting)
+            && power::held_on_metered(self.power)
+        {
             RunState::Held
         } else {
             state
@@ -849,20 +1079,21 @@ impl SyncativeApp {
             .map_or(("", ""), |(l, r)| (l.as_str(), r.as_str()));
         let folders = dirs
             .iter()
-            .map(|dir| {
-                remote_page::Folder {
-                    dir,
-                    state: self.held(remote, self.snapshot.state.dir_state(remote.id, dir.id)),
-                    latest_line: self.snapshot.pass_lines.get(&dir.id).map(String::as_str),
-                    latest_problem: self.snapshot.problems.get(&dir.id).map(String::as_str),
-                    log: self.sync_dir_log_content.get(&dir.id),
-                    exclusions_open: self.exclusion_panel == Some(dir.id),
-                    auto_excluded: remote_page_auto_excluded(dir, &self.all_known_sync_dirs),
-                    custom_excluded: self.sync_dir_exclusions.get(&dir.id).map_or(&[], |v| v.as_slice()),
-                    leftovers: self.exclusion_leftovers.get(&dir.id),
-                    conflicts: self.conflicts.get(&dir.id).map_or(&[], |v| v.as_slice()),
-                    draft_exclusion: self.draft_exclusion.get(&dir.id).map_or("", |s| s.as_str()),
-                }
+            .map(|dir| remote_page::Folder {
+                dir,
+                state: self.held(remote, self.snapshot.state.dir_state(remote.id, dir.id)),
+                latest_line: self.snapshot.pass_lines.get(&dir.id).map(String::as_str),
+                latest_problem: self.snapshot.problems.get(&dir.id).map(String::as_str),
+                log: self.sync_dir_log_content.get(&dir.id),
+                exclusions_open: self.exclusion_panel == Some(dir.id),
+                auto_excluded: remote_page_auto_excluded(dir, &self.all_known_sync_dirs),
+                custom_excluded: self
+                    .sync_dir_exclusions
+                    .get(&dir.id)
+                    .map_or(&[], |v| v.as_slice()),
+                leftovers: self.exclusion_leftovers.get(&dir.id),
+                conflicts: self.conflicts.get(&dir.id).map_or(&[], |v| v.as_slice()),
+                draft_exclusion: self.draft_exclusion.get(&dir.id).map_or("", |s| s.as_str()),
             })
             .collect();
         let held_on_metered = power::held_on_metered(self.power);
@@ -871,7 +1102,11 @@ impl SyncativeApp {
             state: self.display_state(remote),
             syncing: self.snapshot.syncing.contains(&remote.id),
             // No countdown while held: nothing is scheduled until the network changes.
-            next_sync: if held_on_metered || self.snapshot.offline { None } else { self.next_sync_eta(remote.id) },
+            next_sync: if held_on_metered || self.snapshot.offline {
+                None
+            } else {
+                self.next_sync_eta(remote.id)
+            },
             held_on_metered,
             device_offline: self.snapshot.offline,
             dirs: folders,
@@ -879,6 +1114,7 @@ impl SyncativeApp {
             draft_remote,
             add_error: self.add_sync_dir_error.as_deref(),
             shared_oauth_client: self.shared_oauth_client.contains(&remote.id),
+            usage: self.snapshot.usage.get(&remote.id).copied(),
             compact,
         }
     }
@@ -889,7 +1125,12 @@ impl SyncativeApp {
     /// — the tray catches up on the next change (within one tick).
     fn push_tray_status(&mut self) {
         if let Some(tx) = self.tray_tx.as_ref() {
-            let status = tray::compute_status(&self.snapshot.state, &self.remotes, &self.snapshot.syncing, &self.snapshot.last_sync_at);
+            let status = tray::compute_status(
+                &self.snapshot.state,
+                &self.remotes,
+                &self.snapshot.syncing,
+                &self.snapshot.last_sync_at,
+            );
             // `update` runs on every tick and engine change; only wake
             // the tray task when something visible actually changed.
             if self.last_tray_status.as_ref() != Some(&status)
@@ -913,7 +1154,10 @@ impl SyncativeApp {
     }
 
     /// Show what an import did and take over what it changed: preferences from their files, remotes from the database.
-    fn handle_settings_imported(&mut self, result: Result<Option<settings_file::Imported>, String>) -> Task<Message> {
+    fn handle_settings_imported(
+        &mut self,
+        result: Result<Option<settings_file::Imported>, String>,
+    ) -> Task<Message> {
         let imported = match result {
             Ok(Some(imported)) => imported,
             Ok(None) => return Task::none(),
@@ -922,13 +1166,26 @@ impl SyncativeApp {
                 return Task::none();
             }
         };
-        let plural = |n: usize, one: &str, many: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {many}") };
-        let mut note = format!("Imported {} with {}.", plural(imported.remotes, "remote", "remotes"), plural(imported.folders, "folder", "folders"));
+        let plural = |n: usize, one: &str, many: &str| {
+            if n == 1 {
+                format!("1 {one}")
+            } else {
+                format!("{n} {many}")
+            }
+        };
+        let mut note = format!(
+            "Imported {} with {}.",
+            plural(imported.remotes, "remote", "remotes"),
+            plural(imported.folders, "folder", "folders")
+        );
         if imported.remotes > 0 {
             note.push_str(" Sign in to each to start syncing.");
         }
         if !imported.skipped.is_empty() {
-            note.push_str(&format!(" Left out, as the name is taken: {}.", imported.skipped.join(", ")));
+            note.push_str(&format!(
+                " Left out, as the name is taken: {}.",
+                imported.skipped.join(", ")
+            ));
         }
         self.preferences_note = Some(note);
 
@@ -952,7 +1209,10 @@ impl SyncativeApp {
     /// Store changed power settings; the caller applies a new mode.
     fn set_power(&mut self, power: PowerSettings) {
         self.power = power;
-        self.preferences_error = power.save(&crate::util::get_data_dir()).err().map(|err| format!("Could not save the choice: {err}"));
+        self.preferences_error = power
+            .save(&crate::util::get_data_dir())
+            .err()
+            .map(|err| format!("Could not save the choice: {err}"));
     }
 
     /// Close the explanation of the tray icon's colour for good.
@@ -966,14 +1226,19 @@ impl SyncativeApp {
     /// Store a changed appearance and apply it; the window re-reads it through `theme()`.
     fn set_appearance(&mut self, appearance: Appearance) {
         self.appearance = appearance;
-        self.preferences_error = appearance.save(&crate::util::get_data_dir()).err().map(|err| format!("Could not save the choice: {err}"));
+        self.preferences_error = appearance
+            .save(&crate::util::get_data_dir())
+            .err()
+            .map(|err| format!("Could not save the choice: {err}"));
         self.push_tray_theme();
         self.update_system_bars();
     }
 
     /// Android: light icons in the status and navigation bars on the dark theme, dark ones on the light theme.
     pub(in crate::app) fn update_system_bars(&self) {
-        iced_android::set_system_bars_dark(self.resolved_mode(self.appearance.window) == iced_theme::Mode::Dark);
+        iced_android::set_system_bars_dark(
+            self.resolved_mode(self.appearance.window) == iced_theme::Mode::Dark,
+        );
     }
 
     pub(in crate::app) fn push_tray_theme(&self) {
@@ -986,7 +1251,11 @@ impl SyncativeApp {
                 TrayIconChoice::White => true,
                 TrayIconChoice::Black => false,
             };
-            let mode = if white { iced_theme::Mode::Dark } else { iced_theme::Mode::Light };
+            let mode = if white {
+                iced_theme::Mode::Dark
+            } else {
+                iced_theme::Mode::Light
+            };
             let _ = tx.try_send(TrayUpdate::Theme(mode));
         }
     }
@@ -1088,7 +1357,10 @@ pub(crate) fn main_window_settings() -> window::Settings {
         icon: crate::branding::window_icon(),
         // Wayland has no per-window icon here; KWin / GNOME look the icon up via the app id in the matching `syncative.desktop` (X11: WM_CLASS).
         #[cfg(not(target_os = "android"))]
-        platform_specific: window::settings::PlatformSpecific { application_id: "syncative".to_owned(), ..Default::default() },
+        platform_specific: window::settings::PlatformSpecific {
+            application_id: "syncative".to_owned(),
+            ..Default::default()
+        },
         size: Size::new(1000.0, 700.0),
         min_size: Some(Size::new(720.0, 460.0)),
         ..window::Settings::default()

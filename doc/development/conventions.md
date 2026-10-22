@@ -41,6 +41,7 @@
   - Fields the upstream types lack are parsed from the raw JSON in `proton-ext`.
   - If something truly can't be done without changing the submodule, the feature is dropped instead.
 - Forks of iced, iced_android and android-activity: see [android/README.md](../../android/README.md) and [release.md](../packaging/release.md#the-android-forks).
+- The storage bar on the remote page is the MIT crate [iced-storage-bar](https://github.com/Santuzius/iced-storage-bar), in its own repository and pinned by `rev`. Changes to the widget go there; Syncative only passes its colours in.
 
 ## UI text
 - Explanations and lists in dialogs the user should read use the body size `TEXT` in the normal text colour, lists as indented bullets (`widgets::bullet`), like the Google Drive client-ID steps in *Add remote*.

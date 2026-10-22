@@ -11,13 +11,13 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
 use super::{
-    remote::{Remote, RemoteId, SyncPolicy},
+    remote::{Remote, RemoteId, RemoteUsage, SyncPolicy},
     sync::{
         FileDetails, ListFilter, RemoteItem, SyncDir, SyncDirExclusion, SyncDirExclusionId,
         SyncDirId, SyncItem, SyncItemId,
@@ -67,16 +67,12 @@ impl std::error::Error for RepositoryError {}
 
 pub trait Repository: Send + Sync {
     fn list_remotes(&self) -> BoxFuture<'_, Result<Vec<Remote>, RepositoryError>>;
-    fn find_remote(&self, id: RemoteId)
-        -> BoxFuture<'_, Result<Option<Remote>, RepositoryError>>;
+    fn find_remote(&self, id: RemoteId) -> BoxFuture<'_, Result<Option<Remote>, RepositoryError>>;
     fn find_remote_by_name(
         &self,
         name: &str,
     ) -> BoxFuture<'_, Result<Option<Remote>, RepositoryError>>;
-    fn insert_remote(
-        &self,
-        name: String,
-    ) -> BoxFuture<'_, Result<RemoteId, RepositoryError>>;
+    fn insert_remote(&self, name: String) -> BoxFuture<'_, Result<RemoteId, RepositoryError>>;
     /// Insert a remote whose adapter is the native ProtonDrive client.
     /// `session_path` is the absolute path to the persisted credential
     /// blob the app-start flow will later feed to
@@ -88,10 +84,7 @@ pub trait Repository: Send + Sync {
     ) -> BoxFuture<'_, Result<RemoteId, RepositoryError>>;
     fn delete_remote(&self, id: RemoteId) -> BoxFuture<'_, Result<(), RepositoryError>>;
     /// Delete a remote, all of its sync_dirs, and all of their sync_items.
-    fn cascade_delete_remote(
-        &self,
-        id: RemoteId,
-    ) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    fn cascade_delete_remote(&self, id: RemoteId) -> BoxFuture<'_, Result<(), RepositoryError>>;
     /// Delete a sync_dir (by `(local_path, remote_path)`) and all of its
     /// sync_items.
     fn cascade_delete_sync_dir(
@@ -141,8 +134,7 @@ pub trait Repository: Send + Sync {
         sync_dir: SyncDirId,
         remote_path: &str,
     ) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>>;
-    fn delete_sync_item(&self, id: SyncItemId)
-        -> BoxFuture<'_, Result<(), RepositoryError>>;
+    fn delete_sync_item(&self, id: SyncItemId) -> BoxFuture<'_, Result<(), RepositoryError>>;
     fn insert_sync_item(
         &self,
         sync_dir: SyncDirId,
@@ -188,7 +180,7 @@ pub trait Repository: Send + Sync {
 
 pub trait BackendClient: Send + Sync {
     fn stat(&self, remote: &str, path: &str, cancel: &Cancel)
-        -> Result<Option<RemoteItem>, String>;
+    -> Result<Option<RemoteItem>, String>;
     fn list(
         &self,
         remote: &str,
@@ -198,12 +190,20 @@ pub trait BackendClient: Send + Sync {
         cancel: &Cancel,
     ) -> Result<Vec<RemoteItem>, String>;
     /// Fresh (never cached) details of a file for conflict handling: size and SHA-1 where the backend knows them. `Ok(None)` when the path doesn't exist or is a folder. The default only has the modification time from `stat`.
-    fn details(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<Option<FileDetails>, String> {
-        Ok(self.stat(remote, path, cancel)?.filter(|item| !item.is_dir).map(|item| FileDetails {
-            size: None,
-            mod_time: item.mod_time,
-            sha1: None,
-        }))
+    fn details(
+        &self,
+        remote: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<FileDetails>, String> {
+        Ok(self
+            .stat(remote, path, cancel)?
+            .filter(|item| !item.is_dir)
+            .map(|item| FileDetails {
+                size: None,
+                mod_time: item.mod_time,
+                sha1: None,
+            }))
     }
     fn mkdir(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String>;
     fn delete_file(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String>;
@@ -256,5 +256,9 @@ pub trait BackendClient: Send + Sync {
     fn config(&self, _remote: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
         None
     }
-}
 
+    /// Space used at the provider, for the per-remote storage line. `Ok(None)` when the backend doesn't report a quota (plain WebDAV servers answer `about` with an error, signed-out sessions have nothing to ask).
+    fn usage(&self, _remote: &str, _cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {
+        Ok(None)
+    }
+}

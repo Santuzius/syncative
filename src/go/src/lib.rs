@@ -72,16 +72,32 @@ pub fn rpc<S1: Into<String>, S2: Into<String>>(method: S1, input: S2) -> Result<
 }
 
 /// Like [`rpc`], but the call returns early once `cancel` turns `true`: rclone stops retrying and the error starts with "cancelled". Offline, a single Google Drive call otherwise retries for minutes.
-pub fn rpc_cancellable(method: &str, input: &str, cancel: &std::sync::atomic::AtomicBool) -> Result<String, String> {
+pub fn rpc_cancellable(
+    method: &str,
+    input: &str,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<String, String> {
     let (Ok(method), Ok(input)) = (CString::new(method), CString::new(input)) else {
         return Err(r#"{"error":"invalid RPC input"}"#.to_owned());
     };
     // AtomicBool has the layout of a u8; the Go side only reads it.
     let flag = cancel.as_ptr() as *mut std::os::raw::c_uchar;
-    let result = unsafe { ffi::RcloneRPCCancellable(method.as_ptr() as *mut c_char, input.as_ptr() as *mut c_char, flag) };
-    let output = unsafe { CStr::from_ptr(result.Output) }.to_string_lossy().into_owned();
+    let result = unsafe {
+        ffi::RcloneRPCCancellable(
+            method.as_ptr() as *mut c_char,
+            input.as_ptr() as *mut c_char,
+            flag,
+        )
+    };
+    let output = unsafe { CStr::from_ptr(result.Output) }
+        .to_string_lossy()
+        .into_owned();
     unsafe { ffi::RcloneFreeString(result.Output) };
-    if result.Status == 200 { Ok(output) } else { Err(output) }
+    if result.Status == 200 {
+        Ok(output)
+    } else {
+        Err(output)
+    }
 }
 
 /// Run rclone's OAuth flow for the backend `kind` (`drive`, `dropbox`, `pcloud`) in-process, like `rclone authorize`, with the given client ID and secret unless empty. Blocks until the browser has come back to rclone's local web server or [`authorize_cancel`] is called; returns the token JSON. Instead of opening a browser, rclone leaves the link to [`authorize_url`].
@@ -91,13 +107,27 @@ pub fn authorize(kind: &str, client_id: &str, client_secret: &str) -> Result<Str
         token: Option<String>,
         error: Option<String>,
     }
-    let (Ok(kind), Ok(id), Ok(secret)) = (CString::new(kind), CString::new(client_id), CString::new(client_secret)) else {
+    let (Ok(kind), Ok(id), Ok(secret)) = (
+        CString::new(kind),
+        CString::new(client_id),
+        CString::new(client_secret),
+    ) else {
         return Err("invalid client ID or secret".to_owned());
     };
-    let reply = unsafe { take_string(ffi::SyncativeAuthorize(kind.as_ptr() as *mut c_char, id.as_ptr() as *mut c_char, secret.as_ptr() as *mut c_char)) };
+    let reply = unsafe {
+        take_string(ffi::SyncativeAuthorize(
+            kind.as_ptr() as *mut c_char,
+            id.as_ptr() as *mut c_char,
+            secret.as_ptr() as *mut c_char,
+        ))
+    };
     match serde_json::from_str::<Reply>(&reply) {
-        Ok(Reply { token: Some(token), .. }) => Ok(token),
-        Ok(Reply { error: Some(error), .. }) => Err(error),
+        Ok(Reply {
+            token: Some(token), ..
+        }) => Ok(token),
+        Ok(Reply {
+            error: Some(error), ..
+        }) => Err(error),
         _ => Err(format!("unexpected reply from rclone: {reply}")),
     }
 }
@@ -117,18 +147,28 @@ pub fn authorize_cancel() {
 pub fn set_config_password(password: &str) -> Result<(), String> {
     let password = CString::new(password).map_err(|_| "invalid password".to_owned())?;
     let err = unsafe { ffi::SyncativeSetConfigPassword(password.as_ptr() as *mut c_char) };
-    if err.is_null() { Ok(()) } else { Err(unsafe { take_string(err) }) }
+    if err.is_null() {
+        Ok(())
+    } else {
+        Err(unsafe { take_string(err) })
+    }
 }
 
 /// Load rclone's config file and write it back, encrypted after [`set_config_password`]. A file rclone cannot read stays as it is.
 pub fn save_config() -> Result<(), String> {
     let err = unsafe { ffi::SyncativeSaveConfig() };
-    if err.is_null() { Ok(()) } else { Err(unsafe { take_string(err) }) }
+    if err.is_null() {
+        Ok(())
+    } else {
+        Err(unsafe { take_string(err) })
+    }
 }
 
 /// Copy a string the Go side allocated, and free it.
 unsafe fn take_string(ptr: *mut c_char) -> String {
-    let text = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
+    let text = unsafe { CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned();
     unsafe { ffi::RcloneFreeString(ptr) };
     text
 }
@@ -222,8 +262,15 @@ pub mod proton {
 
         /// Page where the user solves the challenge in a normal browser.
         pub fn url(&self) -> String {
-            let methods = if self.methods.is_empty() { "captcha".to_owned() } else { self.methods.join(",") };
-            format!("https://verify.proton.me/?methods={methods}&token={}", self.token)
+            let methods = if self.methods.is_empty() {
+                "captcha".to_owned()
+            } else {
+                self.methods.join(",")
+            };
+            format!(
+                "https://verify.proton.me/?methods={methods}&token={}",
+                self.token
+            )
         }
     }
 
@@ -367,7 +414,22 @@ pub mod proton {
             |payload| unsafe { ffi::ProtonDrive_FileDetails(payload) },
             &serde_json::json!({ "uid": uid, "link_id": link_id }),
         )?;
-        data.map(|v| serde_json::from_value(v).map_err(|e| format!("invalid response shape: {e}"))).transpose()
+        data.map(|v| serde_json::from_value(v).map_err(|e| format!("invalid response shape: {e}")))
+            .transpose()
+    }
+
+    /// Account-wide storage in bytes, as `drive.Quota`. A Proton plan pools Mail, Drive and Calendar, so `used` covers all three; `max` is 0 when the account reports no limit.
+    #[derive(Clone, Debug, serde::Deserialize)]
+    pub struct Quota {
+        pub used: u64,
+        pub max: u64,
+    }
+
+    pub fn quota(uid: &str) -> Result<Quota, String> {
+        call_json::<_, Quota>(
+            |payload| unsafe { ffi::ProtonDrive_Quota(payload) },
+            &serde_json::json!({ "uid": uid }),
+        )
     }
 
     /// Metadata for a single link. Returns `Ok(None)` when the link
@@ -550,15 +612,24 @@ mod tests {
     fn authorize_hands_over_link_and_cancels() {
         super::initialize();
         for _ in 0..2 {
-            let flow = std::thread::spawn(|| super::authorize("drive", "id.apps.googleusercontent.com", "secret"));
+            let flow = std::thread::spawn(|| {
+                super::authorize("drive", "id.apps.googleusercontent.com", "secret")
+            });
             let url = loop {
                 if let Some(url) = super::authorize_url() {
                     break url;
                 }
-                assert!(!flow.is_finished(), "authorize ended early: {:?}", flow.join());
+                assert!(
+                    !flow.is_finished(),
+                    "authorize ended early: {:?}",
+                    flow.join()
+                );
                 std::thread::sleep(std::time::Duration::from_millis(20));
             };
-            assert!(url.starts_with("http://127.0.0.1:53682/auth?state="), "{url}");
+            assert!(
+                url.starts_with("http://127.0.0.1:53682/auth?state="),
+                "{url}"
+            );
             while !flow.is_finished() {
                 super::authorize_cancel();
                 std::thread::sleep(std::time::Duration::from_millis(20));
@@ -572,7 +643,13 @@ mod tests {
         let err = r#"HUMAN_VERIFICATION_REQUIRED {"methods":["captcha"],"token":"abc123"}"#;
         let hv = HumanVerification::from_login_error(err).expect("HV error");
         assert_eq!(hv.token, "abc123");
-        assert_eq!(hv.url(), "https://verify.proton.me/?methods=captcha&token=abc123");
-        assert_eq!(HumanVerification::from_login_error("422 POST …: Code=2001"), None);
+        assert_eq!(
+            hv.url(),
+            "https://verify.proton.me/?methods=captcha&token=abc123"
+        );
+        assert_eq!(
+            HumanVerification::from_login_error("422 POST …: Code=2001"),
+            None
+        );
     }
 }

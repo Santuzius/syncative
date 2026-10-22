@@ -10,6 +10,7 @@ Keep test loops fast: poll every ≈0.5 s and stop as soon as the condition hold
 - `scripts/test-instance.sh xvfb` runs headless on display `:99`; `scripts/test-instance.sh desktop` shows the window on the desktop, e.g. to sign in throwaway accounts. Add `--release` for the release build.
 - `scripts/test-screenshot.sh` takes screenshots into `temp/` and sends clicks, text and keys to the headless window.
 - `scripts/test-seed-mock.sh` adds offline mock remotes: a real two-way sync between two local folders, an unreachable WebDAV remote (error state) and a Proton remote without a session ("Not signed in").
+- **Storage line:** LocalMock (an `alias` onto a local dir) answers rclone's `about` with the statfs numbers of that directory's disk, so the storage line in the remote page's header shows offline; OfflineMock (dead port) and ProtonMock (no session) report nothing and show no line.
 - `scripts/test-mem.sh` prints the memory use of the test instance.
 - Variables: `SYNCATIVE_TEST_RESET=1` wipes the test state, `SYNCATIVE_TEST_BIN` runs another build, `SYNCATIVE_TEST_SHOW=0` starts in the tray, `SYNCATIVE_COLOR_SCHEME=light|dark` forces the theme.
 - **Network loss:** start the instance with `HTTPS_PROXY`/`HTTP_PROXY` pointing at a local CONNECT proxy and kill the proxy, or point them at a dead port such as `127.0.0.1:9`.
