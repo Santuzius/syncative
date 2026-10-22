@@ -1,7 +1,7 @@
 # Development conventions
 
 ## Branches and versions
-- Work happens on `develop` or a feature branch; `main` only moves at releases ([release.md](release.md)).
+- Work happens on `develop` or a feature branch; `main` only moves at releases ([release.md](../packaging/release.md)).
 - The version lives in `[workspace.package]` of the root `Cargo.toml`; the app and the Go crate inherit it.
 - A version bump is a commit of its own: `:bookmark: Bump crate to X.Y.Z`.
 - If a bump to X was undone (reset or rebase) before X shipped, the next bump goes to the same X, not to a new patch level: a version marks what ships. `Cargo.lock` must follow `Cargo.toml` (`cargo metadata` or `cargo check`).
@@ -40,7 +40,7 @@
   - Methods on upstream types become free functions taking the type as a parameter.
   - Fields the upstream types lack are parsed from the raw JSON in `proton-ext`.
   - If something truly can't be done without changing the submodule, the feature is dropped instead.
-- Forks of iced, iced_android and android-activity: see [android/README.md](../android/README.md) and [release.md](release.md#the-android-forks).
+- Forks of iced, iced_android and android-activity: see [android/README.md](../../android/README.md) and [release.md](../packaging/release.md#the-android-forks).
 
 ## UI text
 - Explanations and lists in dialogs the user should read use the body size `TEXT` in the normal text colour, lists as indented bullets (`widgets::bullet`), like the Google Drive client-ID steps in *Add remote*.

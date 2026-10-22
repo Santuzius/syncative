@@ -24,7 +24,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 clap = { version = "4.6.1", features = ["derive", "env"] }
 futures = "0.3.32"
-# iced from the fork that runs it on Android (tagged with each iced_android release, see doc/release.md). `x11` only satisfies iced's check that Unix targets pick a display server; nothing of it is built for Android. The desktop-only features are added below.
+# iced from the fork that runs it on Android (tagged with each iced_android release, see doc/packaging/release.md). `x11` only satisfies iced's check that Unix targets pick a display server; nothing of it is built for Android. The desktop-only features are added below.
 iced = { git = "https://github.com/Santuzius/iced", tag = "iced_android-v0.1.0", default-features = false, features = ["wgpu", "tiny-skia", "crisp", "web-colors", "tokio", "lazy", "svg", "x11"] }
 # Soft keyboard, insets, back gesture and fonts on Android; does nothing on desktop.
 iced_android = { git = "https://github.com/Santuzius/iced_android", tag = "v0.1.0", features = ["emoji"] }

@@ -19,7 +19,7 @@ Needs rustup with the Android targets (`rustup target add aarch64-linux-android`
 
 The script builds `libsyncative.so` with cargo-ndk and the Go part as `libsyncative_go.so`: Go cannot link a c-archive into an Android library, so it is a shared library there. It then builds the debug APK with Gradle from `android/shell.nix` and installs it. The debug APK carries the optimised native libraries; being debuggable, its files can be reached with `adb shell run-as io.github.santuzius.syncative`.
 
-iced, iced_android and android-activity come from forks on GitHub (`Cargo.toml`); the android-activity fork lets the app outlive a destroyed activity. To work on a fork, point Cargo at its local checkout with a `[patch]` section in `.cargo/config.toml` (example: [doc/cargo-config.example.toml](../doc/cargo-config.example.toml)), which is not committed, and don't commit the `Cargo.lock` that results.
+iced, iced_android and android-activity come from forks on GitHub (`Cargo.toml`); the android-activity fork lets the app outlive a destroyed activity. To work on a fork, point Cargo at its local checkout with a `[patch]` section in `.cargo/config.toml` (example: [doc/development/cargo-config.example.toml](../doc/development/cargo-config.example.toml)), which is not committed, and don't commit the `Cargo.lock` that results.
 
 ## Release
 
@@ -32,4 +32,4 @@ The release APK is signed with the release key. `android/keystore.properties` (n
     keyAlias=syncative
     keyPassword=…
 
-Android installs an update only over an APK signed with the same key, so keep a backup of the keystore and its password; without them no update of the published app is possible. The versionCode follows from the version in `Cargo.toml` (0.21.0 → 21000). The whole release is described in [doc/release.md](../doc/release.md).
+Android installs an update only over an APK signed with the same key, so keep a backup of the keystore and its password; without them no update of the published app is possible. The versionCode follows from the version in `Cargo.toml` (0.21.0 → 21000). The whole release is described in [doc/packaging/release.md](../doc/packaging/release.md).

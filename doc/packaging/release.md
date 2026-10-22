@@ -17,7 +17,7 @@ The branch flow:
 - **Clean `Cargo.lock`:**
   - Without `.cargo/config.toml`: its `[patch]` sections point Cargo at local checkouts of the forks and put path sources into `Cargo.lock`.
   - The forks (iced, iced_android, android-activity) must be pushed and tagged ([below](#the-android-forks)). Nix and the AppImage build fetch them from GitHub.
-- **Docker** for the AppImage, **rustup with the Android targets** and the Nix shells for the APK (see [android/README.md](../android/README.md)).
+- **Docker** for the AppImage, **rustup with the Android targets** and the Nix shells for the APK (see [android/README.md](../../android/README.md)).
 - **`android/keystore.properties`** with the release key (below).
 
 ## Steps

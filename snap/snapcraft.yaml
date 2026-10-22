@@ -40,7 +40,7 @@ apps:
       - network
       # Local callback port of the Google sign-in (rclone's authorize flow, built in).
       - network-bind
-      # Sign-in tokens live in the Secret Service keyring. Not auto-connected for new snaps; see doc/snap.md.
+      # Sign-in tokens live in the Secret Service keyring. Not auto-connected for new snaps; see doc/packaging/snap.md.
       - password-manager-service
       # Tray icon (StatusNotifierItem) on desktops whose tray relies on the legacy rules.
       - unity7
