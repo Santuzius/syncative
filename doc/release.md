@@ -91,3 +91,8 @@ Cargo treats the same repository under two different tags as two different sourc
   - The tray icon appears.
   - Syncative keeps running after the window closes.
   - A second start brings up the running instance's window.
+
+## AppImageHub
+- Syncative's entry in the [AppImageHub](https://appimage.github.io) catalogue came from [AppImage/appimage.github.io#10458](https://github.com/AppImage/appimage.github.io/pull/10458). Its test always uses the latest GitHub release.
+- To refresh the entry after a release, comment `/retest` on that merged PR: the bot opens a new PR that tests the release again and merges itself.
+- The catalogue shows a screenshot taken by the bot, unless the AppImage ships `usr/share/metainfo/*.metainfo.xml` with a screenshot URL (planned: `doc/img/Screenshot_light.png` on raw.githubusercontent.com).
