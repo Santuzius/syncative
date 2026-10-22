@@ -6,7 +6,10 @@
 # The APK is the debug variant (with optimised native libraries), so `adb shell run-as io.github.santuzius.syncative` can reach the app's files.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$(ls -d /nix/store/*-android-sdk-ndk-28.2.13676358/libexec/android-sdk/ndk/28.2.13676358 | head -1)}"
+# The SDK is unfree, so Nix builds it locally, which takes several minutes; the GC root temp/android-sdk keeps it through garbage collections.
+mkdir -p "$REPO/temp"
+nix-build "$REPO/android/shell.nix" -A inputDerivation -o "$REPO/temp/android-sdk" 2>&1 >/dev/null | grep -v 'making symlink' >&2 || true
+export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$(nix-shell "$REPO/android/shell.nix" --run 'echo "$ANDROID_NDK_HOME"')}"
 abi="${ABI:-arm64-v8a}"
 log="$REPO/temp/android-cargo.log"
 cd "$REPO/android"
