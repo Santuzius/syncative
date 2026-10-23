@@ -60,8 +60,7 @@ Syncative uses iced_android and its two forks by tag, so other apps can use the 
 1. **Pick the version** `X.Y.Z` of iced_android: a bug fix raises Z, anything else Y (0.x has no stable API).
 2. **Tag the forks** `iced_android-vX.Y.Z`: the iced fork on `android-0.14`, the android-activity fork on `process-lifetime-0.6`, even if one didn't change. Push the tags.
 3. **In iced_android:** set `version` in `Cargo.toml`, the tags in `Cargo.toml`, `examples/runtime/Cargo.toml` and the README to the new ones, run `cargo update` so `Cargo.lock` follows, commit, tag `vX.Y.Z`, and push branch and tag.
-4. **In iced-storage-bar:** set the same iced tag in its `Cargo.toml`, run `cargo update`, commit and push.
-5. **In Syncative:** set the same tags in `Cargo.toml` (`iced` twice, `iced_android`, `android-activity`) and the new `rev` of `iced-storage-bar`, run `cargo update`, set the changed entries of `outputHashes` in `nix/package.nix` to `lib.fakeHash` and copy the hashes from the failing `nix build .#syncative-source`.
+4. **In Syncative:** set the same tags in `Cargo.toml` (`iced` twice, `iced_android`, `android-activity`, `iced_widget` in `[patch.crates-io]`), run `cargo update`, set the changed entries of `outputHashes` in `nix/package.nix` to `lib.fakeHash` and copy the hashes from the failing `nix build .#syncative-source`.
 
 Cargo treats the same repository under two different tags as two different sources, so all of them must name the same release.
 

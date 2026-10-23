@@ -41,7 +41,13 @@
   - Fields the upstream types lack are parsed from the raw JSON in `proton-ext`.
   - If something truly can't be done without changing the submodule, the feature is dropped instead.
 - Forks of iced, iced_android and android-activity: see [android/README.md](../../android/README.md) and [release.md](../packaging/release.md#the-android-forks).
-- The storage bar on the remote page is the MIT crate [iced-storage-bar](https://github.com/Santuzius/iced-storage-bar), in its own repository and pinned by `rev`. Changes to the widget go there; Syncative only passes its colours in.
+
+## Widgets
+- **Bigger widgets get a repository of their own** under the MIT licence, as a crate named `iced-<name>` (e.g. [iced-storage-bar](https://github.com/Santuzius/iced-storage-bar)), so other iced apps can use them and they can go to crates.io. Small helpers that only arrange Syncative's own widgets stay in `src/widgets/`.
+- **Ask the maintainer first** whether a new widget gets its own repository or stays in `src/widgets/`; agents don't decide this themselves.
+- Such a crate depends on `iced_widget` from crates.io, not on the fork, and knows nothing of Syncative: colours, texts and thresholds come in through its API, with defaults from the iced theme.
+- Syncative pins it by `rev` and gives it the fork's widgets through `iced_widget` in `[patch.crates-io]`, so Cargo builds only one iced. A new `rev` needs its `outputHashes` entry in `nix/package.nix` updated ([release.md](../packaging/release.md#the-android-forks)).
+- Changes to such a widget go into its repository; Syncative only passes its look in.
 
 ## UI text
 - Explanations and lists in dialogs the user should read use the body size `TEXT` in the normal text colour, lists as indented bullets (`widgets::bullet`), like the Google Drive client-ID steps in *Add remote*.

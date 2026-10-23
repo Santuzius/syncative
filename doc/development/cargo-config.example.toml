@@ -13,3 +13,4 @@ iced_android = { path = "../iced_android" }
 
 [patch.crates-io]
 android-activity = { path = "../android-activity/android-activity" }
+iced_widget = { path = "../iced/widget" }

@@ -1988,7 +1988,7 @@ dependencies = [
 [[package]]
 name = "iced-storage-bar"
 version = "0.1.0"
-source = "git+https://github.com/Santuzius/iced-storage-bar?rev=9790935aef2de2fceb413d2f76b6b38e7489df7f#9790935aef2de2fceb413d2f76b6b38e7489df7f"
+source = "git+https://github.com/Santuzius/iced-storage-bar?rev=06c00480522aa4e1671b6b9bd98847b0134be2c1#06c00480522aa4e1671b6b9bd98847b0134be2c1"
 dependencies = [
  "iced_widget",
 ]
