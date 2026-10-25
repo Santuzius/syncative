@@ -71,11 +71,11 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 ## Installing
 ### AppImage
 
-1. (optional) To be informed about updates with bug fixes and new features, install [Gear Lever](https://gearlever.mijorus.it) and enable "Check updates on system startup".
+1. (recommended) To be informed about updates with bug fixes and new features, install [Gear Lever](https://gearlever.mijorus.it) and enable "Check updates on system startup".
 2. Download `Syncative-<version>-x86_64.AppImage` from the [latest release](https://github.com/Santuzius/syncative/releases/latest).
 3. Install it using Gear Lever or move it to a fixed place under a fixed name, e.g. `~/Applications/Syncative.AppImage`, and make it executable (`chmod +x`).
 4. Start it once (from the app menu if you used Gear Lever). Syncative then starts itself at login from exactly this file. (You can switch this off in Preferences.)
-5. (optional) On GNOME install the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) to see the tray icon
+5. (recommended) On GNOME install the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) to see the tray icon
 
 Without an update app like Gear Lever, you can update Syncative by replacing the file.
 
