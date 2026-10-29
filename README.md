@@ -159,6 +159,11 @@ See [Provider Support](https://github.com/Santuzius/syncative/issues/2), which a
 ### Why not Flatpak, F-Droid or distribution packages?
 See [Platform Support](https://github.com/Santuzius/syncative/issues/1), which lists the state of each store.
 
+### What about Google Photos and Proton Photos?
+You can sync photo and video folders in your drive just like any other folder, and then browse them with your device's gallery or file manager. However, syncing Google Photos or Proton Photos libraries is quite hard to implement and is not on the todo list.
+
+If you want specific photo and video features such as AI-based image tagging or a map view: these are not planned for Syncative. Instead, I'd recommend [PixelUnion](https://pixelunion.eu), or [Immich](https://immich.app) as its self-hosted variant, to store and browse your photos and videos across devices in a simple way. As a photo/video enthusiast, you might find [PhotoPrism](https://www.photoprism.app) a better fit. (You can find more details in [this video](https://www.youtube.com/watch?v=KdNQDelPDa4), in German.)
+
 ## Supporting Syncative
 If Syncative is useful to you, recommend it on AlternativeTo, or buy me a coffee.
 
