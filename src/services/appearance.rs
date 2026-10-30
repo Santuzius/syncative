@@ -55,7 +55,7 @@ impl TrayIconChoice {
     pub fn label(self) -> &'static str {
         match self {
             TrayIconChoice::System => "System",
-            TrayIconChoice::Reversed => "Reversed system",
+            TrayIconChoice::Reversed => "Inverted",
             TrayIconChoice::White => "White",
             TrayIconChoice::Black => "Black",
         }

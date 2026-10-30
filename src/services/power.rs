@@ -26,21 +26,21 @@ impl PowerMode {
         match self {
             PowerMode::PowerSave => "Power save",
             PowerMode::Balanced => "Balanced",
-            PowerMode::SyncSpeed => "Sync speed",
+            PowerMode::SyncSpeed => "Fastest sync",
         }
     }
 
     /// What the mode does, as bullet points below the choice.
     pub fn points(self) -> &'static [&'static str] {
         match self {
-            PowerMode::PowerSave => &["Screen on: at most once a minute", "Screen off: no syncing; it catches up when the screen turns on", "While charging: each remote's own interval"],
+            PowerMode::PowerSave => &["Screen on: at most once a minute", "Screen off: no syncing; it catches up when the screen turns on", "While charging: as often as set for each remote"],
             PowerMode::Balanced => &[
-                "Screen on: each remote's own interval",
+                "Screen on: as often as set for each remote",
                 "Screen off: at most every 5 minutes",
-                "Android's battery saver on: like Power save",
-                "While charging: each remote's own interval",
+                "Android's battery saver on: like “Power save”",
+                "While charging: as often as set for each remote",
             ],
-            PowerMode::SyncSpeed => &["Always each remote's own interval, also with the screen off", "Uses the most battery"],
+            PowerMode::SyncSpeed => &["Always as often as set for each remote, even with the screen off", "Uses the most battery"],
         }
     }
 

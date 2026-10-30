@@ -70,7 +70,7 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, s
         rows = rows.push(rule::horizontal(1).style(theme::separator)).push(choice_row(
             compact,
             "Tray icon",
-            "Colour of the icon in the panel.",
+            "Colour of Syncative's icon in the system tray.",
             segmented(&TrayIconChoice::ALL, TrayIconChoice::label, appearance.tray_icon, Msg::TrayIconChanged),
         ));
     }
@@ -86,7 +86,7 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, s
             if power.background && !power.background_allowed {
                 background = background.push(container(background_warning()).padding(iced::Padding { top: 0.0, right: 14.0, bottom: 12.0, left: 14.0 }));
             }
-            let autostart_hint = if power.background { "Syncing resumes after a restart." } else { "Needs Run in background." };
+            let autostart_hint = if power.background { "Syncs again after a restart, without opening Syncative." } else { "Turn on “Run in background” first." };
             let autostart_toggle = toggler(power.background && autostart).on_toggle_maybe(power.background.then_some(Msg::AutostartToggled)).size(20);
             rows = rows
                 .push(separator())
@@ -98,7 +98,7 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, s
                 .push(separator())
                 .push(setting_row(
                     "Sync on metered networks",
-                    "Mobile data and hotspots. When off, syncing waits for Wi-Fi or another unmetered network; Sync now still syncs.",
+                    "Mobile data and hotspots. When off, Syncative waits for Wi-Fi or another unmetered network, but you can still start a sync yourself.",
                     toggler(power.sync_metered).on_toggle(Msg::SyncMeteredToggled).size(20).into(),
                 ));
         }
@@ -109,7 +109,7 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, s
                 .push(separator())
                 .push(setting_row(
                     "Start hidden",
-                    if autostart { "At login only the tray icon appears; when off, the window opens too." } else { "Needs Start Syncative when you log in." },
+                    if autostart { "At login only the tray icon appears, not the window." } else { "Turn on “Start Syncative when you log in” first." },
                     toggler(autostart && start_hidden).on_toggle_maybe(autostart.then_some(Msg::StartHiddenToggled)).size(20).into(),
                 ));
         }
@@ -117,12 +117,12 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, s
 
     rows = rows
         .push(separator())
-        .push(setting_row("Detailed log", if cfg!(target_os = "android") { "Also log every file copied or deleted and every sync pass, and write it all to Android's log, not only problems." } else { "Also log every file copied or deleted and every sync pass, and write it all to the system journal, not only problems." }, toggler(detailed_log).on_toggle(Msg::DetailedLogToggled).size(20).into()))
+        .push(setting_row("Detailed log", "Log everything Syncative does, not only problems. For bug reports.", toggler(detailed_log).on_toggle(Msg::DetailedLogToggled).size(20).into()))
         .push(separator())
         .push(choice_row(
             compact,
             "Log",
-            "The last few thousand lines, also without the detailed log, e.g. for a bug report. Clear it before reproducing a problem.",
+            "The last few thousand lines, e.g. for a bug report. Clear it before reproducing a problem.",
             row![
                 button(text("Copy").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::CopyLog),
                 button(text("Clear").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::ClearLog),
@@ -138,7 +138,7 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, s
         button(text("Import…").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::Import),
     ]
     .spacing(8);
-    rows = rows.push(separator()).push(choice_row(compact, "Settings file", "Remotes, folders and these preferences, without sign-ins. Imported remotes ask you to sign in again.", transfer.into()));
+    rows = rows.push(separator()).push(choice_row(compact, "Settings file", "Remotes, folders and these preferences, without sign-ins. After an import, sign in to each remote again.", transfer.into()));
     if let Some(note) = note {
         rows = rows.push(row_note(note));
     }
@@ -219,7 +219,7 @@ pub fn background_dialog<'a>() -> Element<'a, Msg> {
 pub fn tray_hint_dialog<'a>(tray_icon: TrayIconChoice) -> Element<'a, Msg> {
     let content = column![
         text("Syncative lives in the system tray").size(HEADING + 2.0),
-        text("Closing this window keeps Syncative syncing in the background. Its icon in the panel shows how syncing goes and opens this window again.").size(TEXT),
+        text("Closing this window keeps Syncative syncing in the background. Its icon in the system tray shows the sync status and opens this window again.").size(TEXT),
         text("If the icon is hard to see on your panel, pick another colour. You can change it later in Preferences → Tray icon.").size(TEXT),
         segmented(&TrayIconChoice::ALL, TrayIconChoice::label, tray_icon, Msg::TrayIconChanged),
         row![Space::new().width(Length::Fill), button(text("OK").size(TEXT)).padding([6, 16]).style(theme::button_primary).on_press(Msg::TrayHintClosed)],
