@@ -16,6 +16,7 @@ use crate::{
         remote::Remote,
         sync::{ListFilter, RemoteItem, SyncDir, SyncItem},
     },
+    services::nomedia,
     util,
 };
 
@@ -93,6 +94,16 @@ impl Snapshot {
                 .push(absolute_remote_path(sync_dir, &excl.remote_path));
             excluded_remote_prefixes.push(excl.remote_path.clone());
             excluded_local_prefixes.push(format!("{}/{}", sync_dir.local_path, local_names::to_local(&excl.remote_path)));
+        }
+
+        // The `.nomedia` files of hidden folders belong to this device: each phone creates them from the setting, so none is uploaded, downloaded or deleted. The prefix match is exact for a file, so only these files drop out.
+        let hidden = util::await_future(repo.list_hidden_folders(sync_dir.id)).unwrap_or_default();
+        for folder in &hidden {
+            let local = nomedia::relative_file(folder);
+            let remote = local_names::from_local(&local).into_owned();
+            excluded_remote_prefixes.push(absolute_remote_path(sync_dir, &remote));
+            excluded_remote_prefixes.push(remote);
+            excluded_local_prefixes.push(format!("{}/{local}", sync_dir.local_path));
         }
 
         // 1. DB (cheap, authoritative for "what we last saw"). Drop any

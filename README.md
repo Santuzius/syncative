@@ -66,6 +66,7 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 - Starts at login or after the phone's restart (can be switched off), Start / Pause per account
 - Shows how much of each account's space is used
 - On Android: power modes that sync less often with the screen off, and optionally no syncing on mobile data or other metered networks
+- On Android: sub-folders hidden from the gallery and media apps through `.nomedia` files, which each phone creates from the setting and which stay out of the cloud
 - Light and dark theme, adjustable content size, settings export and import (without sign-ins)
 
 ## Installing

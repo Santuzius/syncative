@@ -140,6 +140,32 @@ fn local_deleted_mirrors_to_remote() {
     assert!(!repo.has_item(&local_path, "gone.txt"));
 }
 
+/// The `.nomedia` files of hidden folders belong to the device: neither uploaded nor downloaded. One in a folder that isn't hidden syncs like any file.
+#[test]
+fn nomedia_files_of_hidden_folders_stay_on_the_device() {
+    let tmp = TempDir::new("sync_nomedia");
+    tmp.write_file("Pictures/.nomedia", b"");
+    tmp.write_file("Docs/.nomedia", b"");
+    let repo = FakeRepo::new();
+    *repo.hidden.lock().unwrap() = vec!["Pictures".to_owned(), "Music".to_owned()];
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("Pictures", true, 1_700_000_000),
+            remote_item("Docs", true, 1_700_000_000),
+            remote_item("Music", true, 1_700_000_000),
+            remote_item("Music/.nomedia", false, 1_700_000_000),
+        ]),
+    );
+
+    let (outcome, _events) = run_full(&tmp, &repo, &client);
+    assert_eq!(outcome, Outcome::Synced);
+    let uploads: Vec<String> = client.copy_to_remote_calls.lock().unwrap().iter().map(|(_, remote)| remote.clone()).collect();
+    assert_eq!(uploads, ["Docs/.nomedia"]);
+    assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
+}
+
 /// A delete whose target vanished since the listing did what it wanted: no warning, and the row goes.
 #[test]
 fn deleting_what_is_already_gone_is_no_problem() {

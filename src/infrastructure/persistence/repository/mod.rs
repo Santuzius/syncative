@@ -14,6 +14,7 @@ use crate::domain::{
 use super::models::{RemotesModel, SyncDirsModel, SyncItemsModel};
 
 mod exclusions;
+mod hidden_folders;
 mod remotes;
 mod sync_dirs;
 mod sync_items;
@@ -266,6 +267,14 @@ impl Repository for SeaOrmRepository {
         exclusions::delete_exclusion(&self.db, id)
     }
 
+    fn list_hidden_folders(&self, sync_dir: SyncDirId) -> BoxFuture<'_, Result<Vec<String>, RepositoryError>> {
+        hidden_folders::list_hidden_folders(&self.db, sync_dir)
+    }
+
+    fn set_hidden_folders(&self, sync_dir: SyncDirId, paths: Vec<String>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        hidden_folders::set_hidden_folders(&self.db, sync_dir, paths)
+    }
+
     fn delete_sync_items_with_local_prefix(
         &self,
         sync_dir: SyncDirId,
@@ -291,7 +300,7 @@ mod tests {
     };
 
     #[test]
-    fn folders_and_remotes_with_exclusions_can_be_removed() {
+    fn folders_and_remotes_with_exclusions_and_hidden_folders_can_be_removed() {
         let db = await_future(Database::connect("sqlite::memory:")).unwrap();
         await_future(Migrator::up(&db, None)).unwrap();
         let repo = SeaOrmRepository::new(db);
@@ -301,11 +310,27 @@ mod tests {
         }
         for dir in await_future(repo.list_sync_dirs(id)).unwrap() {
             await_future(repo.insert_exclusion(dir.id, "Big".to_owned())).unwrap();
+            await_future(repo.set_hidden_folders(dir.id, vec!["Pictures".to_owned()])).unwrap();
         }
 
         await_future(repo.cascade_delete_sync_dir("/a", "")).unwrap();
         assert_eq!(await_future(repo.list_sync_dirs(id)).unwrap().len(), 1);
         await_future(repo.cascade_delete_remote(id)).unwrap();
         assert!(await_future(repo.list_remotes()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn hidden_folders_are_replaced_as_a_set() {
+        let db = await_future(Database::connect("sqlite::memory:")).unwrap();
+        await_future(Migrator::up(&db, None)).unwrap();
+        let repo = SeaOrmRepository::new(db);
+        let id = await_future(repo.insert_remote("R".to_owned())).unwrap();
+        await_future(repo.insert_sync_dir(id, "/a".to_owned(), String::new())).unwrap();
+        let dir = await_future(repo.list_sync_dirs(id)).unwrap().remove(0);
+
+        await_future(repo.set_hidden_folders(dir.id, vec!["Videos".to_owned(), "Pictures/Raw".to_owned()])).unwrap();
+        assert_eq!(await_future(repo.list_hidden_folders(dir.id)).unwrap(), ["Pictures/Raw", "Videos"]);
+        await_future(repo.set_hidden_folders(dir.id, vec!["Music".to_owned()])).unwrap();
+        assert_eq!(await_future(repo.list_hidden_folders(dir.id)).unwrap(), ["Music"]);
     }
 }

@@ -1986,14 +1986,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iced-storage-bar"
-version = "0.1.0"
-source = "git+https://github.com/Santuzius/iced-storage-bar?rev=06c00480522aa4e1671b6b9bd98847b0134be2c1#06c00480522aa4e1671b6b9bd98847b0134be2c1"
-dependencies = [
- "iced_widget",
-]
-
-[[package]]
 name = "iced_android"
 version = "0.1.0"
 source = "git+https://github.com/Santuzius/iced_android?tag=v0.1.0#1bd0e22f96c09a48e95e6f9580e50e3b6814bceb"
@@ -2035,6 +2027,17 @@ dependencies = [
  "iced_core",
  "iced_futures",
  "log",
+]
+
+[[package]]
+name = "iced_fabi"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2068c5acadf004d5dc1196f1042f8d2da567a05ed0a38cee206c56d826f7b91"
+dependencies = [
+ "iced_widget",
+ "icondata",
+ "icondata_core",
 ]
 
 [[package]]
@@ -2100,6 +2103,15 @@ dependencies = [
  "iced_futures",
  "raw-window-handle",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "iced_storage_bar"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea162c3ae2cee0fc4f1384a1ef43fad817b5f6a5ab7b94892484e1d465c1d4fb"
+dependencies = [
+ "iced_widget",
 ]
 
 [[package]]
@@ -2177,9 +2189,19 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "412c95f764f89aad1a8505aa4273d931b66d5a26d1e6609a37243784a9128ad9"
 dependencies = [
+ "icondata_bi",
  "icondata_core",
  "icondata_mdi",
  "icondata_tb",
+]
+
+[[package]]
+name = "icondata_bi"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f178e5643b61ddf06b4b0c68e0fa5674cbd750be9414e5e02e2e3dd740d9924"
+dependencies = [
+ "icondata_core",
 ]
 
 [[package]]
@@ -4971,8 +4993,9 @@ dependencies = [
  "dbus",
  "futures",
  "iced",
- "iced-storage-bar",
  "iced_android",
+ "iced_fabi",
+ "iced_storage_bar",
  "icondata",
  "icondata_core",
  "jni 0.21.1",

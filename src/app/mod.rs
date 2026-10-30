@@ -29,7 +29,7 @@ use crate::{
         single_instance,
         tray::{self, TrayAction, TrayUpdate},
     },
-    screens::{about, add_remote, conflict, main_page, preferences, remote_page, settings},
+    screens::{about, add_remote, conflict, folder_picker, main_page, preferences, remote_page, settings},
     services::{
         appearance::{Appearance, ThemeChoice, TrayIconChoice},
         autostart, leftovers,
@@ -67,6 +67,13 @@ pub enum Message {
     LeftoversCleaned(SyncDirId, String, Result<leftovers::Cleaned, String>),
     /// Result of the desktop folder chooser (`None` = cancelled / no portal).
     LocalPathPicked(Option<String>),
+    FolderPicker(folder_picker::Msg),
+    /// Folders in a directory the folder picker asked for, tagged with the picker's generation.
+    FolderListed(u64, iced_fabi::NodeId, Result<Vec<iced_fabi::Entry>, String>),
+    /// A sync folder's hidden folders, read to open the picker with them ticked.
+    HiddenFoldersLoaded(SyncDirId, Vec<String>),
+    /// The hidden folders were stored and their `.nomedia` files brought in line.
+    HiddenFoldersSaved,
     /// An add-sync-dir attempt finished; `Err` carries the message shown under the form.
     SyncDirAdded(RemoteId, Result<(), String>),
     PolicySaved,
@@ -210,6 +217,10 @@ pub struct SyncativeApp {
     drawer_open: bool,
     /// Compact layout: the add-folder dialog is open.
     add_folder_open: bool,
+    /// The folder picker, over every other dialog while open.
+    folder_picker: Option<folder_picker::Picker>,
+    /// Counts the pickers opened, so a late listing can't land in a newer one.
+    folder_picker_generation: u64,
     /// Room the system bars and the keyboard take (Android); zero on the desktop.
     insets: iced_android::Insets,
     /// What the user is about to delete, set while the confirmation
@@ -273,6 +284,8 @@ impl SyncativeApp {
             pending_delete: None,
             drawer_open: false,
             add_folder_open: false,
+            folder_picker: None,
+            folder_picker_generation: 0,
             insets: iced_android::Insets::default(),
             window_id: None,
         };
@@ -674,6 +687,21 @@ impl SyncativeApp {
             }
             Message::Remote(remote_page::Msg::BrowseLocalPath) => self.handle_browse_local_path(),
             Message::LocalPathPicked(path) => self.handle_local_path_picked(path),
+            Message::Remote(remote_page::Msg::BrowseRemotePath) => {
+                self.handle_open_folder_picker(folder_picker::Target::AddFolder)
+            }
+            Message::Remote(remote_page::Msg::BrowseExclusion(sd_id)) => {
+                self.handle_open_folder_picker(folder_picker::Target::Exclusion(sd_id))
+            }
+            Message::Remote(remote_page::Msg::BrowseHidden(sd_id)) => {
+                self.handle_open_folder_picker(folder_picker::Target::Hidden(sd_id))
+            }
+            Message::HiddenFoldersLoaded(sd_id, hidden) => self.handle_hidden_folders_loaded(sd_id, hidden),
+            Message::HiddenFoldersSaved => Task::none(),
+            Message::FolderPicker(msg) => self.handle_folder_picker_msg(msg),
+            Message::FolderListed(generation, id, result) => {
+                self.handle_folder_listed(generation, id, result)
+            }
             Message::SyncDirAdded(id, result) => self.handle_sync_dir_added(id, result),
             Message::Remote(remote_page::Msg::ToggleLog(sd_id)) => self.handle_toggle_log(sd_id),
             Message::Remote(remote_page::Msg::Settings(sub)) | Message::Settings(sub) => {
@@ -883,7 +911,7 @@ impl SyncativeApp {
         } else {
             content
         };
-        if let Some(draft) = self.add_remote_draft.as_ref() {
+        let with_dialog: Element<'_, Message> = if let Some(draft) = self.add_remote_draft.as_ref() {
             let dismiss = draft
                 .can_cancel()
                 .then_some(Message::AddRemote(add_remote::Msg::Cancel));
@@ -988,11 +1016,26 @@ impl SyncativeApp {
             .into()
         } else {
             base
+        };
+        // Opened from the add-folder dialog or the page; that stays visible underneath.
+        match self.folder_picker.as_ref() {
+            Some(picker) => stack![
+                with_dialog,
+                remote_page::modal(
+                    folder_picker::view(picker).map(Message::FolderPicker),
+                    Some(Message::FolderPicker(folder_picker::Msg::Cancel))
+                )
+            ]
+            .into(),
+            None => with_dialog,
         }
     }
 
     /// Close the topmost dialog, drawer or open panel; `false` when nothing was open.
     fn close_topmost(&mut self) -> bool {
+        if self.close_folder_picker().is_some() {
+            return true;
+        }
         if self.pending_delete.take().is_some() || self.conflict_dialog.take().is_some() {
             return true;
         }

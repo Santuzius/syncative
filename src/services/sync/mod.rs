@@ -17,6 +17,8 @@
 
 use std::time::Instant;
 
+use crate::services::nomedia;
+
 use crate::domain::{
     events::SyncEvent,
     ports::{BackendClient, Cancel, Repository, is_cancelled as cancel_check},
@@ -156,6 +158,17 @@ where
         return Outcome::Aborted;
     }
 
+    // Hidden folders get their `.nomedia` before new files arrive in them, and again below for folders this pass created.
+    let ensure_nomedia = || {
+        if nomedia::APPLIES {
+            let hidden = crate::util::await_future(repo.list_hidden_folders(sync_dir.id)).unwrap_or_default();
+            for file in nomedia::ensure(&sync_dir.local_path, &hidden) {
+                emit_status(tr::tr!("Hidden from the gallery: {}", crate::util::fmt_home(&file.parent().unwrap_or(&file).display().to_string())));
+            }
+        }
+    };
+    ensure_nomedia();
+
     if is_cancelled() {
         emit_status(tr::tr!("Sync cancelled."));
         return Outcome::Aborted;
@@ -192,6 +205,7 @@ where
             resolutions: resolutions.to_vec(),
         });
     }
+    ensure_nomedia();
     let failed = applied.failures;
     // Conflicts waiting for the user are neither synced nor failed.
     let total = total - applied.conflicts.len();

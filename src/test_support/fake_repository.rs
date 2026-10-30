@@ -19,6 +19,8 @@ pub struct FakeRepo {
     pub sync_dir_exists: Mutex<bool>,
     pub remotes: Mutex<Vec<Remote>>,
     pub sync_dirs: Mutex<Vec<SyncDir>>,
+    /// Hidden folders, the same for every sync_dir.
+    pub hidden: Mutex<Vec<String>>,
 }
 
 impl FakeRepo {
@@ -29,6 +31,7 @@ impl FakeRepo {
             sync_dir_exists: Mutex::new(true),
             remotes: Mutex::new(vec![]),
             sync_dirs: Mutex::new(vec![]),
+            hidden: Mutex::new(vec![]),
         }
     }
 
@@ -265,6 +268,13 @@ impl Repository for FakeRepo {
         &self,
         _id: SyncDirExclusionId,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        Box::pin(async { Ok(()) })
+    }
+    fn list_hidden_folders(&self, _sd: SyncDirId) -> BoxFuture<'_, Result<Vec<String>, RepositoryError>> {
+        let hidden = self.hidden.lock().unwrap().clone();
+        Box::pin(async { Ok(hidden) })
+    }
+    fn set_hidden_folders(&self, _sd: SyncDirId, _paths: Vec<String>) -> BoxFuture<'_, Result<(), RepositoryError>> {
         Box::pin(async { Ok(()) })
     }
     fn delete_sync_items_with_local_prefix(

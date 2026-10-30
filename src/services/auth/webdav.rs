@@ -280,6 +280,12 @@ mod tests {
         ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
+        fn list_hidden_folders(&self, _sd: SyncDirId) -> BoxFuture<'_, Result<Vec<String>, RepositoryError>> {
+            Box::pin(async { Ok(vec![]) })
+        }
+        fn set_hidden_folders(&self, _sd: SyncDirId, _paths: Vec<String>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+            Box::pin(async { Ok(()) })
+        }
     }
 
     #[derive(Default)]

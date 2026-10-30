@@ -67,7 +67,6 @@ rustPlatform.buildRustPackage {
     outputHashes = {
       "android-activity-0.6.1" = "sha256-3sn3y2ZDOt1GNH4mniv0vi18L089btGHt++/wLyQ3mw=";
       "iced-0.14.1" = "sha256-CkQRQV++o45ofu2egImcwRvzG5FdOqHT5f4RNW5inWY=";
-      "iced-storage-bar-0.1.0" = "sha256-wEnFPimawEdjwiWPimSDFSXrsYzJev1C2ukSvH+s4DE=";
       "iced_android-0.1.0" = "sha256-Su0J/bf7dKsaXSJh9p2kBescHOnsRuBCHhL+8pR41wY=";
     };
   };

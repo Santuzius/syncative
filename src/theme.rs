@@ -447,6 +447,33 @@ pub fn menu(theme: &Theme) -> overlay::menu::Style {
     }
 }
 
+/// The folder picker (`iced_fabi`), which sits on a [`dialog`] card: hover and press like [`button_flat`], the header row in the navigation pane's tone. Its Material Icon Theme glyphs keep their own colours, so `folder` is never drawn.
+pub fn cabinet(theme: &Theme) -> iced_fabi::Style {
+    let t = tones(theme);
+    iced_fabi::Style {
+        text: t.text,
+        muted: t.muted,
+        accent: t.accent,
+        on_accent: t.on_accent,
+        accent_hover: t.accent_hover,
+        danger: t.danger_fill,
+        danger_hover: t.danger_fill_hover,
+        on_danger: Color::WHITE,
+        folder: t.muted,
+        selected_folder: t.muted,
+        selection: t.selection,
+        row_hover: Color { a: 0.5, ..t.selection },
+        header: t.nav,
+        line: t.border,
+        // Subtle: every second row a little darker, well short of the header.
+        stripe: 0.12,
+        background: t.surface,
+        hover: Color { a: 0.08, ..t.text },
+        pressed: Color { a: 0.14, ..t.text },
+        radius: RADIUS,
+    }
+}
+
 /// Slim overlay-like scrollbar: no rail, a muted thumb that firms up on hover / drag.
 pub fn scrollbar(theme: &Theme, status: scrollable::Status) -> scrollable::Style {
     let t = tones(theme);

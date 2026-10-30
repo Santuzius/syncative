@@ -62,6 +62,30 @@ pub static CLOUD_SYNC_OUTLINE: icondata::Icon = &icondata_core::IconData {
     ),
 };
 
+/// Tabler-style "browse cloud folder" outline: `TbFolderOpenOutline` with `TbCloudOutline` in its bottom-right corner, the way Tabler's own `folder-*` icons put a marker there. The folder paths are trimmed where they would run into the cloud: the bottom edge stops at x = 9.6 and the front's right edge at y = 14.5, which leaves about 0.7 px between the strokes. The cloud is `TbCloudOutline` scaled by 0.55 and translated by (10.9, 12.6), so it spans (12, 15.4)–(23, 22.5), drawn 1.5 px wide like the arrows of [`CLOUD_SYNC_OUTLINE`].
+pub static CLOUD_FOLDER_OPEN_OUTLINE: icondata::Icon = &icondata_core::IconData {
+    style: None,
+    x: None,
+    y: None,
+    width: Some("24"),
+    height: Some("24"),
+    view_box: Some("0 0 24 24"),
+    stroke_linecap: Some("round"),
+    stroke_linejoin: Some("round"),
+    stroke_width: Some("2"),
+    stroke: Some("currentColor"),
+    fill: Some("none"),
+    data: concat!(
+        // SVG path data derived from Tabler Icons (MIT, © 2020-2024 Paweł Kuna) https://tabler.io/icons
+        // TbFolderOpenOutline back and tab, its bottom edge cut short of the cloud.
+        r#"<path d="M9.6 19h-4.6a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2h4l3 3h7a2 2 0 0 1 2 2v2" />"#,
+        // TbFolderOpenOutline front, its right edge cut short of the cloud.
+        r#"<path d="M5 19l2.757 -7.351a1 1 0 0 1 .936 -.649h12.307a1 1 0 0 1 .986 1.164l-.446 2.336" />"#,
+        // TbCloudOutline, scaled 0.55 and translated by (10.9, 12.6).
+        r#"<path stroke-width="1.5" d="M14.561 22.5c-1.415 0 -2.561 -1.104 -2.561 -2.466c0 -1.361 1.147 -2.465 2.561 -2.465c.216 -.969 .987 -1.76 2.021 -2.075c1.034 -.315 2.176 -.106 2.994 .55c.818 .654 1.189 1.654 .974 2.623h.544c1.052 0 1.905 .858 1.905 1.917c0 1.06 -.853 1.918 -1.906 1.918h-6.533" />"#,
+    ),
+};
+
 /// Ionicons' speedometer outline, for syncing held on a metered network.
 pub static SPEEDOMETER_OUTLINE: icondata::Icon = &icondata_core::IconData {
     style: None,

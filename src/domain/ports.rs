@@ -176,6 +176,11 @@ pub trait Repository: Send + Sync {
         &self,
         id: SyncDirExclusionId,
     ) -> BoxFuture<'_, Result<(), RepositoryError>>;
+
+    /// Sub-folders of the sync_dir kept out of Android's media scanner by a `.nomedia` file, relative to its `local_path`.
+    fn list_hidden_folders(&self, sync_dir: SyncDirId) -> BoxFuture<'_, Result<Vec<String>, RepositoryError>>;
+    /// Replace the sync_dir's hidden folders.
+    fn set_hidden_folders(&self, sync_dir: SyncDirId, paths: Vec<String>) -> BoxFuture<'_, Result<(), RepositoryError>>;
 }
 
 pub trait BackendClient: Send + Sync {

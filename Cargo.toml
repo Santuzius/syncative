@@ -29,7 +29,9 @@ iced = { git = "https://github.com/Santuzius/iced", tag = "iced_android-v0.1.0",
 # Soft keyboard, insets, back gesture and fonts on Android; does nothing on desktop.
 iced_android = { git = "https://github.com/Santuzius/iced_android", tag = "v0.1.0", features = ["emoji"] }
 # The storage bar on the remote page; it builds on iced_widget, patched with the fork's below.
-iced-storage-bar = { git = "https://github.com/Santuzius/iced-storage-bar", rev = "06c00480522aa4e1671b6b9bd98847b0134be2c1" }
+iced_storage_bar = "0.1"
+# The folder picker for a new folder's remote path, exclusions and folders hidden from the gallery, with the Material Icon Theme's folder glyphs; like iced_storage_bar it builds on the patched iced_widget.
+iced_fabi = { version = "0.1", features = ["material-icon-theme"] }
 # Status-icon SVGs for the per-sync-dir cards and the system-tray
 # pixmaps. Only the icon packs we actually pull from are enabled so
 # we don't compile the rest of the icondata corpus.
@@ -81,5 +83,5 @@ log = "0.4"
 # Lets android_main outlive a destroyed activity, so the sync engine keeps running while Android has closed Syncative's window (on top of 0.6.1).
 [patch.crates-io]
 android-activity = { git = "https://github.com/Santuzius/android-activity", tag = "iced_android-v0.1.0" }
-# Widget crates such as iced-storage-bar depend on iced_widget from crates.io; this gives them the fork's, so there is one iced.
+# Widget crates such as iced_storage_bar depend on iced_widget from crates.io; this gives them the fork's, so there is one iced.
 iced_widget = { git = "https://github.com/Santuzius/iced", tag = "iced_android-v0.1.0" }

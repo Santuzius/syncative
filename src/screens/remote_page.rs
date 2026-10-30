@@ -13,6 +13,7 @@ use iced::{
 use iced_storage_bar::storage_bar;
 
 use crate::{
+    icons::CLOUD_FOLDER_OPEN_OUTLINE,
     domain::{
         remote::{Remote, RemoteId, RemoteUsage},
         run_state::RunState,
@@ -52,6 +53,8 @@ pub enum Msg {
     DraftRemotePathChanged(String),
     /// Open the desktop's folder chooser for the local path.
     BrowseLocalPath,
+    /// Open the folder picker on the remote for the remote path.
+    BrowseRemotePath,
     AddSyncDir,
     /// User clicked the remove button on a sync_dir. Opens the confirmation dialog; the actual delete fires on [`Msg::ConfirmDelete`].
     RequestDeleteSyncDir(String, String, String),
@@ -66,6 +69,10 @@ pub enum Msg {
     ToggleExclusions(SyncDirId),
     ToggleLog(SyncDirId),
     DraftExclusionChanged(SyncDirId, String),
+    /// Open the folder picker on the remote for the exclusion field.
+    BrowseExclusion(SyncDirId),
+    /// Choose the sub-folders whose media Android's gallery skips (`.nomedia`).
+    BrowseHidden(SyncDirId),
     AddExclusion(SyncDirId),
     RemoveExclusion(SyncDirExclusionId, SyncDirId),
     /// Broom on an exclusion: ask before deleting the synced files still on this computer.
@@ -654,50 +661,9 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         ]
         .spacing(2)
         .width(Length::Fill),
-        with_tip(
-            button(icon(icondata::TbFolderOpenOutline, 16.0))
-                .padding(6)
-                .style(theme::button_toggle(false))
-                .on_press_maybe(
-                    crate::util::can_open_folder(&sd.local_path)
-                        .then(|| Msg::OpenFolder(sd.local_path.clone()))
-                ),
-            "Open in the file manager",
-        ),
-        with_tip(
-            button(
-                row![
-                    icon(icondata::TbFilterOutline, 16.0),
-                    text(excluded.to_string()).size(CAPTION)
-                ]
-                .spacing(4)
-                .align_y(Alignment::Center)
-            )
-            .padding([5, 8])
-            .style(theme::button_toggle(folder.exclusions_open))
-            .on_press(Msg::ToggleExclusions(sd.id)),
-            "Exclusions",
-        ),
-        with_tip(
-            button(icon(icondata::TbFileTextOutline, 16.0))
-                .padding(6)
-                .style(theme::button_toggle(folder.log.is_some()))
-                .on_press(Msg::ToggleLog(sd.id)),
-            "Activity log",
-        ),
-        with_tip(
-            button(on_fill_icon(icondata::TbTrashOutline, 16.0))
-                .padding(6)
-                .style(theme::button_danger)
-                .on_press(Msg::RequestDeleteSyncDir(
-                    sd.local_path.clone(),
-                    sd.remote_path.clone(),
-                    format!("{}:{remote_display}", remote.name)
-                )),
-            "Stop syncing this folder",
-        ),
+        folder_actions(remote, sd, &remote_display, excluded, folder.exclusions_open, folder.log.is_some()),
     ]
-    .spacing(6)
+    .spacing(10)
     .align_y(Alignment::Center);
 
     let mut card = column![top].spacing(10);
@@ -757,6 +723,66 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         .width(Length::Fill)
         .style(theme::card)
         .into()
+}
+
+/// The folder card's buttons: open in the file manager, bigger, beside a 2 × 2 grid of hide (Android) and delete over exclusions and the log.
+fn folder_actions<'a>(
+    remote: &'a Remote,
+    sd: &'a SyncDir,
+    remote_display: &str,
+    excluded: usize,
+    exclusions_open: bool,
+    log_open: bool,
+) -> Element<'a, Msg> {
+    let open = with_tip(
+        button(icon(icondata::TbFolderOpenOutline, 24.0))
+            .padding(10)
+            .style(theme::button_toggle(false))
+            .on_press_maybe(crate::util::can_open_folder(&sd.local_path).then(|| Msg::OpenFolder(sd.local_path.clone()))),
+        "Open in the file manager",
+    );
+    // The left column takes the width of the exclusions button with its count; the hide button above stretches to it.
+    let hide: Element<'a, Msg> = if crate::services::nomedia::APPLIES {
+        with_tip(
+            button(container(icon(icondata::TbEyeOffOutline, 16.0)).center_x(Length::Fill))
+                .padding(6)
+                .width(Length::Fill)
+                .style(theme::button_toggle(false))
+                .on_press(Msg::BrowseHidden(sd.id)),
+            "Hide from the gallery",
+        )
+    } else {
+        Space::new().width(Length::Fill).height(Length::Fixed(28.0)).into()
+    };
+    let exclusions = with_tip(
+        button(row![icon(icondata::TbFilterOutline, 16.0), text(excluded.to_string()).size(CAPTION)].spacing(4).align_y(Alignment::Center))
+            .padding([5, 8])
+            .style(theme::button_toggle(exclusions_open))
+            .on_press(Msg::ToggleExclusions(sd.id)),
+        "Exclusions",
+    );
+    let delete = with_tip(
+        button(on_fill_icon(icondata::TbTrashOutline, 16.0))
+            .padding(6)
+            .style(theme::button_danger)
+            .on_press(Msg::RequestDeleteSyncDir(sd.local_path.clone(), sd.remote_path.clone(), format!("{}:{remote_display}", remote.name))),
+        "Stop syncing this folder",
+    );
+    let log = with_tip(
+        button(icon(icondata::TbFileTextOutline, 16.0))
+            .padding(6)
+            .style(theme::button_toggle(log_open))
+            .on_press(Msg::ToggleLog(sd.id)),
+        "Activity log",
+    );
+    row![
+        open,
+        column![hide, exclusions].spacing(6).width(Length::Shrink),
+        column![delete, log].spacing(6),
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center)
+    .into()
 }
 
 fn with_tip<'a>(content: impl Into<Element<'a, Msg>>, tip: &'a str) -> Element<'a, Msg> {
@@ -883,6 +909,7 @@ fn exclusion_panel<'a>(
             .padding(6)
             .size(CAPTION)
             .style(theme::input),
+        browse_button(CLOUD_FOLDER_OPEN_OUTLINE, CAPTION, [5, 10], Msg::BrowseExclusion(sd_id)),
         button(text("Exclude").size(CAPTION))
             .padding([6, 12])
             .style(theme::button_secondary)
@@ -907,6 +934,15 @@ fn exclusion_panel<'a>(
     .width(Length::Fill)
     .style(theme::well)
     .into()
+}
+
+/// "Browse…" with a leading glyph, beside a path field; `size` is the field's text size.
+fn browse_button<'a>(glyph: icondata::Icon, size: f32, padding: [u16; 2], msg: Msg) -> Element<'a, Msg> {
+    button(row![icon(glyph, size + 2.0), text("Browse…").size(size)].spacing(6).align_y(Alignment::Center))
+        .padding(padding)
+        .style(theme::button_secondary)
+        .on_press(msg)
+        .into()
 }
 
 fn add_folder_card<'a>(
@@ -952,17 +988,7 @@ fn add_folder_card<'a>(
                     .padding(7)
                     .size(TEXT)
                     .style(theme::input),
-                button(
-                    row![
-                        icon(icondata::TbFolderOpenOutline, 16.0),
-                        text("Browse…").size(TEXT)
-                    ]
-                    .spacing(6)
-                    .align_y(Alignment::Center)
-                )
-                .padding([6, 12])
-                .style(theme::button_secondary)
-                .on_press(Msg::BrowseLocalPath),
+                browse_button(icondata::TbFolderOpenOutline, TEXT, [6, 12], Msg::BrowseLocalPath),
             ]
             .spacing(ROW_SPACING)
             .align_y(Alignment::Center)
@@ -970,13 +996,18 @@ fn add_folder_card<'a>(
         ),
         field(
             format!("On {}", remote.name),
-            text_input("e.g. Documents/Scans (empty = whole drive)", draft_remote)
-                .on_input(Msg::DraftRemotePathChanged)
-                .on_submit_maybe(can_add.then_some(Msg::AddSyncDir))
-                .padding(7)
-                .size(TEXT)
-                .style(theme::input)
-                .into(),
+            row![
+                text_input("e.g. Documents/Scans (empty = whole drive)", draft_remote)
+                    .on_input(Msg::DraftRemotePathChanged)
+                    .on_submit_maybe(can_add.then_some(Msg::AddSyncDir))
+                    .padding(7)
+                    .size(TEXT)
+                    .style(theme::input),
+                browse_button(CLOUD_FOLDER_OPEN_OUTLINE, TEXT, [6, 12], Msg::BrowseRemotePath),
+            ]
+            .spacing(ROW_SPACING)
+            .align_y(Alignment::Center)
+            .into(),
         ),
     ]
     .spacing(10);

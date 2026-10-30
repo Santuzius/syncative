@@ -1,4 +1,4 @@
-//! Export and import of Syncative's setup as a JSON file: remotes with their interval, folders and exclusions, and the preferences. Sign-ins stay out: imported remotes wait for the user to sign in again, and the database's record of synced files starts afresh (the first pass compares both sides).
+//! Export and import of Syncative's setup as a JSON file: remotes with their interval, folders with their exclusions and hidden folders, and the preferences. Sign-ins stay out: imported remotes wait for the user to sign in again, and the database's record of synced files starts afresh (the first pass compares both sides).
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -52,6 +52,9 @@ struct FolderEntry {
     remote_path: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     exclusions: Vec<String>,
+    /// Sub-folders relative to `local_path` that get a `.nomedia` file on Android.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    hidden: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -83,6 +86,25 @@ pub struct Imported {
 
 /// The current setup as the file's text.
 pub fn export(repo: &dyn Repository, client: &dyn BackendClient) -> Result<String, String> {
+    let entries = remote_entries(repo, client)?;
+    let data_dir = util::get_data_dir();
+    let power_settings = power::PowerSettings::load(&data_dir);
+    let power_mode = conf_to_map(&power_settings.to_conf()).get("mode").and_then(Value::as_str).map(str::to_owned);
+    let android = cfg!(target_os = "android");
+    let preferences = Preferences {
+        appearance: conf_to_map(&Appearance::load(&data_dir).to_conf()),
+        power_mode: power_mode.filter(|_| android),
+        sync_metered: android.then_some(power_settings.sync_metered),
+        run_in_background: android.then(power::background_enabled),
+        autostart: Some(autostart::enabled()),
+        autostart_hidden: (!android).then(autostart::starts_hidden),
+    };
+    let file = File { format: FORMAT.to_owned(), version: VERSION, remotes: entries, preferences };
+    serde_json::to_string_pretty(&file).map_err(|e| e.to_string())
+}
+
+/// The remotes with their folders, as the file lists them.
+fn remote_entries(repo: &dyn Repository, client: &dyn BackendClient) -> Result<Vec<RemoteEntry>, String> {
     let remotes = util::await_future(repo.list_remotes()).map_err(|e| e.to_string())?;
     let mut entries = Vec::new();
     for remote in remotes {
@@ -98,7 +120,8 @@ pub fn export(repo: &dyn Repository, client: &dyn BackendClient) -> Result<Strin
         let mut folders = Vec::new();
         for dir in util::await_future(repo.list_sync_dirs(remote.id)).map_err(|e| e.to_string())? {
             let exclusions = util::await_future(repo.list_exclusions(dir.id)).map_err(|e| e.to_string())?.into_iter().map(|e| e.remote_path).collect();
-            folders.push(FolderEntry { local_path: dir.local_path, remote_path: dir.remote_path, exclusions });
+            let hidden = util::await_future(repo.list_hidden_folders(dir.id)).map_err(|e| e.to_string())?;
+            folders.push(FolderEntry { local_path: dir.local_path, remote_path: dir.remote_path, exclusions, hidden });
         }
         entries.push(RemoteEntry {
             name: remote.name,
@@ -109,21 +132,7 @@ pub fn export(repo: &dyn Repository, client: &dyn BackendClient) -> Result<Strin
             folders,
         });
     }
-
-    let data_dir = util::get_data_dir();
-    let power_settings = power::PowerSettings::load(&data_dir);
-    let power_mode = conf_to_map(&power_settings.to_conf()).get("mode").and_then(Value::as_str).map(str::to_owned);
-    let android = cfg!(target_os = "android");
-    let preferences = Preferences {
-        appearance: conf_to_map(&Appearance::load(&data_dir).to_conf()),
-        power_mode: power_mode.filter(|_| android),
-        sync_metered: android.then_some(power_settings.sync_metered),
-        run_in_background: android.then(power::background_enabled),
-        autostart: Some(autostart::enabled()),
-        autostart_hidden: (!android).then(autostart::starts_hidden),
-    };
-    let file = File { format: FORMAT.to_owned(), version: VERSION, remotes: entries, preferences };
-    serde_json::to_string_pretty(&file).map_err(|e| e.to_string())
+    Ok(entries)
 }
 
 /// Adds the file's remotes, signed out, and takes over its preferences. Remotes whose name is taken are left out.
@@ -162,7 +171,7 @@ pub fn import(text: &str, repo: &dyn Repository, router: &ClientRouter) -> Resul
         for folder in entry.folders {
             util::await_future(repo.insert_sync_dir(id, folder.local_path.clone(), folder.remote_path.clone())).map_err(|e| e.to_string())?;
             imported.folders += 1;
-            if folder.exclusions.is_empty() {
+            if folder.exclusions.is_empty() && folder.hidden.is_empty() {
                 continue;
             }
             let dirs = util::await_future(repo.list_sync_dirs(id)).map_err(|e| e.to_string())?;
@@ -170,6 +179,9 @@ pub fn import(text: &str, repo: &dyn Repository, router: &ClientRouter) -> Resul
             for exclusion in folder.exclusions {
                 util::await_future(repo.insert_exclusion(dir.id, exclusion)).map_err(|e| e.to_string())?;
             }
+            // The first pass on this device creates their `.nomedia` files.
+            let hidden = folder.hidden.into_iter().filter(|h| crate::services::nomedia::is_inside(h)).collect();
+            util::await_future(repo.set_hidden_folders(dir.id, hidden)).map_err(|e| e.to_string())?;
         }
         imported.remotes += 1;
     }
@@ -233,6 +245,26 @@ mod tests {
         assert!(import("{}", &repo, &router).is_err());
         assert!(import(r#"{"format":"other","version":1,"remotes":[],"preferences":{}}"#, &repo, &router).is_err());
         assert!(import(r#"{"format":"syncative-settings","version":99,"remotes":[],"preferences":{}}"#, &repo, &router).unwrap_err().contains("newer"));
+    }
+
+    #[test]
+    fn hidden_folders_survive_export_and_import() {
+        use crate::infrastructure::persistence::migrations::{Migrator, MigratorTrait};
+        let db = util::await_future(sea_orm::Database::connect("sqlite::memory:")).unwrap();
+        util::await_future(Migrator::up(&db, None)).unwrap();
+        let repo = crate::infrastructure::persistence::repository::SeaOrmRepository::new(db);
+        let router = ClientRouter::new(std::sync::Arc::new(crate::test_support::FakeBackend::default()));
+        let file = r#"{"format":"syncative-settings","version":1,"preferences":{},"remotes":[{"name":"P","type":"native-proton","interval_seconds":300,"enabled":true,
+            "folders":[{"local_path":"/sdcard/Pictures","remote_path":"Pictures","hidden":["Private","../outside"]},{"local_path":"/sdcard/Music","remote_path":"Music"}]}]}"#;
+
+        let imported = import(file, &repo, &router).unwrap();
+        assert_eq!((imported.remotes, imported.folders), (1, 2));
+        // The remote part only: the preferences would read this machine's real settings.
+        let remotes = remote_entries(&repo, &router).unwrap();
+        let folders = &remotes[0].folders;
+        let hidden_of = |local: &str| folders.iter().find(|f| f.local_path == local).unwrap().hidden.clone();
+        assert_eq!(hidden_of("/sdcard/Pictures"), ["Private"]);
+        assert!(hidden_of("/sdcard/Music").is_empty());
     }
 
     #[test]
