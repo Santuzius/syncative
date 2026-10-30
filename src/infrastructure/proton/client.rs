@@ -112,7 +112,7 @@ fn entry_to_remote_item(entry: proton_ffi::Entry, path_prefix: &str) -> RemoteIt
         path: full_path,
         name: entry.name,
         mod_time: OffsetDateTime::from_unix_timestamp(entry.mod_time_unix)
-            .unwrap_or_else(|_| OffsetDateTime::UNIX_EPOCH),
+            .unwrap_or(OffsetDateTime::UNIX_EPOCH),
     }
 }
 
@@ -145,7 +145,7 @@ impl BackendClient for NativeProtonClient {
             path: path.trim_matches('/').to_owned(),
             name,
             mod_time: OffsetDateTime::from_unix_timestamp(entry.mod_time_unix)
-                .unwrap_or_else(|_| OffsetDateTime::UNIX_EPOCH),
+                .unwrap_or(OffsetDateTime::UNIX_EPOCH),
         }))
     }
 
@@ -192,7 +192,7 @@ impl BackendClient for NativeProtonClient {
                         path: full_path,
                         name: basename,
                         mod_time: OffsetDateTime::from_unix_timestamp(e.mod_time_unix)
-                            .unwrap_or_else(|_| OffsetDateTime::UNIX_EPOCH),
+                            .unwrap_or(OffsetDateTime::UNIX_EPOCH),
                     }
                 })
                 .collect();

@@ -70,10 +70,11 @@ fn move_autostart_entry_at(old: &Path, new: &Path) {
     if !old.exists() {
         return;
     }
-    if !new.exists() && !autostart::enabled_at(old) {
-        if let Err(err) = autostart::write_at(new, false, true, &autostart::exec_command()) {
-            eprintln!("syncative: couldn't write {}: {err}", new.display());
-        }
+    if !new.exists()
+        && !autostart::enabled_at(old)
+        && let Err(err) = autostart::write_at(new, false, true, &autostart::exec_command())
+    {
+        eprintln!("syncative: couldn't write {}: {err}", new.display());
     }
     if let Err(err) = std::fs::remove_file(old) {
         eprintln!("syncative: couldn't remove {}: {err}", old.display());

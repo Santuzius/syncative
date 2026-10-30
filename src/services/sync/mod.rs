@@ -61,6 +61,7 @@ const NOT_READABLE: &str = "Syncative may not read this. Change its permissions 
 /// promptly when the user disables the remote or shuts down the app —
 /// in-flight client calls still run to completion (we can't interrupt
 /// `copy_to_remote` cleanly), but nothing new fires.
+#[allow(clippy::too_many_arguments)]
 pub fn run<FE, FD>(
     remote: &Remote,
     sync_dir: &SyncDir,

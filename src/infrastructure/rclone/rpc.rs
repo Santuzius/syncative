@@ -62,7 +62,7 @@ pub fn get_remotes() -> Vec<Remote> {
         .unwrap_or_else(|_| unreachable!());
     let configs = {
         let config: HashMap<String, Vec<String>> = serde_json::from_str(&configs_str).unwrap();
-        config.get(&"remotes".to_string()).unwrap().to_owned()
+        config.get("remotes").unwrap().to_owned()
     };
     let mut syncative_configs = vec![];
 
@@ -162,16 +162,15 @@ pub enum WebDavVendors {
     WebDav,
 }
 
-impl ToString for WebDavVendors {
-    fn to_string(&self) -> String {
-        match self {
+impl std::fmt::Display for WebDavVendors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
             Self::Nextcloud => "Nextcloud",
             Self::Owncloud => "Owncloud",
             Self::GDrive => "Google Drive",
             Self::PCloud => "pCloud",
             Self::WebDav => "WebDav",
-        }
-        .to_string()
+        })
     }
 }
 

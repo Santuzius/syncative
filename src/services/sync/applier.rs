@@ -29,6 +29,7 @@ pub(super) struct Applied {
     pub cancelled: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn apply<FE>(
     actions: Vec<Action>,
     snapshot: &Snapshot,
@@ -311,7 +312,7 @@ where
                     .map(|r| r.choice.clone())
                     // Never-synced pair on a backend without content digests: the newer copy wins, as before.
                     .or_else(|| {
-                        (kind == ConflictKind::BothNew && conflict.remote.sha1.is_none()).then(|| {
+                        (kind == ConflictKind::BothNew && conflict.remote.sha1.is_none()).then_some({
                             if conflict.local_stamp > conflict.remote_stamp { ConflictChoice::KeepLocal } else { ConflictChoice::KeepRemote }
                         })
                     });

@@ -6,6 +6,7 @@ pkgs.mkShell {
   nativeBuildInputs = with pkgs; [
     rustc
     cargo
+    clippy
     pkg-config
     go
     rustPlatform.bindgenHook # sets LIBCLANG_PATH + BINDGEN_EXTRA_CLANG_ARGS for librclone-sys

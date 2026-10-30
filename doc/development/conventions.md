@@ -42,6 +42,9 @@
   - If something truly can't be done without changing the submodule, the feature is dropped instead.
 - Forks of iced, iced_android and android-activity: see [android/README.md](../../android/README.md) and [release.md](../packaging/release.md#the-android-forks).
 
+## Code
+- `cargo clippy --workspace --all-targets` in `nix-shell` stays free of warnings. `shell.nix` brings the clippy that matches its rustc; another clippy, e.g. the system's, fails on the files rustc left in `target/` (E0514).
+
 ## Widgets
 - **Bigger widgets get a repository of their own** under the MIT licence, as a crate named `iced_<name>` like iced's own crates (e.g. [iced_storage_bar](https://github.com/Santuzius/iced_storage_bar)), so other iced apps can use them and they can go to crates.io. Small helpers that only arrange Syncative's own widgets stay in `src/widgets/`.
 - **Ask the maintainer first** whether a new widget gets its own repository or stays in `src/widgets/`; agents don't decide this themselves.

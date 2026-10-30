@@ -2,14 +2,10 @@
 //!
 //! Proton returns structured error codes in the form `Code=NNNN`. The
 //! canonical codes we handle:
-//!   - `Code=401`   — auth / session expired
-//!   - `Code=10013` — invalid refresh token (server force-revoked the
-//!                    session; only the user re-entering credentials can
-//!                    recover it)
-//!   - `Code=2500`  — already exists (mkdir idempotence, also "already exists"
-//!                    substring from the Go bridge)
-//!   - `Code=429`   — rate limited (Proton reports this directly, unlike
-//!                    rclone which hides 429s in retry loops)
+//!   - `Code=401`: auth / session expired
+//!   - `Code=10013`: invalid refresh token (server force-revoked the session; only the user re-entering credentials can recover it)
+//!   - `Code=2500`: already exists (mkdir idempotence, also "already exists" substring from the Go bridge)
+//!   - `Code=429`: rate limited (Proton reports this directly, unlike rclone which hides 429s in retry loops)
 
 use crate::domain::backend_events::{BackendEvent, EventTranslator, Operation};
 

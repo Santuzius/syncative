@@ -594,7 +594,7 @@ impl SyncativeApp {
                             };
                             let text = String::from_utf8(bytes)
                                 .map_err(|_| "Not a Syncative settings file.".to_owned())?;
-                            settings_file::import(&text, &*repo, &*router).map(Some)
+                            settings_file::import(&text, &*repo, &router).map(Some)
                         })
                         .await
                         .unwrap_or_else(|e| Err(e.to_string()))

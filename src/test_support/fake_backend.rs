@@ -15,9 +15,12 @@ use crate::domain::{
 /// See [`FakeBackend::during_copy_to_remote`].
 pub type DuringCopy = Box<dyn Fn(&str) + Send>;
 
+/// Queued `stat` answers per path.
+type StatSequence = HashMap<String, Vec<Result<Option<RemoteItem>, String>>>;
+
 pub struct FakeBackend {
     pub stat_map: Mutex<HashMap<String, Result<Option<RemoteItem>, String>>>,
-    pub stat_sequence: Mutex<HashMap<String, Vec<Result<Option<RemoteItem>, String>>>>,
+    pub stat_sequence: Mutex<StatSequence>,
     pub list_map: Mutex<HashMap<String, Result<Vec<RemoteItem>, String>>>,
     /// SHA-1 reported by `details` per path; without an entry `details` falls back to `stat` without a digest.
     pub sha1_map: Mutex<HashMap<String, String>>,

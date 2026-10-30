@@ -240,7 +240,6 @@ fn walk_local(
     let mut denied: Option<String> = None;
     walk_dir(
         root,
-        sync_dir,
         &mut out,
         &mut unreliable,
         &mut denied,
@@ -259,12 +258,11 @@ fn note_denied(denied: &mut Option<String>, dir: &Path, err: &std::io::Error) {
 
 /// Walks `dir`, populating `out` with every entry and recording any I/O
 /// failure in `unreliable`. `current_dir_key` is the remote-key path of
-/// `dir` itself (empty string for the root when `sync_dir.remote_path`
+/// `dir` itself (empty string for the root when the folder's remote path
 /// is empty). All errors are logged to stderr so the next incident is
 /// traceable without having to reproduce it under a debugger.
 fn walk_dir(
     dir: &Path,
-    sync_dir: &SyncDir,
     out: &mut HashMap<String, LocalEntry>,
     unreliable: &mut HashSet<String>,
     denied: &mut Option<String>,
@@ -363,7 +361,7 @@ fn walk_dir(
             },
         );
         if file_type.is_dir() {
-            walk_dir(&path, sync_dir, out, unreliable, denied, &remote_key, excluded_local_prefixes);
+            walk_dir(&path, out, unreliable, denied, &remote_key, excluded_local_prefixes);
         }
     }
 }

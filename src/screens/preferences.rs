@@ -56,6 +56,7 @@ pub struct Power {
 
 /// `compact`: the phone layout, where the button groups go below their labels.
 /// `log_note`: how the last copy or clear of the log went; `note`: how the last export or import went.
+#[allow(clippy::too_many_arguments)]
 pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, start_hidden: bool, detailed_log: bool, log_note: Option<&'a str>, note: Option<&'a str>, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
     let android = cfg!(target_os = "android");
     let size_hint = if android { "Text and everything else in this window, relative to the system's font and display size." } else { "Text and everything else in this window." };

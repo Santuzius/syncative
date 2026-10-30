@@ -183,13 +183,13 @@ fn fold_stale_rclone_into_keyring(data_dir: &std::path::Path) {
     }
     match std::fs::read_to_string(&stale) {
         Ok(body) => {
-            if !body.is_empty() {
-                if let Err(err) = secrets::store(secrets::RCLONE_ACCOUNT, &body) {
-                    eprintln!(
-                        "syncative: keyring sync of stale rclone.conf failed: {err}; leaving file in place",
-                    );
-                    return;
-                }
+            if !body.is_empty()
+                && let Err(err) = secrets::store(secrets::RCLONE_ACCOUNT, &body)
+            {
+                eprintln!(
+                    "syncative: keyring sync of stale rclone.conf failed: {err}; leaving file in place",
+                );
+                return;
             }
             if let Err(err) = std::fs::remove_file(&stale) {
                 eprintln!(

@@ -94,7 +94,7 @@ impl SyncativeApp {
                 // surface.
                 let (id, opened) = window::open(main_window_settings());
                 self.window_id = Some(id);
-                opened.then(|id| window::gain_focus(id))
+                opened.then(window::gain_focus)
             }
             TrayAction::Hide => {
                 // Actually destroy the window — `set_visible(false)` is

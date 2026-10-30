@@ -261,7 +261,7 @@ impl SyncativeApp {
                                         &pass,
                                         &totp,
                                         hv.as_ref(),
-                                        &*router_inner,
+                                        &router_inner,
                                     )
                                 })
                                 .await
@@ -287,7 +287,7 @@ impl SyncativeApp {
                                     &totp,
                                     hv.as_ref(),
                                     &*repo,
-                                    &*router,
+                                    &router,
                                 )
                             })
                             .await
@@ -555,8 +555,10 @@ impl SyncativeApp {
             .find(|r| r.id == id)
             .and_then(|r| r.provider_kind)
             .and_then(map_domain_provider_to_add_remote);
-        let mut draft = add_remote::Draft::default();
-        draft.provider = provider;
+        let mut draft = add_remote::Draft {
+            provider,
+            ..Default::default()
+        };
         // WebDAV: where and as whom stay as they were; only the password is asked for again.
         if let Some(config) = self
             .rclone

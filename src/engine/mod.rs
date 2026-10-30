@@ -230,7 +230,7 @@ async fn run(
     loop {
         core.start_due(Instant::now());
         let snapshot = Arc::new(core.snapshot());
-        if busy != !snapshot.syncing.is_empty() {
+        if busy == snapshot.syncing.is_empty() {
             busy = !busy;
             busy_changed(busy);
         }
