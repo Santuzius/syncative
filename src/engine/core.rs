@@ -467,6 +467,14 @@ impl Core {
         }
     }
 
+    /// `remote_id`'s provider couldn't be reached: stop its pass, as every further call would wait out the backend's retries (minutes per call with rclone), and show all its folders Offline when the pass ends.
+    fn provider_unreachable(&mut self, remote_id: RemoteId) {
+        if let Some(flag) = self.cancel_flags.get(&remote_id) {
+            flag.store(true, Ordering::Release);
+        }
+        self.unreachable.insert(remote_id);
+    }
+
     /// Route a single sync event through the state machine and the log.
     fn handle_event(&mut self, event: SyncEvent) {
         match event {
@@ -511,11 +519,7 @@ impl Core {
                     );
                     self.state
                         .transition_dir(remote_id, sync_dir_id, RunState::Offline);
-                    // The remaining actions would each wait out the backend's retries (minutes per call with rclone); stop the pass after this one.
-                    if let Some(flag) = self.cancel_flags.get(&remote_id) {
-                        flag.store(true, Ordering::Release);
-                    }
-                    self.unreachable.insert(remote_id);
+                    self.provider_unreachable(remote_id);
                     return;
                 }
                 self.push_log_line(sync_dir_id, line);
@@ -541,6 +545,10 @@ impl Core {
                     self.pass_lines.remove(&sync_dir_id);
                 }
                 self.state.transition_dir(remote_id, sync_dir_id, state);
+                // A listing that couldn't reach the provider: the other folders can't either.
+                if state == RunState::Offline {
+                    self.provider_unreachable(remote_id);
+                }
             }
             SyncEvent::SyncDirConflicts {
                 remote_id,

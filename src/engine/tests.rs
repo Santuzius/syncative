@@ -325,6 +325,26 @@ async fn an_unreachable_provider_shows_offline_not_a_problem() {
 }
 
 #[tokio::test]
+async fn a_listing_that_cannot_reach_the_provider_marks_all_its_folders_offline() {
+    let mut rig = rig().await;
+    let other = TempDir::new("engine-3");
+    rig.repo.sync_dirs.lock().unwrap().push(sync_dir(3, 1, other.as_str(), "c"));
+    rig.send(Command::Reload).await;
+    rig.send(Command::SyncNow(R1)).await;
+    // What the sync service sends when listing the first folder fails with a network error.
+    rig.event(SyncEvent::SyncDirStateChanged {
+        remote_id: R1,
+        sync_dir_id: D1,
+        state: RunState::Offline,
+    })
+    .await;
+    rig.settle().await;
+    let state = &rig.snap().state.remotes[&R1];
+    assert_eq!(state.dir_display_state(D1), RunState::Offline);
+    assert_eq!(state.dir_display_state(SyncDirId(3)), RunState::Offline);
+}
+
+#[tokio::test]
 async fn sync_now_while_syncing_queues_one_more_pass() {
     let mut rig = rig().await;
     rig.send(Command::SyncNow(R1)).await;
