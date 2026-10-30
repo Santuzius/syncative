@@ -725,7 +725,7 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         .into()
 }
 
-/// The folder card's buttons: open in the file manager, bigger, beside a 2 × 2 grid of hide (Android) and delete over exclusions and the log.
+/// The folder card's buttons, all square and of one size: on Android open in the file manager beside a 2 × 2 grid of hide and delete over exclusions and the log; on the desktop, without hide, all in one row.
 fn folder_actions<'a>(
     remote: &'a Remote,
     sd: &'a SyncDir,
@@ -734,55 +734,49 @@ fn folder_actions<'a>(
     exclusions_open: bool,
     log_open: bool,
 ) -> Element<'a, Msg> {
+    let android = cfg!(target_os = "android");
+    let (size, icon_size) = if android { (40.0, 18.0) } else { (32.0, 16.0) };
+    let square = |content: Element<'a, Msg>| button(container(content).center(Length::Fixed(size))).padding(0);
     let open = with_tip(
-        button(icon(icondata::TbFolderOpenOutline, 24.0))
-            .padding(10)
+        square(icon(icondata::TbFolderOpenOutline, icon_size + 2.0).into())
             .style(theme::button_toggle(false))
             .on_press_maybe(crate::util::can_open_folder(&sd.local_path).then(|| Msg::OpenFolder(sd.local_path.clone()))),
         "Open in the file manager",
     );
-    // The left column takes the width of the exclusions button with its count; the hide button above stretches to it.
-    let hide: Element<'a, Msg> = if crate::services::nomedia::APPLIES {
-        with_tip(
-            button(container(icon(icondata::TbEyeOffOutline, 16.0)).center_x(Length::Fill))
-                .padding(6)
-                .width(Length::Fill)
-                .style(theme::button_toggle(false))
-                .on_press(Msg::BrowseHidden(sd.id)),
-            "Hide from the gallery",
-        )
-    } else {
-        Space::new().width(Length::Fill).height(Length::Fixed(28.0)).into()
-    };
+    // A count too wide for the square widens the button instead of overflowing it.
+    let count_fits = excluded < if android { 100 } else { 10 };
+    let exclusions_content = row![icon(icondata::TbFilterOutline, icon_size), text(excluded.to_string()).size(CAPTION)].spacing(3).align_y(Alignment::Center);
     let exclusions = with_tip(
-        button(row![icon(icondata::TbFilterOutline, 16.0), text(excluded.to_string()).size(CAPTION)].spacing(4).align_y(Alignment::Center))
-            .padding([5, 8])
+        if count_fits { square(exclusions_content.into()) } else { button(container(exclusions_content).center_y(Length::Fixed(size))).padding([0, 8]) }
             .style(theme::button_toggle(exclusions_open))
             .on_press(Msg::ToggleExclusions(sd.id)),
         "Exclusions",
     );
     let delete = with_tip(
-        button(on_fill_icon(icondata::TbXOutline, 16.0))
-            .padding(6)
+        square(on_fill_icon(icondata::TbXOutline, icon_size).into())
             .style(theme::button_danger)
             .on_press(Msg::RequestDeleteSyncDir(sd.local_path.clone(), sd.remote_path.clone(), format!("{}:{remote_display}", remote.name))),
         "Remove from sync",
     );
     let log = with_tip(
-        button(icon(icondata::TbFileTextOutline, 16.0))
-            .padding(6)
+        square(icon(icondata::TbFileTextOutline, icon_size).into())
             .style(theme::button_toggle(log_open))
             .on_press(Msg::ToggleLog(sd.id)),
         "Activity log",
     );
-    row![
-        open,
-        column![hide, exclusions].spacing(6).width(Length::Shrink),
-        column![delete, log].spacing(6),
-    ]
-    .spacing(6)
-    .align_y(Alignment::Center)
-    .into()
+    if !crate::services::nomedia::APPLIES {
+        return row![open, exclusions, log, delete].spacing(6).align_y(Alignment::Center).into();
+    }
+    let hide = with_tip(
+        square(icon(icondata::TbEyeOffOutline, icon_size).into())
+            .style(theme::button_toggle(false))
+            .on_press(Msg::BrowseHidden(sd.id)),
+        "Hide from the gallery",
+    );
+    row![open, column![hide, exclusions].spacing(6), column![delete, log].spacing(6)]
+        .spacing(6)
+        .align_y(Alignment::Center)
+        .into()
 }
 
 fn with_tip<'a>(content: impl Into<Element<'a, Msg>>, tip: &'a str) -> Element<'a, Msg> {
