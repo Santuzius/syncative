@@ -35,9 +35,8 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 
 ## Use Cases
 - Syncing folders anywhere on your system, not just inside one sync folder.
-- Syncing files to Android for offline access. (Increased storage usage, but best availability without network.)
 - Two-way sync of ordinary files and folders.
-- One-way sync of backups: exclude the backup folder on your other devices so that it stays only on this device and in the cloud.
+- Syncing files to Android for offline access. (Increased storage usage, but best availability without network.)
 - Two-way sync of program settings and game saves.
   - But be careful: a few apps cope well with being used on several devices at the same time (e.g. [Obsidian](https://obsidian.md)), but most apps and games would cause conflicts. With those, use the program on only one device at a time and make sure the folder has finished syncing before you start it.
 
