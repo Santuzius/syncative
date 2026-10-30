@@ -39,9 +39,8 @@ The branch flow:
    ```sh
    cd temp/release
    sha256sum Syncative-X.Y.Z-arm64-v8a.apk Syncative-X.Y.Z-x86_64.AppImage > SHA256SUMS
-   cp Syncative-X.Y.Z-x86_64.AppImage.zsync Celeste-X.Y.Z-x86_64.AppImage.zsync
    gh release create vX.Y.Z --verify-tag --latest --title "Syncative X.Y.Z" --notes-file notes.md \
-     Syncative-X.Y.Z-arm64-v8a.apk Syncative-X.Y.Z-x86_64.AppImage Syncative-X.Y.Z-x86_64.AppImage.zsync Celeste-X.Y.Z-x86_64.AppImage.zsync SHA256SUMS
+     Syncative-X.Y.Z-arm64-v8a.apk Syncative-X.Y.Z-x86_64.AppImage Syncative-X.Y.Z-x86_64.AppImage.zsync SHA256SUMS
    ```
 
 ## Checks before announcing it
@@ -81,7 +80,7 @@ Cargo treats the same repository under two different tags as two different sourc
 
 ## The AppImage
 
-- **Updating from Celeste:** AppImages released as Celeste (up to 0.22.2) look for `Celeste-*-x86_64.AppImage.zsync` in the latest release. The copy of Syncative's `.zsync` under that name leads them to the Syncative AppImage, because its `URL:` line names the AppImage relative to the `.zsync`. Keep uploading the copy while the download counts show Celeste updates.
+- **Updating from Celeste:** AppImages released as Celeste (up to 0.22.2) look for `Celeste-*-x86_64.AppImage.zsync` in the latest release. Releases no longer include it, so these AppImages don't update to Syncative by themselves.
 - `appimage/Dockerfile` builds in Ubuntu 22.04, so glibc 2.35 is the minimum.
 - `appimage/build-inside.sh` packs the AppDir with appimagetool's static runtime: no libfuse2 needed, only the system's `fusermount`.
 - The update information (`gh-releases-zsync|Santuzius|syncative|latest|Syncative-*-x86_64.AppImage.zsync`) lets Gear Lever and AppImageUpdate find newer releases.
