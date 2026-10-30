@@ -8,7 +8,7 @@
 use std::{
     collections::HashSet,
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Mutex,
 };
 
@@ -595,6 +595,43 @@ fn upload_rechecks_remote_before_overwriting() {
     let (_outcome, events) = run_full(&tmp, &repo, &client);
     assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
     assert_eq!(conflicts(&events).len(), 1);
+}
+
+/// An app saves the file while it uploads: the row keeps the time of the version sent, so the next pass uploads the new one, and nothing shows as a problem.
+#[test]
+fn a_save_during_the_upload_is_uploaded_again_next_pass() {
+    let tmp = TempDir::new("sync_saved_during_upload");
+    let local = tmp.write_file("settings.json", b"{}");
+    touch_mtime(&local, 1_700_000_500);
+    let repo = FakeRepo::new();
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![]));
+    client.set_stat("settings.json", Ok(Some(remote_item("settings.json", false, 1_700_000_500))));
+    *client.during_copy_to_remote.lock().unwrap() = Some(Box::new(|path: &str| {
+        fs::write(path, b"{\"theme\": \"dark\"}").unwrap();
+        touch_mtime(Path::new(path), 1_700_000_900);
+    }));
+    let (outcome, events) = run_full(&tmp, &repo, &client);
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    let row = repo.items.lock().unwrap().iter().find(|i| i.remote_path == "settings.json").cloned().unwrap();
+    assert_eq!(row.last_local_timestamp, 1_700_000_500);
+}
+
+/// rclone stopped reading because the file was written into: the remote keeps its version, the file waits for the next pass, and nothing shows as a problem.
+#[test]
+fn an_upload_stopped_by_a_write_waits_for_the_next_pass() {
+    let tmp = TempDir::new("sync_written_during_upload");
+    let local = tmp.write_file("notes.txt", b"draft");
+    touch_mtime(&local, 1_700_000_500);
+    let repo = FakeRepo::new();
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![]));
+    client.set_copy_to_remote(Err("can't copy - source file is being updated (size changed from 5 to 9)".into()));
+    let (outcome, events) = run_full(&tmp, &repo, &client);
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    assert!(repo.items.lock().unwrap().is_empty());
 }
 
 /// Upload that fails with "source gone" after planning — raced with a

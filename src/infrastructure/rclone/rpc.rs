@@ -414,25 +414,25 @@ pub mod sync {
         common("operations/purge", remote_name, path, cancel)
     }
 
-    /// Utility for copy functions.
+    /// Utility for copy functions. `config` overrides rclone's global options for this call.
     fn copy(
         src_fs: &str,
         src_remote: &str,
         dst_fs: &str,
         dst_remote: &str,
+        config: Option<serde_json::Value>,
         cancel: &Cancel,
     ) -> Result<(), RcloneError> {
-        let resp = run_cancellable(
-            "operations/copyfile",
-            &json!({
-                "srcFs": src_fs,
-                "srcRemote": util::strip_slashes(src_remote),
-                "dstFs": dst_fs,
-                "dstRemote": util::strip_slashes(dst_remote)
-            })
-            .to_string(),
-            cancel,
-        );
+        let mut input = json!({
+            "srcFs": src_fs,
+            "srcRemote": util::strip_slashes(src_remote),
+            "dstFs": dst_fs,
+            "dstRemote": util::strip_slashes(dst_remote)
+        });
+        if let Some(config) = config {
+            input["_config"] = config;
+        }
+        let resp = run_cancellable("operations/copyfile", &input.to_string(), cancel);
 
         match resp {
             Ok(_) => Ok(()),
@@ -441,6 +441,8 @@ pub mod sync {
     }
 
     /// Copy a file from the local machine to the remote.
+    ///
+    /// Without rclone's size and checksum check after the transfer: it compares the sent bytes with the file as it is on disk by then, so a save during the upload (Zed rewrites its settings.json at any time) failed it, and rclone then removed the upload, which on Google Drive is the remote file itself. The caller compares the file before and after instead (see the applier); HTTPS already protects the transfer.
     pub fn copy_to_remote(
         local_file: &str,
         remote_name: &str,
@@ -452,6 +454,7 @@ pub mod sync {
             local_file,
             &get_remote_name(remote_name),
             remote_destination,
+            Some(json!({ "IgnoreChecksum": true, "IgnoreSize": true })),
             cancel,
         )
     }
@@ -468,6 +471,7 @@ pub mod sync {
             remote_file,
             "/",
             local_destination,
+            None,
             cancel,
         )
     }

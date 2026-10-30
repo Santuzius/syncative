@@ -12,6 +12,9 @@ use crate::domain::{
     sync::{FileDetails, ListFilter, RemoteItem},
 };
 
+/// See [`FakeBackend::during_copy_to_remote`].
+pub type DuringCopy = Box<dyn Fn(&str) + Send>;
+
 pub struct FakeBackend {
     pub stat_map: Mutex<HashMap<String, Result<Option<RemoteItem>, String>>>,
     pub stat_sequence: Mutex<HashMap<String, Vec<Result<Option<RemoteItem>, String>>>>,
@@ -25,6 +28,8 @@ pub struct FakeBackend {
     pub delete_file_result: Mutex<Result<(), String>>,
     pub purge_result: Mutex<Result<(), String>>,
     pub mkdir_result: Mutex<Result<(), String>>,
+    /// Runs inside `copy_to_remote` with the local path, e.g. to change the file during its upload.
+    pub during_copy_to_remote: Mutex<Option<DuringCopy>>,
 
     pub stat_calls: Mutex<Vec<String>>,
     pub list_calls: Mutex<Vec<String>>,
@@ -48,6 +53,7 @@ impl Default for FakeBackend {
             delete_file_result: Mutex::new(Ok(())),
             purge_result: Mutex::new(Ok(())),
             mkdir_result: Mutex::new(Ok(())),
+            during_copy_to_remote: Mutex::new(None),
             stat_calls: Mutex::new(Vec::new()),
             list_calls: Mutex::new(Vec::new()),
             copy_to_remote_calls: Mutex::new(Vec::new()),
@@ -162,6 +168,9 @@ impl BackendClient for FakeBackend {
             .lock()
             .unwrap()
             .push((local.to_owned(), path.to_owned()));
+        if let Some(during) = &*self.during_copy_to_remote.lock().unwrap() {
+            during(local);
+        }
         self.copy_to_remote_result.lock().unwrap().clone()
     }
     fn copy_to_local(

@@ -129,6 +129,7 @@ where
                         total,
                         util::fmt_home(&local_path)
                     ));
+                    let before = file_state(Path::new(&local_path));
                     if let Err(err) =
                         client.copy_to_remote(&local_path, &remote.name, &remote_path, cancel)
                     {
@@ -138,9 +139,21 @@ where
                             );
                             break 'action;
                         }
+                        // rclone stops reading a file that is written into while it reads; the remote keeps its version.
+                        if err.contains("source file is being updated") {
+                            eprintln!("sync: '{local_path}' changed during its upload; it is uploaded again in a later pass ({err}).");
+                            break 'action;
+                        }
                         emit_error(SyncError::General(local_path.clone(), err));
                         break 'action;
                     }
+                    // Recorded with the time from before the upload: a save during it leaves the file newer than its row, so the next pass uploads it again.
+                    if file_state(Path::new(&local_path)) != before {
+                        eprintln!("sync: '{local_path}' changed during its upload; it is uploaded again in the next pass.");
+                    }
+                    let local_ts = before.and_then(|(_, modified)| timestamp(modified));
+                    record_uploaded(repo, sync_dir, &local_path, &remote_path, local_ts, client, &remote.name, cancel);
+                    break 'action;
                 }
                 record_upsert(repo, sync_dir, &local_path, &remote_path, client, &remote.name, cancel);
             }
@@ -488,7 +501,22 @@ fn record_upsert(
     remote_name: &str,
     cancel: &Cancel,
 ) {
-    let Some(local_ts) = local_timestamp(Path::new(local_path)) else {
+    record_uploaded(repo, sync_dir, local_path, remote_path, local_timestamp(Path::new(local_path)), client, remote_name, cancel);
+}
+
+/// Record the item with `local_ts`, the local time of what the remote now holds.
+#[allow(clippy::too_many_arguments)]
+fn record_uploaded(
+    repo: &dyn Repository,
+    sync_dir: &SyncDir,
+    local_path: &str,
+    remote_path: &str,
+    local_ts: Option<u64>,
+    client: &dyn BackendClient,
+    remote_name: &str,
+    cancel: &Cancel,
+) {
+    let Some(local_ts) = local_ts else {
         eprintln!("sync: could not record '{remote_path}': no modification time for {local_path}.");
         return;
     };
@@ -554,13 +582,17 @@ fn save_row(repo: &dyn Repository, sync_dir: &SyncDir, local_path: &str, remote_
 }
 
 fn local_timestamp(path: &Path) -> Option<u64> {
-    fs::metadata(path)
-        .ok()?
-        .modified()
-        .ok()?
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .ok()
-        .map(|d| d.as_secs())
+    timestamp(fs::metadata(path).ok()?.modified().ok()?)
+}
+
+fn timestamp(time: SystemTime) -> Option<u64> {
+    time.duration_since(SystemTime::UNIX_EPOCH).ok().map(|d| d.as_secs())
+}
+
+/// Size and modification time of a file, to tell whether it changed in between.
+fn file_state(path: &Path) -> Option<(u64, SystemTime)> {
+    let meta = fs::metadata(path).ok()?;
+    Some((meta.len(), meta.modified().ok()?))
 }
 
 /// Whether a delete failed only because its target no longer exists. Providers word it differently: "object not found" and "directory not found" (rclone), "not found on remote" (native Proton client), "no such file or directory".
