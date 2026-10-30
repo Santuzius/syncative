@@ -762,11 +762,11 @@ fn folder_actions<'a>(
         "Exclusions",
     );
     let delete = with_tip(
-        button(on_fill_icon(icondata::TbTrashOutline, 16.0))
+        button(on_fill_icon(icondata::TbXOutline, 16.0))
             .padding(6)
             .style(theme::button_danger)
             .on_press(Msg::RequestDeleteSyncDir(sd.local_path.clone(), sd.remote_path.clone(), format!("{}:{remote_display}", remote.name))),
-        "Stop syncing this folder",
+        "Remove from sync",
     );
     let log = with_tip(
         button(icon(icondata::TbFileTextOutline, 16.0))
