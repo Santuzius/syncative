@@ -753,8 +753,18 @@ fn folder_actions<'a>(
         "Exclusions",
     );
     let delete = with_tip(
-        square(on_fill_icon(icondata::TbXOutline, icon_size).into())
-            .style(theme::button_danger)
+        // Only the middle 60 % of the square is filled red, so it doesn't outweigh the other buttons; the whole square stays clickable.
+        square(
+            container(on_fill_icon(icondata::TbXOutline, icon_size - 2.0))
+                .center(Length::Fixed((size * 0.6).round()))
+                .style(|theme: &iced::Theme| container::Style {
+                    background: Some(theme::tones(theme).danger_fill.into()),
+                    border: iced::Border { radius: 4.0.into(), ..Default::default() },
+                    ..Default::default()
+                })
+                .into(),
+        )
+        .style(theme::button_toggle(false))
             .on_press(Msg::RequestDeleteSyncDir(sd.local_path.clone(), sd.remote_path.clone(), format!("{}:{remote_display}", remote.name))),
         "Remove from sync",
     );
