@@ -66,6 +66,8 @@ pub(crate) struct Core {
     unreachable: HashSet<RemoteId>,
     /// Space at each provider that reports one, as last fetched at a pass end or when a page opened the remote.
     usage: HashMap<RemoteId, RemoteUsage>,
+    /// Remotes whose last `about` failed, so a failure repeated at every pass is logged only once.
+    usage_failed: HashSet<RemoteId>,
 }
 
 impl Core {
@@ -101,6 +103,7 @@ impl Core {
             offline: false,
             unreachable: HashSet::new(),
             usage: HashMap::new(),
+            usage_failed: HashSet::new(),
         }
     }
 
@@ -115,10 +118,19 @@ impl Core {
 
     /// Keep the last numbers a provider actually reported; an unsupported or failed `about` simply changes nothing.
     fn record_usage(&mut self, id: RemoteId, usage: Result<Option<RemoteUsage>, String>) {
-        if let Ok(Some(usage)) = usage
-            && self.remotes.iter().any(|r| r.id == id)
-        {
-            self.usage.insert(id, usage);
+        let Some(remote) = self.remotes.iter().find(|r| r.id == id) else { return };
+        match usage {
+            Ok(usage) => {
+                self.usage_failed.remove(&id);
+                if let Some(usage) = usage {
+                    self.usage.insert(id, usage);
+                }
+            }
+            Err(err) => {
+                if self.usage_failed.insert(id) {
+                    eprintln!("syncative: couldn't get the used space of '{}': {err}", remote.name);
+                }
+            }
         }
     }
 
