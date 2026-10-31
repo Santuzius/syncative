@@ -961,13 +961,13 @@ impl SyncativeApp {
         } else if self.preferences_open {
             let power = cfg!(target_os = "android").then_some(preferences::Power {
                 mode: self.power.mode,
-                sync_metered: self.power.sync_metered,
                 background: self.background,
                 background_allowed: self.background_allowed,
             });
             let dialog = preferences::view(
                 self.appearance,
                 power,
+                self.power.sync_metered,
                 self.autostart,
                 self.start_hidden,
                 self.detailed_log,

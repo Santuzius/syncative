@@ -195,13 +195,12 @@ fn spawn(
     let (snapshot_tx, snapshot) = watch::channel(Arc::new(Snapshot::default()));
     let logs = Logs::default();
     let core = Core::new(repo, backend, stderr, logs.clone(), tx.clone());
-    // Before the first pass: whether the device is online, and on Android how often the power mode lets it sync.
+    // Before the first pass: whether the device is online, and how often the power settings let it sync.
     let _ = tx.send(Input::Command(Command::Online(
         crate::services::network::online(),
     )));
-    #[cfg(target_os = "android")]
     let _ = tx.send(Input::Command(Command::Cadence(
-        crate::infrastructure::android::initial_cadence(),
+        crate::services::power::current_cadence(),
     )));
     std::thread::Builder::new()
         .name("syncative-engine".to_owned())

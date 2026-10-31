@@ -1,4 +1,4 @@
-//! How much battery and mobile data syncing may use on Android: the power mode chosen in Preferences and what it means for the sync engine's [`Cadence`] given the screen, the charger, Android's battery saver and a metered network. Kept in `power.conf` in the data dir as `key=value` lines, together with whether to sync on metered networks and whether Syncative already asked to be exempted from battery optimization.
+//! How much battery and mobile data syncing may use: the power mode chosen in Preferences on Android and what it means for the sync engine's [`Cadence`] given the screen, the charger and Android's battery saver, and on every platform whether to wait while the network is metered. Kept in `power.conf` in the data dir as `key=value` lines, together with whether to sync on metered networks and whether Syncative already asked to be exempted from battery optimization.
 
 use std::{io, path::Path, time::Duration};
 
@@ -77,7 +77,7 @@ pub struct Conditions {
     /// Plugged in, whether or not the battery is full.
     pub charging: bool,
     pub battery_saver: bool,
-    /// The network is charged by the amount of data, e.g. mobile data or a hotspot, as Android judges it.
+    /// The network is charged by the amount of data, e.g. mobile data or a hotspot, as Android or the desktop portal judges it.
     pub metered: bool,
 }
 
@@ -140,14 +140,30 @@ impl PowerSettings {
     }
 }
 
-/// Whether scheduled passes wait for an unmetered network right now; never on the desktop, which doesn't tell metered networks apart yet.
-pub fn held_on_metered(settings: PowerSettings) -> bool {
+/// What the cadence goes by right now: on Android the screen, the charger and the battery saver, everywhere whether the network is metered.
+pub fn conditions() -> Conditions {
     #[cfg(target_os = "android")]
-    return settings.held_on_metered(crate::infrastructure::android::conditions());
+    let now = crate::infrastructure::android::conditions();
     #[cfg(not(target_os = "android"))]
-    {
-        let _ = settings;
-        false
+    let now = Conditions::default();
+    Conditions { metered: crate::services::network::metered(), ..now }
+}
+
+/// Whether scheduled passes wait for an unmetered network right now.
+pub fn held_on_metered(settings: PowerSettings) -> bool {
+    settings.held_on_metered(conditions())
+}
+
+/// The engine's cadence under the saved settings and the current conditions. The power mode exists only on Android; the desktop syncs at each remote's interval unless it waits for an unmetered network.
+pub fn current_cadence() -> Cadence {
+    let settings = PowerSettings::load(&crate::util::get_data_dir());
+    let now = conditions();
+    if cfg!(target_os = "android") {
+        settings.cadence(now)
+    } else if settings.held_on_metered(now) {
+        Cadence::Held
+    } else {
+        Cadence::Full
     }
 }
 
@@ -191,10 +207,18 @@ pub fn allow_background() {
     crate::infrastructure::android::ask_to_ignore_battery_optimizations();
 }
 
-/// Applies a newly saved power mode to the running engine.
+/// Hands [`current_cadence`] to the engine, if it runs yet, after the settings or the conditions changed; the engine reads it itself when it starts.
 pub fn apply() {
-    #[cfg(target_os = "android")]
-    crate::infrastructure::android::apply_power_state();
+    let cadence = current_cadence();
+    // Google Drive's and Dropbox's change logs in the same rhythm; hourly while held.
+    syncative_go::set_change_poll_interval(match cadence {
+        Cadence::Full => None,
+        Cadence::AtMost(floor) => Some(floor),
+        Cadence::Held => Some(Duration::from_secs(60 * 60)),
+    });
+    if let Some(engine) = crate::engine::get() {
+        engine.send(crate::engine::Command::Cadence(cadence));
+    }
 }
 
 #[cfg(test)]

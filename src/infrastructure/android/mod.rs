@@ -6,10 +6,7 @@ pub mod documents;
 pub mod folders;
 pub mod secrets;
 
-use std::{
-    sync::{Mutex, OnceLock},
-    time::Duration,
-};
+use std::sync::{Mutex, OnceLock};
 
 use jni::{
     objects::{GlobalRef, JClass, JObject, JValue},
@@ -17,10 +14,7 @@ use jni::{
     JNIEnv, JavaVM,
 };
 
-use crate::{
-    engine::Cadence,
-    services::power::{Conditions, PowerSettings},
-};
+use crate::services::power::Conditions;
 
 /// The Java class with Syncative's static helpers.
 const BRIDGE: &str = "io.github.santuzius.syncative.Bridge";
@@ -50,10 +44,10 @@ extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeStartEng
     std::thread::spawn(crate::start_engine);
 }
 
-/// The screen, the charger and the battery saver, as `SyncService` last reported them, and whether the network is metered, as `Bridge.watchNetwork` last reported it.
+/// The screen, the charger and the battery saver, as `SyncService` last reported them; whether the network is metered is kept in [`crate::services::network`].
 static CONDITIONS: Mutex<Conditions> = Mutex::new(Conditions { screen_off: false, charging: false, battery_saver: false, metered: false });
 
-/// What the power mode and the choice about metered networks currently go by.
+/// What the power mode currently goes by, apart from a metered network ([`crate::services::power::conditions`] adds that).
 pub fn conditions() -> Conditions {
     CONDITIONS.lock().map(|c| *c).unwrap_or_default()
 }
@@ -64,18 +58,13 @@ extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeConditio
     if let Ok(mut conditions) = CONDITIONS.lock() {
         *conditions = Conditions { screen_off: screen_off == JNI_TRUE, charging: charging == JNI_TRUE, battery_saver: battery_saver == JNI_TRUE, ..*conditions };
     }
-    apply_power_state();
+    crate::services::power::apply();
 }
 
 /// Called by `Bridge.watchNetwork` in every process when the default network changes and whether it is metered: Preferences may hold syncing on metered networks.
 #[unsafe(no_mangle)]
 extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeMetered(_: JNIEnv, _: JClass, metered: jboolean) {
-    let metered = metered == JNI_TRUE;
-    let changed = CONDITIONS.lock().map(|mut c| std::mem::replace(&mut c.metered, metered) != metered).unwrap_or(false);
-    if changed {
-        log::info!("network {}", if metered { "metered" } else { "unmetered" });
-        apply_power_state();
-    }
+    crate::services::network::set_metered(metered == JNI_TRUE);
 }
 
 /// Called by `Bridge.watchNetwork` in every process when the device gets or loses a network below any VPN.
@@ -84,10 +73,6 @@ extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeOnline(_: JNI
     crate::services::network::set_online(online == JNI_TRUE);
 }
 
-/// How often the power mode lets the engine sync, before its first pass.
-pub fn initial_cadence() -> Cadence {
-    PowerSettings::load(&crate::util::get_data_dir()).cadence(conditions())
-}
 
 /// Called by `Bridge.watchNetwork` in every process when the default network switches: connections opened over the old one may hang without ever failing.
 #[unsafe(no_mangle)]
@@ -96,19 +81,6 @@ extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeNetworkChange
     syncative_go::proton::reset_connections();
 }
 
-/// Hands the cadence for the saved power mode and the current conditions to the engine, if it runs yet; it starts asynchronously and calls this once it does, and Preferences after a change.
-pub fn apply_power_state() {
-    let cadence = PowerSettings::load(&crate::util::get_data_dir()).cadence(conditions());
-    // Google Drive's and Dropbox's change logs in the same rhythm; hourly while held.
-    syncative_go::set_change_poll_interval(match cadence {
-        Cadence::Full => None,
-        Cadence::AtMost(floor) => Some(floor),
-        Cadence::Held => Some(Duration::from_secs(60 * 60)),
-    });
-    if let Some(engine) = crate::engine::get() {
-        engine.send(crate::engine::Command::Cadence(cadence));
-    }
-}
 
 /// Whether Android leaves Syncative out of battery optimization, so it may keep running in the background.
 pub fn ignores_battery_optimizations() -> bool {

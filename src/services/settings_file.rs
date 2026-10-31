@@ -94,7 +94,7 @@ pub fn export(repo: &dyn Repository, client: &dyn BackendClient) -> Result<Strin
     let preferences = Preferences {
         appearance: conf_to_map(&Appearance::load(&data_dir).to_conf()),
         power_mode: power_mode.filter(|_| android),
-        sync_metered: android.then_some(power_settings.sync_metered),
+        sync_metered: Some(power_settings.sync_metered),
         run_in_background: android.then(power::background_enabled),
         autostart: Some(autostart::enabled()),
         autostart_hidden: (!android).then(autostart::starts_hidden),

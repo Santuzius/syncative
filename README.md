@@ -64,7 +64,8 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 - Credentials stay on the device: in the system keyring on Linux, encrypted with the Android Keystore on Android
 - Starts at login or after the phone's restart (can be switched off), Start / Pause per account
 - Shows how much of each account's space is used
-- On Android: power modes that sync less often with the screen off, and optionally no syncing on mobile data or other metered networks
+- Optionally no syncing on metered networks such as mobile data or a phone's hotspot
+- On Android: power modes that sync less often with the screen off
 - On Android: sub-folders hidden from the gallery and media apps through `.nomedia` files, which each phone creates from the setting and which stay out of the cloud
 - Light and dark theme, adjustable content size, settings export and import (without sign-ins)
 

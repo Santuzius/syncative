@@ -11,6 +11,7 @@
 #   SYNCATIVE_TEST_BIN=/path/to/syncative runs another build (e.g. an older version for comparisons).
 #   SYNCATIVE_TEST_SHOW=0 starts hidden (tray mode) with --hidden instead of passing --show (builds without --hidden start hidden without arguments).
 #   SYNCATIVE_COLOR_SCHEME=light|dark forces the window theme (e.g. for README screenshots); passed through to Syncative.
+#   SYNCATIVE_TEST_PORTAL=1 adds a fake desktop portal network monitor (scripts/fake-network-portal.py): online, and metered while $SYNCATIVE_TEST_DIR/metered exists.
 set -euo pipefail
 
 MODE="${1:-xvfb}"
@@ -57,6 +58,15 @@ fi
 [ "${SYNCATIVE_TEST_RESET:-0}" = 1 ] && rm -rf "$T"
 mkdir -p "$T/home/.local/share" "$T/home/.config" "$T/home/.cache" "$T/run"
 chmod 700 "$T/run"
+
+# The private D-Bus session starts the fake portal on Syncative's first call to it.
+SERVICES="$T/home/.local/share/dbus-1/services"
+rm -f "$SERVICES/org.freedesktop.portal.Desktop.service"
+if [ "${SYNCATIVE_TEST_PORTAL:-0}" = 1 ]; then
+  PYTHON="$(nix-build -E 'with import <nixpkgs> {}; python3.withPackages (p: [ p.dbus-python p.pygobject3 ])' --no-out-link 2>/dev/null)/bin/python3"
+  mkdir -p "$SERVICES"
+  printf '[D-BUS Service]\nName=org.freedesktop.portal.Desktop\nExec=%s %s/scripts/fake-network-portal.py %s/metered\n' "$PYTHON" "$REPO" "$T" > "$SERVICES/org.freedesktop.portal.Desktop.service"
+fi
 
 if [ "$MODE" = xvfb ]; then
   # Never start a real browser on the invisible display: links (OAuth, human verification) are only logged.

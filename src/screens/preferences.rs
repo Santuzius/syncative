@@ -1,4 +1,4 @@
-//! App-wide preferences dialog (as opposed to the per-remote settings): colours of the window and the tray icon, the size of the window's content, the power mode and metered networks on Android, start at login — one labelled row each, like the remote settings.
+//! App-wide preferences dialog (as opposed to the per-remote settings): colours of the window and the tray icon, the size of the window's content, the power mode on Android, metered networks, start at login — one labelled row each, like the remote settings.
 
 use iced::{
     widget::{button, column, container, row, rule, toggler, Row, Space},
@@ -46,8 +46,6 @@ pub enum Msg {
 #[derive(Debug, Clone, Copy)]
 pub struct Power {
     pub mode: PowerMode,
-    /// Sync on metered networks too.
-    pub sync_metered: bool,
     /// "Run in background" is on.
     pub background: bool,
     /// Android leaves Syncative out of battery optimization.
@@ -55,9 +53,9 @@ pub struct Power {
 }
 
 /// `compact`: the phone layout, where the button groups go below their labels.
-/// `log_note`: how the last copy or clear of the log went; `note`: how the last export or import went.
+/// `sync_metered`: sync on metered networks too; `log_note`: how the last copy or clear of the log went; `note`: how the last export or import went.
 #[allow(clippy::too_many_arguments)]
-pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, start_hidden: bool, detailed_log: bool, log_note: Option<&'a str>, note: Option<&'a str>, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
+pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool, autostart: bool, start_hidden: bool, detailed_log: bool, log_note: Option<&'a str>, note: Option<&'a str>, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
     let android = cfg!(target_os = "android");
     let size_hint = if android { "Text and everything else in this window, relative to the system's font and display size." } else { "Text and everything else in this window." };
     let mut rows = column![
@@ -96,11 +94,7 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, s
                 .push(separator())
                 .push(power_row(power))
                 .push(separator())
-                .push(setting_row(
-                    "Sync on metered networks",
-                    "Mobile data and hotspots. When off, Syncative waits for Wi-Fi or another unmetered network, but you can still start a sync yourself.",
-                    toggler(power.sync_metered).on_toggle(Msg::SyncMeteredToggled).size(20).into(),
-                ));
+                .push(metered_row(sync_metered, "Mobile data and hotspots. When off, Syncative waits for Wi-Fi or another unmetered network, but you can still start a sync yourself."));
         }
         None => {
             rows = rows
@@ -111,7 +105,9 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, s
                     "Start hidden",
                     if autostart { "At login only the tray icon appears, not the window." } else { "Turn on “Start Syncative when you log in” first." },
                     toggler(autostart && start_hidden).on_toggle_maybe(autostart.then_some(Msg::StartHiddenToggled)).size(20).into(),
-                ));
+                ))
+                .push(separator())
+                .push(metered_row(sync_metered, "E.g. a phone's hotspot, or networks marked as metered in the network settings. When off, Syncative waits for an unmetered network, but you can still start a sync yourself."));
         }
     }
 
@@ -157,6 +153,11 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, autostart: bool, s
     ]);
 
     container(content).padding(22).max_width(560).style(theme::dialog).into()
+}
+
+/// "Sync on metered networks", with what counts as metered on this platform.
+fn metered_row(sync_metered: bool, hint: &'static str) -> Element<'static, Msg> {
+    setting_row("Sync on metered networks", hint, toggler(sync_metered).on_toggle(Msg::SyncMeteredToggled).size(20).into())
 }
 
 /// A short note under the row above it.

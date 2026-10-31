@@ -1,4 +1,4 @@
-//! Whether the computer has a network, from the XDG desktop portal's network monitor (`org.freedesktop.portal.NetworkMonitor`). It asks NetworkManager where there is one and otherwise looks for a default route, so it works whatever manages the network. Without a portal Syncative counts as online, and failed connections show as Offline anyway.
+//! Whether the computer has a network and whether it is metered, from the XDG desktop portal's network monitor (`org.freedesktop.portal.NetworkMonitor`). It asks NetworkManager where there is one and otherwise looks for a default route, so it works whatever manages the network. Without a portal Syncative counts as online and unmetered, and failed connections show as Offline anyway.
 
 use std::{sync::Mutex, time::Duration};
 
@@ -17,6 +17,7 @@ pub fn start() {
     match available(&conn) {
         Ok(online) => {
             crate::services::network::set_online(online);
+            report_metered(&conn);
             *RECHECK.lock().unwrap_or_else(|e| e.into_inner()) = Connection::new_session().ok();
         }
         Err(err) => {
@@ -33,6 +34,7 @@ pub fn start() {
                     if let Ok(online) = available(conn) {
                         crate::services::network::set_online(online);
                     }
+                    report_metered(conn);
                     true
                 }),
             )
@@ -53,9 +55,17 @@ pub fn recheck() {
     let guard = RECHECK.lock().unwrap_or_else(|e| e.into_inner());
     let Some(conn) = guard.as_ref() else { return };
     if let Ok(online) = available(conn) {
+        report_metered(conn);
         drop(guard);
         crate::services::network::set_online(online);
     }
+}
+
+/// Whether the network is metered, e.g. a phone's hotspot or a connection marked so in NetworkManager; GLib's `network-metered`. Portals without it count as unmetered.
+fn report_metered(conn: &Connection) {
+    let proxy = conn.with_proxy(DESTINATION, PATH, Duration::from_secs(2));
+    let metered = proxy.method_call(INTERFACE, "GetMetered", ()).is_ok_and(|(metered,): (bool,)| metered);
+    crate::services::network::set_metered(metered);
 }
 
 /// Whether there is a network; GLib's `network-available`, the portal's answer since its first version.

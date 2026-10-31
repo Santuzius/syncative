@@ -168,8 +168,7 @@ fn set_up() -> Option<Services> {
     infrastructure::network_monitor::start();
     resume_native_sessions(&*repo, &router);
     let engine = engine::start(repo.clone(), router.clone(), stderr).clone();
-    #[cfg(target_os = "android")]
-    infrastructure::android::apply_power_state();
+    services::power::apply();
     Some(Services { repo, router, engine })
 }
 
