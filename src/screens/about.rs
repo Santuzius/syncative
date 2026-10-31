@@ -13,7 +13,7 @@ use crate::{
 };
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
-const UPSTREAM: &str = "https://github.com/hwittenborn/celeste";
+const ISSUES: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/issues");
 const LICENSE: &str = "https://www.gnu.org/licenses/gpl-3.0.html";
 
 #[derive(Debug, Clone)]
@@ -58,7 +58,7 @@ pub fn view<'a>() -> Element<'a, Msg> {
             .spacing(14)
             .align_y(Alignment::Center),
             text(format!("Two-way file sync between folders on {} and Google Drive or Proton Drive.", crate::util::THIS_DEVICE)).size(TEXT),
-            row![link("Source", REPOSITORY), link("Privacy policy", PRIVACY_POLICY), link("Original project", UPSTREAM)].spacing(ROW_SPACING),
+            row![link("Source", REPOSITORY), link("Privacy", PRIVACY_POLICY), link("Report issue", ISSUES)].spacing(ROW_SPACING),
             credits,
             copyright,
             row![
