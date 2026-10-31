@@ -515,6 +515,9 @@ impl BackendClient for PendingProtonClient {
     fn remote_type(&self, _remote: &str) -> Result<Option<String>, String> {
         Ok(Some("native-proton".to_owned()))
     }
+    fn usage(&self, remote: &str, cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {
+        self.resolve()?.usage(remote, cancel)
+    }
     /// Only meaningful once live — don't let a checkpoint drive a
     /// resume attempt of its own.
     fn checkpoint_session(&self, remote: &str) {
