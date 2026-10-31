@@ -22,7 +22,7 @@ The branch flow:
 
 ## Steps
 
-1. **Bump** the version in `[workspace.package]` of `Cargo.toml`, then run `cargo metadata` in the dev shell so `Cargo.lock` follows. Don't commit yet.
+1. **Bump** the version in `[workspace.package]` of `Cargo.toml`, then run `cargo metadata` in the dev shell so `Cargo.lock` follows. Run `scripts/update-licenses.sh`, which rewrites `assets/licenses.json` (the "Open source licenses" in About) from the licenses of all Rust crates and Go packages. Don't commit yet.
 2. **Build the APK and the AppImage** from this tree. Both write to `temp/release/`:
    ```sh
    scripts/android-release.sh    # Syncative-X.Y.Z-arm64-v8a.apk
@@ -33,7 +33,7 @@ The branch flow:
    nix hash file temp/release/Syncative-X.Y.Z-x86_64.AppImage
    ```
    The flake downloads the AppImage from the release under this hash. Never rebuild the AppImage after this step: a new build has a different hash.
-4. **Commit** `Cargo.toml`, `Cargo.lock` and `nix/release.json` together (`:bookmark: Bump crate to X.Y.Z`). Tag that commit (`git tag -a vX.Y.Z -m "Syncative X.Y.Z"`) and move `develop` and `main` to it.
+4. **Commit** `Cargo.toml`, `Cargo.lock`, `assets/licenses.json` and `nix/release.json` together (`:bookmark: Bump crate to X.Y.Z`). Tag that commit (`git tag -a vX.Y.Z -m "Syncative X.Y.Z"`) and move `develop` and `main` to it.
 5. **Push** the branches and the tag: `git push origin develop main vX.Y.Z`.
 6. **Release** with notes in the style of [Zed's](https://github.com/zed-industries/zed/releases): one sentence naming the main changes, then `## Features` grouped by `### Area` (Proton Drive, Android, Nix, Other …) and `## Bug Fixes`, plus `## Updating` if users have to do something. One bullet per change, usually one short sentence, starting with Added, Improved, Changed, Reduced or Fixed; the details belong in the commit, not the notes. Patch releases are just a flat list of such bullets:
    ```sh

@@ -5003,6 +5003,7 @@ dependencies = [
  "ksni",
  "libc",
  "log",
+ "miniz_oxide",
  "notify-rust",
  "resvg 0.47.0",
  "sea-orm",

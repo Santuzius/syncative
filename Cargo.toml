@@ -21,6 +21,10 @@ version = "0.24.2"
 name = "syncative"
 crate-type = ["cdylib", "rlib"]
 
+[build-dependencies]
+# Packs assets/licenses.json into the binary at about a sixth of its size.
+miniz_oxide = "0.8.9"
+
 [dependencies]
 clap = { version = "4.6.1", features = ["derive", "env"] }
 futures = "0.3.32"
@@ -52,6 +56,8 @@ resvg = { version = "0.47", default-features = false }
 # side.
 syncative-go = { path = "src/go" }
 sea-orm = { version = "0.10.7", features = ["sqlx-sqlite", "runtime-async-std-rustls", "macros"] }
+# Unpacks the open source licenses for About, which build.rs packs; already a transitive dependency (PNG decoding).
+miniz_oxide = "0.8.9"
 # Without the default `cli` feature: Syncative runs its migrations itself and never needs the command-line tool.
 sea-orm-migration = { version = "0.10.7", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }

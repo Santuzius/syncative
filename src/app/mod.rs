@@ -167,6 +167,9 @@ pub struct SyncativeApp {
     settings_open: bool,
     /// The About dialog is shown.
     about_open: bool,
+    about_page: about::Page,
+    /// The license text on [`about::Page::License`].
+    about_text: iced::widget::text_editor::Content,
     /// The Preferences dialog is shown.
     preferences_open: bool,
     /// Start at login, as last read from or written to the autostart entry.
@@ -260,6 +263,8 @@ impl SyncativeApp {
             sync_dir_drafts: HashMap::new(),
             settings_open: false,
             about_open: false,
+            about_page: about::Page::Main,
+            about_text: iced::widget::text_editor::Content::new(),
             preferences_open: false,
             autostart: autostart::enabled(),
             start_hidden: autostart::starts_hidden(),
@@ -436,6 +441,7 @@ impl SyncativeApp {
             }
             Message::Main(main_page::Msg::OpenAbout) => {
                 self.about_open = true;
+                self.about_page = about::Page::Main;
                 Task::none()
             }
             Message::Main(main_page::Msg::OpenPreferences) => {
@@ -656,6 +662,17 @@ impl SyncativeApp {
             }
             Message::About(about::Msg::Close) => {
                 self.about_open = false;
+                self.show_about(about::Page::Main);
+                Task::none()
+            }
+            Message::About(about::Msg::Show(page)) => {
+                self.show_about(page);
+                Task::none()
+            }
+            Message::About(about::Msg::TextAction(action)) => {
+                if !action.is_edit() {
+                    self.about_text.perform(action);
+                }
                 Task::none()
             }
             Message::About(about::Msg::Open(url)) => {
@@ -985,10 +1002,11 @@ impl SyncativeApp {
         } else if self.about_open {
             stack![
                 base,
-                remote_page::modal(
-                    about::view().map(Message::About),
-                    Some(Message::About(about::Msg::Close))
-                )
+                {
+                    let dialog = about::view(self.about_page, &self.about_text).map(Message::About);
+                    let close = Some(Message::About(about::Msg::Close));
+                    if self.about_page.is_framed() { remote_page::modal_framed(dialog, close) } else { remote_page::modal(dialog, close) }
+                }
             ]
             .into()
         } else if let Some(remote) = (compact && self.add_folder_open)
@@ -1048,6 +1066,13 @@ impl SyncativeApp {
         }
         if self.tray_hint_open {
             self.close_tray_hint();
+            return true;
+        }
+        // Back in About goes to the page before, from the main page out.
+        if self.about_open
+            && let Some(page) = self.about_page.back()
+        {
+            self.show_about(page);
             return true;
         }
         if std::mem::take(&mut self.preferences_open) || std::mem::take(&mut self.about_open) {
@@ -1259,6 +1284,12 @@ impl SyncativeApp {
     }
 
     /// Close the explanation of the tray icon's colour for good.
+    /// Switch About to `page`, with the license text it shows.
+    fn show_about(&mut self, page: about::Page) {
+        self.about_page = page;
+        self.about_text = iced::widget::text_editor::Content::with_text(&about::license_text(page));
+    }
+
     fn close_tray_hint(&mut self) {
         self.tray_hint_open = false;
         if let Err(err) = crate::services::appearance::mark_tray_hint_seen() {
