@@ -29,9 +29,9 @@ miniz_oxide = "0.8.9"
 clap = { version = "4.6.1", features = ["derive", "env"] }
 futures = "0.3.32"
 # iced from the fork that runs it on Android (tagged with each iced_android release, see doc/packaging/release.md). `x11` only satisfies iced's check that Unix targets pick a display server; nothing of it is built for Android. The desktop-only features are added below.
-iced = { git = "https://github.com/Santuzius/iced", tag = "iced_android-v0.1.0", default-features = false, features = ["wgpu", "tiny-skia", "crisp", "web-colors", "tokio", "lazy", "svg", "x11"] }
+iced = { git = "https://github.com/Santuzius/iced", tag = "iced_android-v0.1.2", default-features = false, features = ["wgpu", "tiny-skia", "crisp", "web-colors", "tokio", "lazy", "svg", "x11"] }
 # Soft keyboard, insets, back gesture and fonts on Android; does nothing on desktop.
-iced_android = { git = "https://github.com/Santuzius/iced_android", tag = "v0.1.0", features = ["emoji"] }
+iced_android = { git = "https://github.com/Santuzius/iced_android", tag = "v0.1.2", features = ["emoji"] }
 # The storage bar on the remote page; it builds on iced_widget, patched with the fork's below.
 iced_storage_bar = "0.1"
 # The folder picker for a new folder's remote path, exclusions and folders hidden from the gallery, with the Material Icon Theme's folder glyphs; like iced_storage_bar it builds on the patched iced_widget.
@@ -79,7 +79,7 @@ dbus = "0.9"
 keyring = { version = "3.6", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
 ksni = "0.3.4"
 notify-rust = "4"
-iced = { git = "https://github.com/Santuzius/iced", tag = "iced_android-v0.1.0", default-features = false, features = ["wayland", "linux-theme-detection", "thread-pool"] }
+iced = { git = "https://github.com/Santuzius/iced", tag = "iced_android-v0.1.2", default-features = false, features = ["wayland", "linux-theme-detection", "thread-pool"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"
@@ -88,6 +88,6 @@ log = "0.4"
 
 # Lets android_main outlive a destroyed activity, so the sync engine keeps running while Android has closed Syncative's window (on top of 0.6.1).
 [patch.crates-io]
-android-activity = { git = "https://github.com/Santuzius/android-activity", tag = "iced_android-v0.1.0" }
+android-activity = { git = "https://github.com/Santuzius/android-activity", tag = "iced_android-v0.1.2" }
 # Widget crates such as iced_storage_bar depend on iced_widget from crates.io; this gives them the fork's, so there is one iced.
-iced_widget = { git = "https://github.com/Santuzius/iced", tag = "iced_android-v0.1.0" }
+iced_widget = { git = "https://github.com/Santuzius/iced", tag = "iced_android-v0.1.2" }
