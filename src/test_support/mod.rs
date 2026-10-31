@@ -14,6 +14,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU32, Ordering},
 };
 
 use time::OffsetDateTime;
@@ -30,27 +31,24 @@ pub use fake_backend::FakeBackend;
 pub use fake_repository::FakeRepo;
 
 /// Scratch directory rooted under `$TMPDIR/syncative_test_*`. Dropped
-/// automatically; collisions across tests use the process ID + caller tag.
+/// automatically; the process ID and a process-wide counter keep parallel tests apart.
 pub struct TempDir {
     pub path: PathBuf,
 }
 
 impl TempDir {
     pub fn new(tag: &str) -> Self {
-        let mut counter = 0u32;
+        // Tests run in parallel threads: checking for a free name and then creating it let two tests share one directory, and one test's drop removed it under the other.
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
         loop {
-            let mut p = std::env::temp_dir();
-            p.push(format!(
-                "syncative_test_{}_{}_{}",
-                tag,
-                std::process::id(),
-                counter
-            ));
-            if !p.exists() {
-                fs::create_dir_all(&p).expect("create temp dir");
-                return Self { path: p };
+            let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let p = std::env::temp_dir().join(format!("syncative_test_{}_{}_{}", tag, std::process::id(), counter));
+            // `create_dir` fails on an existing directory, e.g. one left behind by an earlier process with the same ID.
+            match fs::create_dir(&p) {
+                Ok(()) => return Self { path: p },
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(err) => panic!("create temp dir {}: {err}", p.display()),
             }
-            counter += 1;
         }
     }
 
