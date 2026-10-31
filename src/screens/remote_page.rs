@@ -442,8 +442,9 @@ fn frame<'a>(
             } else {
                 SECTION_SPACING - 4.0
             },
-            left: pad,
-            right: if compact { pad } else { pad - 10.0 },
+            // Narrow screens keep more of their width for the cards.
+            left: if compact { pad - 4.0 } else { pad },
+            right: if compact { pad - 4.0 } else { pad - 10.0 },
             bottom: pad,
         }),
     )
