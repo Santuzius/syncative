@@ -7,7 +7,7 @@
 Needs `snapcraft` and LXD (`sudo snap install snapcraft --classic && sudo snap install lxd && sudo lxd init --auto`), then from the repo root:
 
 ```sh
-git submodule update --init src/go/proton-api
+git submodule update --init src/go/proton/api
 snapcraft pack
 ```
 

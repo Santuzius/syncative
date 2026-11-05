@@ -1,5 +1,5 @@
-// Package rclonewatch tracks remote-side changes of rclone remotes through the backend's change notification (Google Drive's and Dropbox's change logs), so Syncative can reuse a remote listing until something actually changed.
-package rclonewatch
+// Package watch tracks remote-side changes of rclone remotes through the backend's change notification (Google Drive's and Dropbox's change logs), so Syncative can reuse a remote listing until something actually changed.
+package watch
 
 import (
 	"context"

@@ -25,14 +25,14 @@ pub fn is_editor_temp(name: &str) -> bool {
     if name.starts_with(".goutputstream-") {
         return true;
     }
-    // `.partial`: rclone's download in progress; `.part` also Syncative's own for Proton (src/go/drive/download.go).
+    // `.partial`: rclone's download in progress; `.part` also Syncative's own for Proton (src/go/proton/drive/download.go).
     if name.ends_with(".crdownload") || name.ends_with(".part") || name.ends_with(".partial") {
         return true;
     }
     false
 }
 
-/// A Proton download in progress, named by `os.CreateTemp(dir, ".syncative-*.part")` in src/go/drive/download.go, or `.celeste-*.part` before the rename.
+/// A Proton download in progress, named by `os.CreateTemp(dir, ".syncative-*.part")` in src/go/proton/drive/download.go, or `.celeste-*.part` before the rename.
 pub fn is_syncative_part(name: &str) -> bool {
     (name.starts_with(".syncative-") || name.starts_with(".celeste-")) && name.ends_with(".part")
 }

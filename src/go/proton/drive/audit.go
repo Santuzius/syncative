@@ -15,7 +15,7 @@ import (
 	"log"
 	"sync"
 
-	"syncative/go/proton-ext"
+	"syncative/go/proton/ext"
 
 	"github.com/ProtonMail/go-proton-api"
 )
@@ -281,5 +281,5 @@ func (s *Session) PurgeLinks(ctx context.Context, parentLinkID string, linkIDs [
 // historical version). The active revision can never be deleted via this
 // path — Proton's API rejects it.
 func (s *Session) PurgeRevision(ctx context.Context, fileLinkID, revisionID string) error {
-	return protonext.DeleteRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, fileLinkID, revisionID)
+	return ext.DeleteRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, fileLinkID, revisionID)
 }

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"syncative/go/proton-ext"
+	"syncative/go/proton/ext"
 )
 
 const (
@@ -70,7 +70,7 @@ func (s *Session) pollEvents(ctx context.Context) {
 
 	auth := s.protonextAuth()
 	if l.cursor == "" {
-		id, err := protonext.LatestVolumeEventID(ctx, auth, s.volumeID)
+		id, err := ext.LatestVolumeEventID(ctx, auth, s.volumeID)
 		if err != nil {
 			logf("drive: latest volume event: %v", err)
 			l.clear()
@@ -82,7 +82,7 @@ func (s *Session) pollEvents(ctx context.Context) {
 	}
 
 	for range maxEventPages {
-		page, err := protonext.VolumeEvents(ctx, auth, s.volumeID, l.cursor)
+		page, err := ext.VolumeEvents(ctx, auth, s.volumeID, l.cursor)
 		if err != nil {
 			// An expired or unknown cursor also lands here; start over from the latest event.
 			logf("drive: volume events: %v; listing again.", err)

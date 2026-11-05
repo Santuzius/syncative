@@ -10,7 +10,7 @@ tmp = sys.argv[1]
 OWN_CRATES = {"syncative", "syncative-go"}
 OWN_GO = "syncative/go"
 # The Go code ported from Proton-API-Bridge, which keeps its MIT notice.
-PORTED = {"syncative/go/drive": "Proton-API-Bridge"}
+PORTED = {"syncative/go/proton/drive": "Proton-API-Bridge"}
 # Crates whose other licenses cover only a part they bundle: the name to show for it and its notices, as its license file gives them.
 PARTS = {
     ("iced_android", "Apache-2.0"): ("Twemoji font, bundled with iced_android", ["Copyright 2016-2018, Mozilla Foundation"]),

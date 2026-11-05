@@ -13,7 +13,7 @@ Checked against rclone master (`backend/mega/mega.go`, July 2026), which builds 
 Without fingerprints, Syncative's `same_content` (`src/services/sync/applier.rs`) can't tell whether two files are equal, and the planner falls back to "newer wins" for files that are new on both sides.
 
 ## Planned approach (not started)
-- **Go:** an own package `src/go/mega/` on top of go-mega, next to `src/go/drive/` for Proton:
+- **Go:** an own package `src/go/mega/` on top of go-mega, next to `src/go/proton/drive/` for Proton:
   - sign-in with 2FA and session reuse
   - upload with the fingerprint `c`
   - versions through `ov`

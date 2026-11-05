@@ -1,4 +1,4 @@
-package protonext
+package ext
 
 // Revision-lifecycle endpoints upstream go-proton-api doesn't expose:
 // CreateRevision, CommitRevision, DeleteRevision, plus a GetRevision

@@ -1,4 +1,4 @@
-package protonext
+package ext
 
 // Crypto helpers Syncative needs around the upstream go-proton-api types.
 // Kept out-of-tree so the proton-api submodule can stay pristine. All

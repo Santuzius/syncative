@@ -1,3 +1,3 @@
 [submodule "src/go/proton-api"]
-	path = src/go/proton-api
+	path = src/go/proton/api
 	url = https://github.com/ProtonMail/go-proton-api.git

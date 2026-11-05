@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"syncative/go/proton-ext"
+	"syncative/go/proton/ext"
 )
 
 func TestReadAllStallingReadsToTheEnd(t *testing.T) {
@@ -74,7 +74,7 @@ func TestResetConnectionsCutsOffEventRequests(t *testing.T) {
 
 	done := make(chan error)
 	go func() {
-		_, err := protonext.LatestVolumeEventID(context.Background(), protonext.Auth{HostURL: srv.URL}, "volume")
+		_, err := ext.LatestVolumeEventID(context.Background(), ext.Auth{HostURL: srv.URL}, "volume")
 		done <- err
 	}()
 	<-arrived

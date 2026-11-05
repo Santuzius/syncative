@@ -67,9 +67,9 @@ parts:
       - libvulkan1
     override-pull: |
       craftctl default
-      # src/go/proton-api is a git submodule; a fresh clone (e.g. remote builds) doesn't have it yet.
-      if [ ! -e src/go/proton-api/go.mod ]; then
-        git submodule update --init --depth 1 src/go/proton-api
+      # src/go/proton/api is a git submodule; a fresh clone (e.g. remote builds) doesn't have it yet.
+      if [ ! -e src/go/proton/api/go.mod ]; then
+        git submodule update --init --depth 1 src/go/proton/api
       fi
       craftctl set version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
     override-build: |

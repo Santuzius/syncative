@@ -30,7 +30,7 @@ import (
 	"github.com/ProtonMail/go-proton-api"
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 
-	"syncative/go/proton-ext"
+	"syncative/go/proton/ext"
 )
 
 // Errors specific to the download path.
@@ -255,11 +255,11 @@ func (p *progressReader) Read(b []byte) (int, error) {
 
 // plainSize is the plaintext size the uploader recorded in the revision's extended attributes; false when the revision has none.
 func (s *Session) plainSize(ctx context.Context, link proton.Link, revisionID string, nodeKR *crypto.KeyRing) (int64, bool) {
-	rev, err := protonext.GetRevisionXAttr(ctx, s.protonextAuth(), s.mainShare.ShareID, link.LinkID, revisionID)
+	rev, err := ext.GetRevisionXAttr(ctx, s.protonextAuth(), s.mainShare.ShareID, link.LinkID, revisionID)
 	if err != nil || rev.XAttr == "" {
 		return 0, false
 	}
-	xa, err := protonext.DecryptRevisionXAttr(rev.XAttr, s.defaultAddrKR, nodeKR)
+	xa, err := ext.DecryptRevisionXAttr(rev.XAttr, s.defaultAddrKR, nodeKR)
 	if err != nil || xa == nil {
 		return 0, false
 	}

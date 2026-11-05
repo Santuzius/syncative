@@ -1,4 +1,4 @@
-package protonext
+package ext
 
 // HTTP wrapper for the handful of Drive endpoints upstream
 // go-proton-api doesn't expose. We can't call upstream's `Client.do()`
@@ -27,7 +27,7 @@ import (
 )
 
 // Auth carries the credential bits a request needs. Populate from the
-// syncative/go/drive Session's exposed fields. HostURL is optional;
+// syncative/go/proton/drive Session's exposed fields. HostURL is optional;
 // when blank we fall back to upstream's `proton.DefaultHostURL` so this
 // package and upstream stay pinned to the same endpoint.
 type Auth struct {

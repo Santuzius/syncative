@@ -6,7 +6,7 @@ import (
 
 	"github.com/ProtonMail/go-proton-api"
 
-	"syncative/go/proton-ext"
+	"syncative/go/proton/ext"
 )
 
 // FileDetails describes a file's active revision for the conflict dialog and the identical-content check: plaintext size, the modification time the uploader recorded and the SHA-1 of the content, all from the revision's encrypted extended attributes. Revisions without them only carry ModTimeUnix (from the link).
@@ -36,11 +36,11 @@ func (s *Session) FileDetails(ctx context.Context, linkID string) (*FileDetails,
 	if err != nil {
 		return out, nil
 	}
-	rev, err := protonext.GetRevisionXAttr(ctx, s.protonextAuth(), s.mainShare.ShareID, link.LinkID, link.FileProperties.ActiveRevision.ID)
+	rev, err := ext.GetRevisionXAttr(ctx, s.protonextAuth(), s.mainShare.ShareID, link.LinkID, link.FileProperties.ActiveRevision.ID)
 	if err != nil || rev.XAttr == "" {
 		return out, nil
 	}
-	xa, err := protonext.DecryptRevisionXAttr(rev.XAttr, s.defaultAddrKR, nodeKR)
+	xa, err := ext.DecryptRevisionXAttr(rev.XAttr, s.defaultAddrKR, nodeKR)
 	if err != nil || xa == nil {
 		return out, nil
 	}

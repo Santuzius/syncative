@@ -6,7 +6,7 @@ out="$REPO/temp/release"
 src="$REPO/temp/appimage-src"
 mkdir -p "$out"
 docker build -q -t syncative-appimage "$REPO/appimage" >/dev/null
-# A copy of the working tree without build output, including the proton-api submodule.
+# A copy of the working tree without build output, including the proton/api submodule.
 rm -rf "$src"
 mkdir -p "$src"
 tar -C "$REPO" --exclude=./target --exclude=./temp --exclude=./result --exclude=./android --exclude=./.git --exclude=./.cargo/config.toml -cf - . | tar -C "$src" -xf -

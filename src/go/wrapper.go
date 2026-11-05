@@ -28,12 +28,13 @@ import (
 	"time"
 	"unsafe"
 
-	"syncative/go/drive"
-	"syncative/go/rclonewatch"
+	"syncative/go/proton/drive"
+	"syncative/go/rclone/call"
+	"syncative/go/rclone/watch"
 
 	"github.com/rclone/rclone/librclone/librclone"
 
-	// Only the rclone backends Syncative can talk to: drive for Google Drive, dropbox, pcloud and webdav for remotes added by older versions, and local for the copies between disk and remote. Every other backend (S3, Azure, …) only cost build time and binary size. Rclone's protondrive backend stays out in any case: it links henrybear327/go-proton-api, which collides with the ProtonMail/go-proton-api our own Drive layer (src/go/drive/) uses.
+	// Only the rclone backends Syncative can talk to: drive for Google Drive, dropbox, pcloud and webdav for remotes added by older versions, and local for the copies between disk and remote. Every other backend (S3, Azure, …) only cost build time and binary size. Rclone's protondrive backend stays out in any case: it links henrybear327/go-proton-api, which collides with the ProtonMail/go-proton-api our own Drive layer (src/go/proton/drive/) uses.
 	_ "github.com/rclone/rclone/backend/drive"
 	_ "github.com/rclone/rclone/backend/dropbox"
 	_ "github.com/rclone/rclone/backend/local"
@@ -43,7 +44,7 @@ import (
 	_ "github.com/rclone/rclone/fs/operations"
 	_ "github.com/rclone/rclone/fs/sync"
 
-	// Our own Drive layer (src/go/drive/) imports go-proton-api
+	// Our own Drive layer (src/go/proton/drive/) imports go-proton-api
 	// directly. Proton-API-Bridge was removed in Phase 7 after the
 	// port was validated — the only remaining ties to it are attribution
 	// comments in files that started as ports of its code.
@@ -84,19 +85,19 @@ func RcloneRPC(method *C.char, input *C.char) (result C.struct_RcloneRPCResult) 
 //
 //export RcloneRPCCancellable
 func RcloneRPCCancellable(method *C.char, input *C.char, cancelled *C.uchar) (result C.struct_RcloneRPCResult) {
-	output, status := rpcWithCancel(C.GoString(method), C.GoString(input), (*uint8)(unsafe.Pointer(cancelled)))
+	output, status := call.RPC(C.GoString(method), C.GoString(input), (*uint8)(unsafe.Pointer(cancelled)))
 	result.Output = C.CString(output)
 	result.Status = C.int(status)
 	return result
 }
 
-// RcloneRemoteChanged reports (1/0) whether the rclone remote `remote` (name without colon) may have changed since the previous call; see rclonewatch.Changed.
+// RcloneRemoteChanged reports (1/0) whether the rclone remote `remote` (name without colon) may have changed since the previous call; see watch.Changed.
 //
 //export RcloneRemoteChanged
 func RcloneRemoteChanged(remote *C.char, cancelled *C.uchar) C.int {
-	ctx, stop := cancelledBy((*uint8)(unsafe.Pointer(cancelled)))
+	ctx, stop := call.CancelledBy((*uint8)(unsafe.Pointer(cancelled)))
 	defer stop()
-	if rclonewatch.Changed(ctx, C.GoString(remote)) {
+	if watch.Changed(ctx, C.GoString(remote)) {
 		return 1
 	}
 	return 0
@@ -106,14 +107,14 @@ func RcloneRemoteChanged(remote *C.char, cancelled *C.uchar) C.int {
 //
 //export RcloneForgetRemote
 func RcloneForgetRemote(remote *C.char) {
-	rclonewatch.Forget(C.GoString(remote))
+	watch.Forget(C.GoString(remote))
 }
 
-// RcloneSetChangePollSeconds sets how often remotes with change notification ask their provider's change log; 0 restores the default. See rclonewatch.SetPollInterval.
+// RcloneSetChangePollSeconds sets how often remotes with change notification ask their provider's change log; 0 restores the default. See watch.SetPollInterval.
 //
 //export RcloneSetChangePollSeconds
 func RcloneSetChangePollSeconds(seconds C.int) {
-	rclonewatch.SetPollInterval(time.Duration(seconds) * time.Second)
+	watch.SetPollInterval(time.Duration(seconds) * time.Second)
 }
 
 //export RcloneFreeString

@@ -1,4 +1,4 @@
-package protonext
+package ext
 
 // Free-function equivalents of the Set* helper methods that used to
 // hang off `*proton.CreateFolderReq` / `*proton.CreateFileReq` /

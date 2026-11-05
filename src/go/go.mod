@@ -99,7 +99,7 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/ProtonMail/go-proton-api => ./proton-api
+replace github.com/ProtonMail/go-proton-api => ./proton/api
 
 // go-proton-api uses Proton's fork of resty for streaming multipart
 // (adds MultiPartStream / NewByteMultipartStream). Replace directives

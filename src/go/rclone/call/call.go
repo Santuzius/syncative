@@ -1,4 +1,5 @@
-package main
+// Package call runs rclone RPC methods with a cancel flag the caller can set.
+package call
 
 import (
 	"context"
@@ -16,8 +17,8 @@ import (
 // cancelPollInterval is how often a running call looks at its cancel flag.
 const cancelPollInterval = 100 * time.Millisecond
 
-// rpcWithCancel follows librclone.RPC, with a context that a set cancel flag cancels.
-func rpcWithCancel(method string, input string, cancelled *uint8) (output string, status int) {
+// RPC follows librclone.RPC, with a context that a set cancel flag cancels.
+func RPC(method string, input string, cancelled *uint8) (output string, status int) {
 	in := make(rc.Params)
 	defer func() {
 		if r := recover(); r != nil {
@@ -34,7 +35,7 @@ func rpcWithCancel(method string, input string, cancelled *uint8) (output string
 		return rpcError(method, in, fmt.Errorf("method %q not supported", method), http.StatusNotFound)
 	}
 
-	ctx, stop := cancelledBy(cancelled)
+	ctx, stop := CancelledBy(cancelled)
 	defer stop()
 
 	_, out, err := jobs.NewJob(ctx, call.Fn, in)
@@ -54,8 +55,8 @@ func rpcWithCancel(method string, input string, cancelled *uint8) (output string
 	return w.String(), http.StatusOK
 }
 
-// cancelledBy returns a context that is cancelled once the byte at `flag` turns non-zero. Call `stop` when done with it.
-func cancelledBy(flag *uint8) (ctx context.Context, stop func()) {
+// CancelledBy returns a context that is cancelled once the byte at `flag` turns non-zero. Call `stop` when done with it.
+func CancelledBy(flag *uint8) (ctx context.Context, stop func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {

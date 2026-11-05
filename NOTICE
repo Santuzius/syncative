@@ -16,13 +16,13 @@ in the git commit history; this notice exists only to satisfy section
 
 This program incorporates third-party software:
 
-  * native-go/proton-api/ is vendored from github.com/ProtonMail/go-proton-api
+  * src/go/proton/api/ is vendored from github.com/ProtonMail/go-proton-api
     (MIT, © 2020 James Houlahan, © 2022 Proton AG). See
-    native-go/proton-api/LICENSE and native-go/proton-api/COPYING_NOTES.md.
+    src/go/proton/api/LICENSE and src/go/proton/api/COPYING_NOTES.md.
 
-  * native-go/drive/ contains code ported and adapted from
+  * src/go/proton/drive/ contains code ported and adapted from
     github.com/rclone/Proton-API-Bridge (MIT, © 2023 Chun-Hung Tseng).
-    See native-go/drive/LICENSE.
+    See src/go/proton/drive/LICENSE.
 
   * src/icons.rs contains icon paths from Tabler Icons (MIT, © 2020-2024
     Paweł Kuna, https://tabler.io/icons) and Ionicons (MIT, © 2015-present

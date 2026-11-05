@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"syncative/go/drive"
+	"syncative/go/proton/drive"
 
 	"github.com/ProtonMail/go-proton-api"
 )

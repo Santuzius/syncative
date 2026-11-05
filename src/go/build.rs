@@ -17,33 +17,17 @@ fn main() {
         return;
     }
 
-    // Re-run when the Go module graph changes or our shim is edited.
+    // Re-run when the Go module graph or any Go code changes. A directory is watched with everything below it.
     println!("cargo:rerun-if-changed=go.mod");
     println!("cargo:rerun-if-changed=go.sum");
-    println!("cargo:rerun-if-changed=wrapper.go");
-    println!("cargo:rerun-if-changed=authorize.go");
-    println!("cargo:rerun-if-changed=configpass.go");
-    // The proton-api submodule is the real source of truth for that
-    // dependency; its HEAD commit is tracked by git submodule, but
-    // when we edit files there we want a rebuild.
-    println!(
-        "cargo:rerun-if-changed={}",
-        manifest_dir.join("proton-api").display()
-    );
-    // The native Drive layer lives under drive/; rebuild when any
-    // file there changes.
-    println!(
-        "cargo:rerun-if-changed={}",
-        manifest_dir.join("drive").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        manifest_dir.join("proton-ext").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        manifest_dir.join("rclonewatch").display()
-    );
+    println!("cargo:rerun-if-changed=proton");
+    println!("cargo:rerun-if-changed=rclone");
+    for entry in std::fs::read_dir(&manifest_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|e| e == "go") {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
 
     // Go supports c-archive on Android only for its own runtime, not for linking into a foreign binary, so Android gets a shared library that has to ship next to libsyncative.so.
     let android = target_triple.contains("android");

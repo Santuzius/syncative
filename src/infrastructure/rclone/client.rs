@@ -38,7 +38,7 @@ const LISTING_MAX_AGE: Duration = Duration::from_secs(60 * 60);
 /// A cached listing is handed out only if the provider answered within this time. Offline, the change log can't report anything, and an old listing would read as "up to date".
 const REACHED_WITHIN: Duration = Duration::from_secs(60);
 
-/// Listings of one remote, reused while the provider's change log (polled by the Go side, see `rclonewatch`) reports no change. Saves the full tree walk on every sync pass; backends without change notification never hit this cache.
+/// Listings of one remote, reused while the provider's change log (polled by the Go side, see `rclone/watch`) reports no change. Saves the full tree walk on every sync pass; backends without change notification never hit this cache.
 #[derive(Default)]
 struct Listings {
     filled_at: Option<Instant>,

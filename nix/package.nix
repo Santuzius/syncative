@@ -19,7 +19,7 @@ let
   # The project's dev shell is the single source of build and runtime dependencies.
   shell = import ../shell.nix { inherit pkgs; };
 
-  # src/go/proton-api is a git submodule, which flake sources (and GitHub tarballs) don't include; pin the same commit here. Keep `rev` in sync with `git submodule status`.
+  # src/go/proton/api is a git submodule, which flake sources (and GitHub tarballs) don't include; pin the same commit here. Keep `rev` in sync with `git submodule status`.
   protonApi = fetchFromGitHub {
     owner = "ProtonMail";
     repo = "go-proton-api";
@@ -30,18 +30,18 @@ let
   fullSrc = runCommand "syncative-source-${version}" { } ''
     cp -r ${src} $out
     chmod -R u+w $out
-    rm -rf $out/src/go/proton-api $out/target $out/temp
-    cp -r ${protonApi} $out/src/go/proton-api
+    rm -rf $out/src/go/proton/api $out/target $out/temp
+    cp -r ${protonApi} $out/src/go/proton/api
   '';
 
-  # Fixed-output derivation holding `go mod vendor` of src/go (including the replaced ./proton-api). Update `vendorHash` when src/go/go.mod or go.sum change: set it to lib.fakeHash, build, and copy the hash from the error.
+  # Fixed-output derivation holding `go mod vendor` of src/go (including the replaced ./proton/api). Update `vendorHash` when src/go/go.mod or go.sum change: set it to lib.fakeHash, build, and copy the hash from the error.
   goModules =
     (buildGoModule {
       pname = "syncative-go";
       inherit version;
       src = fullSrc;
       modRoot = "src/go";
-      vendorHash = "sha256-rpgGK2o/62M8UbKvP/NLsnTIICJRPV1RfGBYkjZUKvc=";
+      vendorHash = "sha256-m4NXG685iNFUNas5zREsnTNYMLfzIS2qjM2zf7mkCho=";
     }).goModules;
 
   desktopItem = makeDesktopItem {

@@ -1,4 +1,4 @@
-package protonext
+package ext
 
 // XAttr decryption: counterpart of SetCommitRevisionXAttr. Used by the
 // upload path's "skip re-upload of byte-identical content" check —
