@@ -21,7 +21,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ProtonMail/go-proton-api"
@@ -48,16 +47,11 @@ func (a Auth) hostURL() string {
 // httpClient is shared across calls — single transport + connection
 // pool. Threaded through context-bound requests so cancellation and
 // per-call timeouts behave the way callers expect.
-var (
-	httpClientOnce sync.Once
-	httpClient     *http.Client
-)
+var httpClient = &http.Client{Timeout: 90 * time.Second}
 
-func sharedHTTPClient() *http.Client {
-	httpClientOnce.Do(func() {
-		httpClient = &http.Client{Timeout: 90 * time.Second}
-	})
-	return httpClient
+// SetTransport replaces the transport of every request this package makes. Call it before the first request.
+func SetTransport(t http.RoundTripper) {
+	httpClient.Transport = t
 }
 
 // do performs an authenticated request and decodes a JSON response into
@@ -95,7 +89,7 @@ func do(ctx context.Context, auth Auth, method, path string, body, out any) erro
 		req.Header.Set("Authorization", "Bearer "+auth.AccessToken)
 	}
 
-	res, err := sharedHTTPClient().Do(req)
+	res, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}

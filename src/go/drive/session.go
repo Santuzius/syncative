@@ -58,6 +58,11 @@ func newProtonHTTPTransport() *http.Transport {
 	return t
 }
 
+// The event log is polled before every listing, so a dead connection there would hold up every folder.
+func init() {
+	protonext.SetTransport(newProtonHTTPTransport())
+}
+
 // liveConns holds every connection the Proton transports dialed. After a network change they may stay open without ever delivering another byte, so ResetConnections closes them all.
 var liveConns = &connSet{conns: map[*trackedConn]struct{}{}}
 

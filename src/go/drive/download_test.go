@@ -1,12 +1,17 @@
 package drive
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"syncative/go/proton-ext"
 )
 
 func TestReadAllStallingReadsToTheEnd(t *testing.T) {
@@ -53,5 +58,33 @@ func TestCloseAllCutsOffOpenConnections(t *testing.T) {
 	}
 	if n := set.closeAll(); n != 0 {
 		t.Fatalf("closed connections stay tracked: %d", n)
+	}
+}
+
+// The event log is polled before every listing, so its requests need the same protection as the others: a network change must cut them off too.
+func TestResetConnectionsCutsOffEventRequests(t *testing.T) {
+	arrived := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		close(arrived)
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	done := make(chan error)
+	go func() {
+		_, err := protonext.LatestVolumeEventID(context.Background(), protonext.Auth{HostURL: srv.URL}, "volume")
+		done <- err
+	}()
+	<-arrived
+	ResetConnections()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("request succeeded without an answer")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("request still hangs after ResetConnections")
 	}
 }
