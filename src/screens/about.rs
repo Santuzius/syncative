@@ -177,7 +177,7 @@ fn license_page<'a>(index: usize, license: &'static License, selected: (usize, u
     let mut packages = Column::new().spacing(2);
     for (v, p, package) in all {
         let mut entry = column![text(package.label()).size(CAPTION)];
-        if let Some(notice) = package.notices.first() {
+        for notice in &package.notices {
             entry = entry.push(text(notice.as_str()).size(CAPTION).style(theme::muted));
         }
         packages = packages.push(
