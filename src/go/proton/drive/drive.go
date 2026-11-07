@@ -20,9 +20,9 @@ import (
 
 // Errors surfaced during Drive bootstrap.
 var (
-	ErrNoActiveVolume             = errors.New("account has no active Proton Drive volume")
-	ErrMainSharePreconditionFail  = errors.New("main share integrity check failed (unexpected share layout)")
-	ErrAddressKeyringMissing      = errors.New("address keyring for main share not present")
+	ErrNoActiveVolume            = errors.New("account has no active Proton Drive volume")
+	ErrMainSharePreconditionFail = errors.New("main share integrity check failed (unexpected share layout)")
+	ErrAddressKeyringMissing     = errors.New("address keyring for main share not present")
 )
 
 // bootstrapDrive populates the Drive-state fields on a Session: main

@@ -1,5 +1,7 @@
-// Package watch tracks remote-side changes of rclone remotes through the backend's change notification (Google Drive's and Dropbox's change logs), so Syncative can reuse a remote listing until something actually changed.
-package watch
+// Package rclone holds Syncative's additions to rclone: RPC calls with a cancel flag (call.go) and tracking of remote-side changes (watch.go).
+//
+// watch.go tracks remote-side changes of rclone remotes through the backend's change notification (Google Drive's and Dropbox's change logs), so Syncative can reuse a remote listing until something actually changed.
+package rclone
 
 import (
 	"context"

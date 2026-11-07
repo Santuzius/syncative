@@ -6,16 +6,6 @@ license = "GPL-3.0-or-later"
 description = "Syncative's combined Go archive: rclone librclone RPC + native ProtonDrive (go-proton-api) shims."
 publish = false
 build = "build.rs"
-# Go sources + submodules live next to this manifest; exclude .git/.github
-# from package if we ever decide to publish.
-include = [
-    "Cargo.toml",
-    "build.rs",
-    "src/**",
-    "go.mod",
-    "go.sum",
-    "wrapper.go",
-]
 
 [lib]
 name = "syncative_go"

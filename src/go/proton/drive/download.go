@@ -30,7 +30,7 @@ import (
 	"github.com/ProtonMail/go-proton-api"
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 
-	"syncative/go/proton/extras"
+	extras "syncative/go/proton"
 )
 
 // Errors specific to the download path.

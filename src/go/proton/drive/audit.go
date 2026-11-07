@@ -15,7 +15,7 @@ import (
 	"log"
 	"sync"
 
-	"syncative/go/proton/extras"
+	extras "syncative/go/proton"
 
 	"github.com/ProtonMail/go-proton-api"
 )

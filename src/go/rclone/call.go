@@ -1,5 +1,4 @@
-// Package call runs rclone RPC methods with a cancel flag the caller can set.
-package call
+package rclone
 
 import (
 	"context"

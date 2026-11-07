@@ -5,112 +5,27 @@ package drive
 // token persistence in a small on-disk file Syncative owns. Ported and
 // trimmed from Proton-API-Bridge/common/user.go + keyring.go.
 //
-// Phase 2 scope: in-memory session + opaque UID handle exposed over
-// cgo, plus save/load of the reusable credential blob. Subsequent
-// phases attach Drive operations (list, upload, download, trash) to
-// the Session type.
+// Holds the in-memory session, an opaque UID handle exposed over cgo,
+// and save/load of the reusable credential blob. The Drive operations
+// (list, upload, download, trash) attach to the Session type.
 
 import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"net"
-	"net/http"
 	"os"
 	"sync"
-	"time"
 
-	"syncative/go/proton/extras"
+	extras "syncative/go/proton"
 
 	"github.com/ProtonMail/go-proton-api"
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 )
 
-// newProtonHTTPTransport returns the http.Transport we hand to the
-// upstream proton.Manager via WithTransport. Defaults from
-// http.DefaultTransport leave ResponseHeaderTimeout at 0 and rely on
-// the kernel's TCP keepalive (~5–12 min) to notice a dead peer, which
-// surfaces as a multi-minute Syncative "Listing remote…" hang after
-// suspend/resume — TCP is still alive from our side until the OS
-// finally returns ENETUNREACH. The HTTP/2 ping pair forces the
-// transport to actively probe an idle conn so a dead one is recycled
-// before the next listing batch fans out across it.
-func newProtonHTTPTransport() *http.Transport {
-	t := http.DefaultTransport.(*http.Transport).Clone()
-	dialer := &net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 15 * time.Second,
-	}
-	t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		conn, err := dialer.DialContext(ctx, network, addr)
-		if err != nil {
-			return nil, err
-		}
-		return liveConns.add(conn), nil
-	}
-	t.IdleConnTimeout = 30 * time.Second
-	t.ResponseHeaderTimeout = 30 * time.Second
-	t.HTTP2 = &http.HTTP2Config{
-		SendPingTimeout: 15 * time.Second,
-		PingTimeout:     15 * time.Second,
-	}
-	return t
-}
-
-// The event log is polled before every listing, so a dead connection there would hold up every folder.
-func init() {
-	extras.SetTransport(newProtonHTTPTransport())
-}
-
-// liveConns holds every connection the Proton transports dialed. After a network change they may stay open without ever delivering another byte, so ResetConnections closes them all.
-var liveConns = &connSet{conns: map[*trackedConn]struct{}{}}
-
-type connSet struct {
-	mu    sync.Mutex
-	conns map[*trackedConn]struct{}
-}
-
-type trackedConn struct {
-	net.Conn
-	set  *connSet
-	once sync.Once
-}
-
-func (s *connSet) add(conn net.Conn) net.Conn {
-	tracked := &trackedConn{Conn: conn, set: s}
-	s.mu.Lock()
-	s.conns[tracked] = struct{}{}
-	s.mu.Unlock()
-	return tracked
-}
-
-func (c *trackedConn) Close() error {
-	c.once.Do(func() {
-		c.set.mu.Lock()
-		delete(c.set.conns, c)
-		c.set.mu.Unlock()
-	})
-	return c.Conn.Close()
-}
-
-// closeAll closes every connection in the set; reads and writes on them fail right away. Returns how many there were.
-func (s *connSet) closeAll() int {
-	s.mu.Lock()
-	conns := make([]*trackedConn, 0, len(s.conns))
-	for c := range s.conns {
-		conns = append(conns, c)
-	}
-	s.mu.Unlock()
-	for _, c := range conns {
-		c.Close()
-	}
-	return len(conns)
-}
-
 // ResetConnections closes every connection to Proton, so that requests cut off by a network change fail at once and their retries dial over the new network.
 func ResetConnections() {
-	logf("drive: network changed; closed %d connection(s) to Proton.", liveConns.closeAll())
+	logf("drive: network changed; closed %d connection(s) to Proton.", extras.CloseConnections())
 }
 
 // AppVersion is sent as `x-pm-appversion` on every Proton API call. Proton's guidelines for third-party Drive clients ask for `external-drive-{name}@{semver}-{channel}`; Syncative sets its real version through SetAppVersion at startup, before any session exists.
@@ -152,7 +67,7 @@ type Session struct {
 	// Login/Resume writes the rotated pair back here and flips
 	// `rotated`, so a later SaveIfRotated re-persists them. Guarded by
 	// authMu because refreshes fire from arbitrary API-call goroutines
-	// (including the concurrent listings in proton/extras) while
+	// (including the concurrent listings in proton) while
 	// protonextAuth / AsCredential read the same fields.
 	authMu        sync.RWMutex
 	rotated       bool
@@ -246,7 +161,7 @@ func Login(ctx context.Context, p LoginParams) (*Session, error) {
 	}
 	m := proton.New(
 		proton.WithAppVersion(AppVersion),
-		proton.WithTransport(newProtonHTTPTransport()),
+		proton.WithTransport(extras.NewTransport()),
 	)
 	var hv *proton.APIHVDetails
 	if p.HVToken != "" {
@@ -321,7 +236,7 @@ func Resume(ctx context.Context, cred ReusableCredential) (*Session, error) {
 	}
 	m := proton.New(
 		proton.WithAppVersion(AppVersion),
-		proton.WithTransport(newProtonHTTPTransport()),
+		proton.WithTransport(extras.NewTransport()),
 	)
 	c := m.NewClient(cred.UID, cred.AccessToken, cred.RefreshToken)
 	sess := &Session{

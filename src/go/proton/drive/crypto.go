@@ -16,8 +16,7 @@ import (
 	"github.com/ProtonMail/gopenpgp/v2/helper"
 )
 
-// ErrDownloadedBlockHashVerificationFailed mirrors Bridge's sentinel —
-// surfaces through Phase 3's download path once we wire it.
+// ErrDownloadedBlockHashVerificationFailed mirrors Bridge's sentinel.
 var ErrDownloadedBlockHashVerificationFailed = errors.New(
 	"the hash of the downloaded block doesn't match the original hash",
 )

@@ -2,11 +2,6 @@ module syncative/go
 
 go 1.26.1
 
-// Path B: import go-proton-api directly (latest upstream, via submodule).
-// Proton-API-Bridge was a reference-only submodule during Phases 1–6 and
-// was removed in Phase 7 once the port was validated. Rclone comes in as
-// a normal go.mod dep — same version librclone-sys@0.9.0 pins — so
-// Syncative's existing rclone RPC surface keeps working.
 require (
 	github.com/ProtonMail/go-proton-api v0.0.0
 	github.com/rclone/rclone v1.69.0

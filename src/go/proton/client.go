@@ -47,12 +47,7 @@ func (a Auth) hostURL() string {
 // httpClient is shared across calls — single transport + connection
 // pool. Threaded through context-bound requests so cancellation and
 // per-call timeouts behave the way callers expect.
-var httpClient = &http.Client{Timeout: 90 * time.Second}
-
-// SetTransport replaces the transport of every request this package makes. Call it before the first request.
-func SetTransport(t http.RoundTripper) {
-	httpClient.Transport = t
-}
+var httpClient = &http.Client{Timeout: 90 * time.Second, Transport: NewTransport()}
 
 // do performs an authenticated request and decodes a JSON response into
 // `out` (pass nil when the response body is irrelevant). `body` is
