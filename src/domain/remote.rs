@@ -62,6 +62,11 @@ impl ProviderKind {
     pub fn uses_rclone_transport(self) -> bool {
         !matches!(self, Self::ProtonDrive)
     }
+
+    /// Offered only with the beta features on; such remotes carry the beta mark after their name.
+    pub fn is_beta(self) -> bool {
+        matches!(self, Self::Nextcloud)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -80,6 +85,16 @@ pub struct Remote {
     /// persisted session blob that `syncative-go` reads with
     /// `ProtonDrive_ResumeSession`. `None` for rclone remotes.
     pub session_path: Option<String>,
+}
+
+impl Remote {
+    /// The name as the window shows it: with the beta mark (🧪) for a provider that's a beta feature.
+    pub fn title(&self) -> String {
+        match self.provider_kind {
+            Some(kind) if kind.is_beta() => format!("{} 🧪", self.name),
+            _ => self.name.clone(),
+        }
+    }
 }
 
 /// The space a provider reports for a remote. `total` is the quota —

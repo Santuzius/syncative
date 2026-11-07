@@ -30,6 +30,14 @@ impl SyncativeApp {
             if let Ok(Some(t)) = self.rclone.remote_type(&r.name) {
                 r.provider_kind = ProviderKind::from_rclone_type(&t);
             }
+            // The type alone can't tell the WebDAV vendors apart; the config's `vendor` can.
+            if r.provider_kind == Some(ProviderKind::WebDav) {
+                match self.rclone.config(&r.name).as_ref().and_then(|c| c.get("vendor")).and_then(|v| v.as_str()) {
+                    Some("nextcloud") => r.provider_kind = Some(ProviderKind::Nextcloud),
+                    Some("owncloud") => r.provider_kind = Some(ProviderKind::Owncloud),
+                    _ => {}
+                }
+            }
         }
         self.remotes = remotes;
         self.shared_oauth_client = self

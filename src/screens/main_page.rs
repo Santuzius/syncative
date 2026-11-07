@@ -95,7 +95,7 @@ fn nav_item<'a>(entry: NavEntry<'a>, selected: Option<RemoteId>) -> Element<'a, 
         Space::new().width(Length::Fixed(3.0)).into()
     };
     let label = column![
-        text(&entry.remote.name)
+        text(entry.remote.title())
             .size(TEXT)
             .wrapping(Wrapping::WordOrGlyph),
         text(

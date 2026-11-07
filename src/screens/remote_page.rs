@@ -163,7 +163,7 @@ pub fn view<'a>(page: Page<'a>) -> Element<'a, Msg> {
         // Name, status and actions on one line; the provider's space sits at the top of the body under the separator.
         row![
             column![
-                text(&remote.name).size(TITLE),
+                text(remote.title()).size(TITLE),
                 row![
                     status_icon(page.state, 14.0),
                     text(status_line(&page)).size(CAPTION).style(theme::muted)
@@ -335,7 +335,7 @@ fn compact_header<'a>(page: &Page<'a>) -> Element<'a, Msg> {
             .style(theme::button_flat)
             .on_press(Msg::OpenDrawer),
         column![
-            text(&remote.name)
+            text(remote.title())
                 .size(HEADING)
                 .wrapping(Wrapping::WordOrGlyph),
             row![
@@ -1057,7 +1057,7 @@ fn add_folder_card<'a>(
 pub fn settings_dialog<'a>(remote: &'a Remote, auth_needed: bool) -> Element<'a, Msg> {
     let card = container(
         column![
-            text(format!("Settings for {}", remote.name)).size(HEADING + 2.0),
+            text(format!("Settings for {}", remote.title())).size(HEADING + 2.0),
             settings::view(remote, auth_needed).map(Msg::from_settings),
             row![
                 Space::new().width(Length::Fill),
