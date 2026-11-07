@@ -1,4 +1,5 @@
 """Merges the cargo-about and go-licenses output of scripts/update-licenses.sh into assets/licenses.json: one entry per license, its packages grouped by the wording of their license file, most common first. ScanCode finds the copyright lines, which stay with each package as its notices; a license text without any sends it on to the package's other files."""
+import collections
 import csv
 import glob
 import hashlib
@@ -202,8 +203,8 @@ def head(path):
 entries = []
 
 
-def add(kind, text, name, version, files=(), authors=(), repository=None):
-    entries.append({"kind": kind, "text": normalized(text), "name": name, "version": version, "files": list(files), "authors": list(authors), "repository": repository})
+def add(kind, text, name, version, files=(), authors=(), repository=None, go=False):
+    entries.append({"kind": kind, "text": normalized(text), "name": name, "version": version, "files": list(files), "authors": list(authors), "repository": repository, "go": go})
 
 
 rust = json.load(open(os.path.join(tmp, "rust.json")))
@@ -247,7 +248,7 @@ for library, _url, kind in csv.reader(open(os.path.join(tmp, "go.csv"))):
     text = open(os.path.join(folder, files[0]), encoding="utf-8", errors="replace").read()
     module = max((path for path in versions if library == path or library.startswith(path + "/")), key=len, default="")
     source = go_dirs.get(library) or next((d for path, d in sorted(go_dirs.items()) if path.startswith(library + "/")), "")
-    add(kind, text, PORTED.get(library, library), versions.get(module, ""), go_files(source) if source else [])
+    add(kind, text, PORTED.get(library, library), versions.get(module, ""), go_files(source) if source else [], go=True)
 
 # The license texts first; the other files only of the packages whose text names nobody.
 key_of = lambda text: hashlib.sha256(text.encode()).hexdigest()
@@ -259,6 +260,42 @@ for entry in entries:
         for path in entry["files"]:
             pieces.setdefault(path, head(path))
 file_finds = scan({path: text for path, text in pieces.items() if text.strip()})
+
+# Go paths whose start says little: the short form that replaces it.
+GO_PREFIXES = {
+    "golang.org/x/": "x/",
+    "cloud.google.com/go/": "cloud/",
+    "google.golang.org/": "google/",
+    "go.opentelemetry.io/otel": "otel",
+    "go.opentelemetry.io/": "otel/",
+}
+# Repository names that need their owner to mean anything.
+GO_GENERIC = {"common", "errors"}
+
+
+def go_name(library):
+    """A Go package's name without its host, owner and major version: github.com/spf13/pflag → pflag, golang.org/x/crypto → x/crypto."""
+    parts = library.split("/")
+    for start, short in GO_PREFIXES.items():
+        if library.startswith(start):
+            parts = (short + library[len(start):]).split("/")
+            break
+    else:
+        keep_owner = len(parts) > 2 and parts[2] in GO_GENERIC
+        parts = parts[1:] if keep_owner else parts[2:] if parts[0] in ("github.com", "gitlab.com", "bitbucket.org", "codeberg.org") else parts[1:]
+    parts = [re.sub(r"\.v\d+$", "", part) for part in parts if not re.fullmatch(r"v\d+", part)]
+    return "/".join(parts) or library
+
+
+# A short name that several packages would share keeps the full path.
+go_libraries = {e["name"] for e in entries if e["go"] and e["name"] not in PORTED.values()}
+crate_names = {e["name"] for e in entries if not e["go"]}
+short_counts = collections.Counter(go_name(library) for library in go_libraries)
+for entry in entries:
+    if entry["name"] in go_libraries:
+        short = go_name(entry["name"])
+        if short_counts[short] == 1 and short not in crate_names:
+            entry["display"] = short
 
 groups = {}
 
@@ -283,7 +320,7 @@ def notices_of(entry):
 
 for entry in entries:
     notices = notices_of(entry)
-    name = PARTS[(entry["name"], entry["kind"])][0] if (entry["name"], entry["kind"]) in PARTS else entry["name"]
+    name = PARTS[(entry["name"], entry["kind"])][0] if (entry["name"], entry["kind"]) in PARTS else entry.get("display", entry["name"])
     kind = RELABEL.get((entry["name"], entry["kind"]), entry["kind"])
     group = groups.setdefault((kind, wording(entry["body"])), {"license": kind, "text": reflow(entry["body"]), "packages": {}})
     package = group["packages"].setdefault((name, entry["version"]), {"name": name, "version": entry["version"], "notices": []})
