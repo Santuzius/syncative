@@ -28,6 +28,8 @@ pub enum Msg {
     KeepOptimized,
     AutostartToggled(bool),
     StartHiddenToggled(bool),
+    /// "Save in the cloud with Syncative" in the file manager's context menu.
+    FileManagerMenuToggled(bool),
     /// "OK" in [`tray_hint_dialog`], or its backdrop.
     TrayHintClosed,
     DetailedLogToggled(bool),
@@ -60,9 +62,9 @@ pub struct Power {
 }
 
 /// `compact`: the phone layout, where the button groups go below their labels.
-/// `sync_metered`: sync on metered networks too; `log_note`: how the last copy or clear of the log went; `note`: how the last export or import went; `beta`: the beta features are on.
+/// `sync_metered`: sync on metered networks too; `file_manager_menu`: whether the context menu entry is on and whether a file manager for it is installed; `log_note`: how the last copy or clear of the log went; `note`: how the last export or import went; `beta`: the beta features are on.
 #[allow(clippy::too_many_arguments)]
-pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool, autostart: bool, start_hidden: bool, detailed_log: bool, log_note: Option<&'a str>, note: Option<&'a str>, beta: bool, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
+pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool, autostart: bool, start_hidden: bool, file_manager_menu: (bool, bool), detailed_log: bool, log_note: Option<&'a str>, note: Option<&'a str>, beta: bool, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
     let android = cfg!(target_os = "android");
     let size_hint = if android { "Text and everything else in this window, relative to the system's font and display size." } else { "Text and everything else in this window." };
     let mut rows = column![
@@ -112,6 +114,12 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool
                     "Start hidden",
                     if autostart { "At login only the tray icon appears, not the window." } else { "Turn on “Start Syncative when you log in” first." },
                     toggler(autostart && start_hidden).on_toggle_maybe(autostart.then_some(Msg::StartHiddenToggled)).size(20).into(),
+                ))
+                .push(separator())
+                .push(setting_row(
+                    "Context menu in Dolphin",
+                    if file_manager_menu.1 { "Adds “Save in the cloud with Syncative” to the right-click menu of files in Dolphin and Konqueror." } else { "Needs Dolphin or Konqueror, the file managers of KDE." },
+                    toggler(file_manager_menu.0 && file_manager_menu.1).on_toggle_maybe(file_manager_menu.1.then_some(Msg::FileManagerMenuToggled)).size(20).into(),
                 ))
                 .push(separator())
                 .push(metered_row(sync_metered, "E.g. a phone's hotspot, or networks marked as metered in the network settings. When off, Syncative waits for an unmetered network, but you can still start a sync yourself."));

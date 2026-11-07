@@ -69,7 +69,7 @@ impl SyncativeApp {
     }
 
     fn choose_share_account(&mut self, id: crate::domain::remote::RemoteId) -> Task<Message> {
-        let Some(name) = self.remotes.iter().find(|r| r.id == id).map(|r| r.name.clone()) else {
+        let Some((name, title)) = self.remotes.iter().find(|r| r.id == id).map(|r| (r.name.clone(), r.title())) else {
             return Task::none();
         };
         let Some(share) = self.share.as_mut() else {
@@ -77,7 +77,12 @@ impl SyncativeApp {
         };
         share.remote = Some(id);
         share.step = Step::Folder;
-        self.open_picker(Target::Share, Source::Remote(name), "", Vec::new())
+        let subtitle = format!("Saving {} in {title}", share.what());
+        let task = self.open_picker(Target::Share, Source::Remote(name), "", Vec::new());
+        if let Some(picker) = self.folder_picker.as_mut() {
+            picker.subtitle = Some(subtitle);
+        }
+        task
     }
 
     /// The folder picker was left without a choice: back to the accounts, or out when there was nothing to choose.
@@ -105,8 +110,12 @@ impl SyncativeApp {
                 let place = if folder.is_empty() { remote.title() } else { format!("{} › {}", remote.title(), folder.replace('/', " › ")) };
                 #[cfg(target_os = "android")]
                 crate::infrastructure::android::share::toast(&format!("Saving {} in {place}", share.what()));
+                // The desktop window stays open: its page shows the upload.
                 #[cfg(not(target_os = "android"))]
-                let _ = place;
+                {
+                    let _ = place;
+                    self.selected = Some(remote.id);
+                }
                 self.close_share()
             }
             Err(err) => {

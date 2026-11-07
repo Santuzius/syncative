@@ -65,8 +65,22 @@ pub fn start_engine() {
 
 /// Runs the app until it quits, setting it up first unless the engine already runs. `show` opens the main window right away; without it Syncative starts hidden in the tray.
 pub fn start(show: bool) {
+    start_saving(show, Vec::new());
+}
+
+/// Files to save in the cloud, from `--save`: handed to the running Syncative when there is one (see [`infrastructure::single_instance`]).
+static SAVE: OnceLock<Vec<std::path::PathBuf>> = OnceLock::new();
+
+/// [`start`], and save `files` in the cloud: the window opens with the question where to.
+pub fn start_saving(show: bool, files: Vec<std::path::PathBuf>) {
+    let saving = !files.is_empty();
+    let _ = SAVE.set(files);
     let Some(services) = services() else { return };
-    iced_run(services.repo.clone(), services.router.clone(), services.engine.clone(), show).expect("iced app exited with error");
+    #[cfg(not(target_os = "android"))]
+    if saving {
+        crate::services::share::receive_files(SAVE.get().cloned().unwrap_or_default());
+    }
+    iced_run(services.repo.clone(), services.router.clone(), services.engine.clone(), show || saving).expect("iced app exited with error");
 }
 
 fn set_up() -> Option<Services> {
@@ -98,14 +112,23 @@ fn set_up() -> Option<Services> {
     std::fs::create_dir_all(&data_dir).expect("failed to create data dir");
 
     // Bail out before touching the DB or keyring when another process already owns this data dir.
-    if let infrastructure::single_instance::Instance::Secondary = infrastructure::single_instance::acquire(&data_dir) {
+    if let infrastructure::single_instance::Instance::Secondary = infrastructure::single_instance::acquire(&data_dir, SAVE.get().map_or(&[], Vec::as_slice)) {
         return None;
+    }
+    // Files handed over by an earlier run that ended before they were saved; nothing uses them now.
+    #[cfg(not(target_os = "android"))]
+    if let Err(err) = std::fs::remove_dir_all(services::share::shared_dir())
+        && err.kind() != std::io::ErrorKind::NotFound
+    {
+        eprintln!("syncative: could not clear {}: {err}", services::share::shared_dir().display());
     }
 
     legacy_config_dir::run(&data_dir);
     #[cfg(not(target_os = "android"))]
     celeste_to_syncative::move_autostart_entry();
     services::autostart::refresh();
+    #[cfg(not(target_os = "android"))]
+    services::file_manager_menu::refresh();
     fold_stale_rclone_into_keyring(&data_dir);
 
     let rclone_config = match util::get_runtime_dir() {

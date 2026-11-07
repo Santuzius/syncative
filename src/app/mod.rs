@@ -201,6 +201,8 @@ pub struct SyncativeApp {
     detailed_log: bool,
     /// The beta features are on (see `services::beta`).
     beta: bool,
+    /// The file manager's context menu entry is on, and a file manager that shows it is installed (desktop).
+    file_manager_menu: (bool, bool),
     /// The question whether to accept the beta features' risks is shown over Preferences.
     beta_dialog_open: bool,
     /// How the last export or import of the settings file went, shown in the Preferences dialog.
@@ -290,6 +292,10 @@ impl SyncativeApp {
             detailed_log: crate::services::diagnostics::detailed_log(),
             beta: crate::services::beta::enabled(),
             beta_dialog_open: false,
+            #[cfg(not(target_os = "android"))]
+            file_manager_menu: (crate::services::file_manager_menu::enabled(), crate::services::file_manager_menu::supported()),
+            #[cfg(target_os = "android")]
+            file_manager_menu: (false, false),
             preferences_note: None,
             log_note: None,
             preferences_error: None,
@@ -692,6 +698,22 @@ impl SyncativeApp {
                 }
                 Task::none()
             }
+            Message::Preferences(preferences::Msg::FileManagerMenuToggled(on)) => {
+                #[cfg(not(target_os = "android"))]
+                {
+                    use crate::services::file_manager_menu;
+                    match file_manager_menu::set(on) {
+                        Ok(()) => {
+                            self.file_manager_menu.0 = on;
+                            self.preferences_error = None;
+                        }
+                        Err(err) => self.preferences_error = Some(format!("Could not change {}: {err}", file_manager_menu::entry_path().display())),
+                    }
+                }
+                #[cfg(target_os = "android")]
+                let _ = on;
+                Task::none()
+            }
             Message::Preferences(preferences::Msg::TrayHintClosed) => {
                 self.close_tray_hint();
                 Task::none()
@@ -909,7 +931,8 @@ impl SyncativeApp {
 impl SyncativeApp {
     /// The window's content: the navigation pane beside the page, or in the compact layout the page alone with the navigation as a drawer.
     fn layout(&self, compact: bool, width: f32) -> Element<'_, Message> {
-        if let Some(share) = self.share.as_ref() {
+        // Phone layout: the share screen takes the whole window; on the desktop it is a dialog (below).
+        if let Some(share) = self.share.as_ref().filter(|_| compact) {
             return self.share_screen(share);
         }
         let nav_width = if compact {
@@ -1046,6 +1069,7 @@ impl SyncativeApp {
                 self.power.sync_metered,
                 self.autostart,
                 self.start_hidden,
+                self.file_manager_menu,
                 self.detailed_log,
                 self.log_note.as_deref(),
                 self.preferences_note.as_deref(),
@@ -1104,12 +1128,21 @@ impl SyncativeApp {
         } else {
             base
         };
+        // Files to save, from the file manager's context menu: over every other dialog; the folder picker takes its place while open.
+        let with_dialog: Element<'_, Message> = match self.share.as_ref() {
+            Some(share) if share.step != share::Step::Folder => stack![
+                with_dialog,
+                remote_page::modal(share::dialog(share, self.share_accounts()).map(Message::Share), Some(Message::Share(share::Msg::Close)))
+            ]
+            .into(),
+            _ => with_dialog,
+        };
         // Opened from the add-folder dialog or the page; that stays visible underneath.
         match self.folder_picker.as_ref() {
             Some(picker) => stack![
                 with_dialog,
                 remote_page::modal(
-                    folder_picker::view(picker).map(Message::FolderPicker),
+                    folder_picker::view(picker, false).map(Message::FolderPicker),
                     Some(Message::FolderPicker(folder_picker::Msg::Cancel))
                 )
             ]
@@ -1121,7 +1154,7 @@ impl SyncativeApp {
     /// The share screen in place of everything else: its bar, below it the folder picker while that's open, else the step's body.
     fn share_screen<'a>(&'a self, share: &'a share::Share) -> Element<'a, Message> {
         let body = match self.folder_picker.as_ref().filter(|p| p.target == folder_picker::Target::Share) {
-            Some(picker) => folder_picker::view(picker).map(Message::FolderPicker),
+            Some(picker) => folder_picker::view(picker, true).map(Message::FolderPicker),
             None => share::body(share, self.share_accounts()).map(Message::Share),
         };
         iced::widget::column![share::header(share).map(Message::Share), rule::horizontal(1).style(theme::separator), body].into()

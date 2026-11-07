@@ -50,6 +50,54 @@ pub fn discard(folder: &std::path::Path) {
     }
 }
 
+/// Desktop: the folder in the cache that holds the files handed over by `syncative --save`, one sub-folder per hand-over.
+#[cfg(not(target_os = "android"))]
+pub fn shared_dir() -> PathBuf {
+    let base = match std::env::var_os("XDG_CACHE_HOME") {
+        Some(path) if !path.is_empty() => PathBuf::from(path),
+        _ => PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache"),
+    };
+    base.join("syncative/shared")
+}
+
+/// Desktop: files handed over by `syncative --save` (the file manager's context menu). They are linked, or copied where that fails, into a folder of their own in the cache, as Android's activity does with shared files, so the upload neither moves nor waits on the originals; folders are skipped.
+#[cfg(not(target_os = "android"))]
+pub fn receive_files(paths: Vec<PathBuf>) {
+    let files: Vec<PathBuf> = paths.into_iter().filter(|p| p.is_file()).collect();
+    if files.is_empty() {
+        return;
+    }
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let folder = shared_dir().join(stamp.to_string());
+    push(Incoming::Started { folder: folder.clone(), count: files.len() });
+    std::thread::spawn(move || {
+        let mut copies = Vec::new();
+        let mut error = None;
+        if let Err(err) = std::fs::create_dir_all(&folder) {
+            error = Some(format!("Could not prepare the files: {err}"));
+        }
+        for file in &files {
+            if error.is_some() {
+                break;
+            }
+            let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".to_owned());
+            let name = free_name(&name, |candidate| folder.join(candidate).exists());
+            let copy = folder.join(name);
+            let done = std::fs::hard_link(file, &copy).or_else(|_| {
+                std::fs::copy(file, &copy)?;
+                // Keep the time of the original, as the upload passes it on.
+                let modified = std::fs::metadata(file)?.modified()?;
+                std::fs::File::options().write(true).open(&copy)?.set_modified(modified)
+            });
+            match done {
+                Ok(()) => copies.push(copy),
+                Err(err) => error = Some(format!("Could not read {}: {err}", file.display())),
+            }
+        }
+        push(Incoming::Ready { folder, files: copies, error });
+    });
+}
+
 /// Where an upload goes: kept as `target.json` next to its `files/`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Target {

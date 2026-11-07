@@ -57,6 +57,8 @@ pub struct Picker {
     pub cancel: Cancel,
     /// Why the last new folder could not be created.
     pub error: Option<String>,
+    /// A line under the title, e.g. what is being saved where.
+    pub subtitle: Option<String>,
 }
 
 impl Picker {
@@ -88,7 +90,7 @@ impl Picker {
             Source::Remote(_) => crate::util::strip_slashes(base),
             Source::Local => base.trim_end_matches('/').to_owned(),
         };
-        Self { target, generation, source, base, initial: preselected, browser, cancel: cancel_never(), error: None }
+        Self { target, generation, source, base, initial: preselected, browser, cancel: cancel_never(), error: None, subtitle: None }
     }
 
     /// The full path of a folder below the root (`path_of` of the browser): on a remote relative to the drive, locally absolute.
@@ -120,7 +122,8 @@ impl From<BuiltInTool> for Msg {
     }
 }
 
-pub fn view(picker: &Picker) -> Element<'_, Msg> {
+/// `full_screen`: the page itself below the share screen's bar (phone layout), else a dialog.
+pub fn view(picker: &Picker, full_screen: bool) -> Element<'_, Msg> {
     let (title, confirm) = match picker.target {
         Target::AddFolder => ("Choose a folder in the cloud", "Use this folder"),
         Target::Exclusion(_) => ("Choose a folder to exclude", "Exclude this folder"),
@@ -144,7 +147,7 @@ pub fn view(picker: &Picker) -> Element<'_, Msg> {
         .text_size(TEXT)
         .font(theme::UI_FONT)
         .scrollbar(theme::slim_scrollbar(), theme::scrollbar)
-        .height(if picker.target == Target::Share { Length::Fill } else { Length::Fixed(CABINET_HEIGHT) });
+        .height(if full_screen { Length::Fill } else { Length::Fixed(CABINET_HEIGHT) });
     if matches!(picker.source, Source::Remote(_)) {
         cabinet = cabinet.tool(BuiltInTool::CreateFolder);
     }
@@ -156,11 +159,14 @@ pub fn view(picker: &Picker) -> Element<'_, Msg> {
                 .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
         );
     }
+    if let Some(subtitle) = picker.subtitle.as_ref().filter(|_| !full_screen) {
+        heading = heading.push(text(subtitle.clone()).size(TEXT).style(theme::muted).wrapping(iced::widget::text::Wrapping::WordOrGlyph));
+    }
     if let Some(error) = &picker.error {
         heading = heading.push(text(error.clone()).size(TEXT).style(theme::danger_text).wrapping(iced::widget::text::Wrapping::WordOrGlyph));
     }
     let content = column![container(heading).padding([14, 16]), cabinet];
-    if picker.target == Target::Share {
+    if full_screen {
         return container(content).width(Length::Fill).height(Length::Fill).style(theme::page).into();
     }
     container(content)

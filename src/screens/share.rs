@@ -19,6 +19,8 @@ use crate::{
 
 /// Width the body stops growing at.
 const MAX_WIDTH: f32 = 520.0;
+/// Height of the dialog on the desktop.
+const DIALOG_HEIGHT: f32 = 360.0;
 
 /// A share being saved.
 pub struct Share {
@@ -96,9 +98,31 @@ pub fn header(share: &Share) -> Element<'_, Msg> {
     .into()
 }
 
-/// Everything below the bar but the folder picker.
+/// Everything below the bar but the folder picker, filling the page (phone layout).
 pub fn body<'a>(share: &'a Share, accounts: Vec<Account>) -> Element<'a, Msg> {
-    let content: Element<'a, Msg> = match &share.step {
+    container(container(content(share, accounts)).max_width(MAX_WIDTH).width(Length::Fill))
+        .padding(theme::COMPACT_PADDING + 4.0)
+        .center_x(Length::Fill)
+        .height(Length::Fill)
+        .style(theme::page)
+        .into()
+}
+
+/// The bar and the body in a dialog, for the desktop; the folder picker is a dialog of its own.
+pub fn dialog<'a>(share: &'a Share, accounts: Vec<Account>) -> Element<'a, Msg> {
+    container(column![
+        header(share),
+        iced::widget::rule::horizontal(1).style(theme::separator),
+        container(content(share, accounts)).padding(16).height(Length::Fixed(DIALOG_HEIGHT)),
+    ])
+    .width(Length::Fill)
+    .max_width(MAX_WIDTH)
+    .style(theme::dialog)
+    .into()
+}
+
+fn content<'a>(share: &'a Share, accounts: Vec<Account>) -> Element<'a, Msg> {
+    match &share.step {
         Step::Preparing | Step::Folder => message(
             muted_icon(icondata::TbFileImportOutline, 48.0).into(),
             if share.count == 1 { "Getting the file…".to_owned() } else { format!("Getting {} files…", share.count) },
@@ -108,7 +132,7 @@ pub fn body<'a>(share: &'a Share, accounts: Vec<Account>) -> Element<'a, Msg> {
         Step::Account if accounts.is_empty() => message(
             muted_icon(icondata::TbCloudOutline, 48.0).into(),
             "No accounts yet".to_owned(),
-            Some("Add an account in Syncative first, then share again.".to_owned()),
+            Some("Add an account in Syncative first, then try again.".to_owned()),
             Some(("Close", Msg::Close)),
         ),
         Step::Account => {
@@ -126,13 +150,7 @@ pub fn body<'a>(share: &'a Share, accounts: Vec<Account>) -> Element<'a, Msg> {
             Some(error.clone()),
             Some(("Close", Msg::Close)),
         ),
-    };
-    container(container(content).max_width(MAX_WIDTH).width(Length::Fill))
-        .padding(theme::COMPACT_PADDING + 4.0)
-        .center_x(Length::Fill)
-        .height(Length::Fill)
-        .style(theme::page)
-        .into()
+    }
 }
 
 fn account_row(account: Account) -> Element<'static, Msg> {

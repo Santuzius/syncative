@@ -11,6 +11,8 @@ pub mod beta;
 pub mod autostart;
 pub mod diagnostics;
 pub mod editor_temp;
+#[cfg(not(target_os = "android"))]
+pub mod file_manager_menu;
 pub mod leftovers;
 pub mod network;
 pub mod nomedia;
