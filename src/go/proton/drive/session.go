@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"syncative/go/proton/ext"
+	"syncative/go/proton/extras"
 
 	"github.com/ProtonMail/go-proton-api"
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
@@ -60,7 +60,7 @@ func newProtonHTTPTransport() *http.Transport {
 
 // The event log is polled before every listing, so a dead connection there would hold up every folder.
 func init() {
-	ext.SetTransport(newProtonHTTPTransport())
+	extras.SetTransport(newProtonHTTPTransport())
 }
 
 // liveConns holds every connection the Proton transports dialed. After a network change they may stay open without ever delivering another byte, so ResetConnections closes them all.
@@ -152,7 +152,7 @@ type Session struct {
 	// Login/Resume writes the rotated pair back here and flips
 	// `rotated`, so a later SaveIfRotated re-persists them. Guarded by
 	// authMu because refreshes fire from arbitrary API-call goroutines
-	// (including the concurrent listings in proton/ext) while
+	// (including the concurrent listings in proton/extras) while
 	// protonextAuth / AsCredential read the same fields.
 	authMu        sync.RWMutex
 	rotated       bool
@@ -430,10 +430,10 @@ func (s *Session) AsCredential() ReusableCredential {
 // HTTP calls against the Proton API. Read under authMu so a concurrent
 // AuthHandler-driven token rotation is picked up cleanly by the next
 // request rather than racing the field write.
-func (s *Session) protonextAuth() ext.Auth {
+func (s *Session) protonextAuth() extras.Auth {
 	s.authMu.RLock()
 	defer s.authMu.RUnlock()
-	return ext.Auth{
+	return extras.Auth{
 		UID:         s.UID,
 		AccessToken: s.AccessToken,
 		AppVersion:  AppVersion,

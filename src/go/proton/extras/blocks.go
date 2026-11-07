@@ -1,4 +1,4 @@
-package ext
+package extras
 
 // Block upload with per-block verification. Proton rejects block uploads without a verifier token ("You are using an outdated version of the app", Code=2000) for every client except a few legacy app versions, and upstream's BlockUploadInfo has no field for it. Mirrors the official Drive SDK (client/js/src/internal/upload).
 

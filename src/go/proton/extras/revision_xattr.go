@@ -1,4 +1,4 @@
-package ext
+package extras
 
 // XAttr decryption: counterpart of SetCommitRevisionXAttr. Used by the
 // upload path's "skip re-upload of byte-identical content" check —

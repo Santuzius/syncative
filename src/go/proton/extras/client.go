@@ -1,4 +1,4 @@
-package ext
+package extras
 
 // HTTP wrapper for the handful of Drive endpoints upstream
 // go-proton-api doesn't expose. We can't call upstream's `Client.do()`

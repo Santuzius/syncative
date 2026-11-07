@@ -1,4 +1,4 @@
-package ext
+package extras
 
 // Drive volume events. Upstream has GetVolumeEvent, but its paging loop re-requests the first page's EventID on every iteration and spins forever once more than two pages are pending, so Syncative pages through the endpoint itself.
 

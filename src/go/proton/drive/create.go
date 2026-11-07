@@ -34,7 +34,7 @@ import (
 	"sort"
 	"time"
 
-	"syncative/go/proton/ext"
+	"syncative/go/proton/extras"
 
 	"github.com/ProtonMail/go-proton-api"
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
@@ -107,10 +107,10 @@ func (s *Session) CreateFolder(ctx context.Context, parentLinkID, name string) (
 
 		SignatureAddress: s.signatureAddress,
 	}
-	if err := ext.SetCreateFolderName(&req, name, s.defaultAddrKR, parentNodeKR); err != nil {
+	if err := extras.SetCreateFolderName(&req, name, s.defaultAddrKR, parentNodeKR); err != nil {
 		return "", err
 	}
-	if err := ext.SetCreateFolderHash(&req, name, parentHashKey); err != nil {
+	if err := extras.SetCreateFolderHash(&req, name, parentHashKey); err != nil {
 		return "", err
 	}
 	// The new folder's own hash key is independent of its parent's;
@@ -120,7 +120,7 @@ func (s *Session) CreateFolder(ctx context.Context, parentLinkID, name string) (
 		return "", err
 	}
 	_ = newFolderKR // only needed once we want the hash key back locally
-	if err := ext.SetCreateFolderNodeHashKey(&req, newFolderKR); err != nil {
+	if err := extras.SetCreateFolderNodeHashKey(&req, newFolderKR); err != nil {
 		return "", err
 	}
 
@@ -241,12 +241,12 @@ func (s *Session) UploadFile(ctx context.Context, parentLinkID, name, srcPath st
 		// Best-effort draft cleanup. If this fails we swallow — the
 		// CreateRevision path will retry the user's next upload and
 		// the stale draft will be collected server-side eventually.
-		_ = ext.DeleteRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, linkID, revisionID)
+		_ = extras.DeleteRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, linkID, revisionID)
 		return "", err
 	}
 
 	if err := s.commitRevision(ctx, nodeKR, linkID, revisionID, manifest, fileSize, blockSizes, sha1Hex, modTime); err != nil {
-		_ = ext.DeleteRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, linkID, revisionID)
+		_ = extras.DeleteRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, linkID, revisionID)
 		return "", err
 	}
 	// Best-effort: drop any non-active revisions left behind by prior
@@ -262,7 +262,7 @@ func (s *Session) UploadFile(ctx context.Context, parentLinkID, name, srcPath st
 // except `keepRevisionID`. Best-effort: errors are logged and swallowed
 // so a slow/failed cleanup never breaks the upload's caller.
 func (s *Session) cleanupNonActiveRevisions(ctx context.Context, fileLinkID, keepRevisionID string) {
-	revs, err := ext.ListRevisions(ctx, s.protonextAuth(), s.mainShare.ShareID, fileLinkID)
+	revs, err := extras.ListRevisions(ctx, s.protonextAuth(), s.mainShare.ShareID, fileLinkID)
 	if err != nil {
 		log.Printf("[proton-native] revision-cleanup: ListRevisions(%s) failed: %v", fileLinkID, err)
 		return
@@ -278,7 +278,7 @@ func (s *Session) cleanupNonActiveRevisions(ctx context.Context, fileLinkID, kee
 			log.Printf("[proton-native] revision-cleanup: refusing to delete Active revision %s on %s", r.ID, fileLinkID)
 			continue
 		}
-		if err := ext.DeleteRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, fileLinkID, r.ID); err != nil {
+		if err := extras.DeleteRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, fileLinkID, r.ID); err != nil {
 			log.Printf("[proton-native] revision-cleanup: DeleteRevision(%s/%s) failed: %v", fileLinkID, r.ID, err)
 		}
 	}
@@ -353,10 +353,10 @@ func (s *Session) createFileDraft(
 		NodePassphraseSignature: nodePassphraseSig,
 		SignatureAddress:        s.signatureAddress,
 	}
-	if err := ext.SetCreateFileName(&req, name, s.defaultAddrKR, parentNodeKR); err != nil {
+	if err := extras.SetCreateFileName(&req, name, s.defaultAddrKR, parentNodeKR); err != nil {
 		return "", "", nil, nil, err
 	}
-	if err := ext.SetCreateFileHash(&req, name, parentHashKey); err != nil {
+	if err := extras.SetCreateFileHash(&req, name, parentHashKey); err != nil {
 		return "", "", nil, nil, err
 	}
 
@@ -366,7 +366,7 @@ func (s *Session) createFileDraft(
 	if err != nil {
 		return "", "", nil, nil, err
 	}
-	sessionKey, err := ext.SetCreateFileContentKey(&req, nodeKR)
+	sessionKey, err := extras.SetCreateFileContentKey(&req, nodeKR)
 	if err != nil {
 		return "", "", nil, nil, err
 	}
@@ -529,17 +529,17 @@ func (s *Session) createFreshFileDraft(
 		NodePassphraseSignature: nodePassphraseSig,
 		SignatureAddress:        s.signatureAddress,
 	}
-	if err := ext.SetCreateFileName(&req, name, s.defaultAddrKR, parentNodeKR); err != nil {
+	if err := extras.SetCreateFileName(&req, name, s.defaultAddrKR, parentNodeKR); err != nil {
 		return "", "", nil, nil, err
 	}
-	if err := ext.SetCreateFileHash(&req, name, parentHashKey); err != nil {
+	if err := extras.SetCreateFileHash(&req, name, parentHashKey); err != nil {
 		return "", "", nil, nil, err
 	}
 	nodeKR, err := getKeyRing(parentNodeKR, s.defaultAddrKR, nodeKey, nodePassphraseEnc, nodePassphraseSig)
 	if err != nil {
 		return "", "", nil, nil, err
 	}
-	sessionKey, err := ext.SetCreateFileContentKey(&req, nodeKR)
+	sessionKey, err := extras.SetCreateFileContentKey(&req, nodeKR)
 	if err != nil {
 		return "", "", nil, nil, err
 	}
@@ -727,13 +727,13 @@ func (s *Session) handleRevisionConflict(ctx context.Context, link *proton.Link)
 		// Link has an active revision plus a stale draft — delete
 		// the draft so we can create a fresh one.
 		log.Printf("[proton-native] deleting stale draft revision %s on link %s", draftRevID, linkID)
-		if err := ext.DeleteRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, linkID, draftRevID); err != nil {
+		if err := extras.DeleteRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, linkID, draftRevID); err != nil {
 			return "", false, err
 		}
 	}
 
 	// Create a new revision on the existing file.
-	newRev, err := ext.CreateRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, linkID)
+	newRev, err := extras.CreateRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, linkID)
 	if err != nil {
 		return "", false, err
 	}
@@ -754,11 +754,11 @@ func (s *Session) uploadBlocks(
 	linkID, revisionID string,
 ) ([]byte, int64, []int64, string, error) {
 	type pendingBlock struct {
-		info ext.BlockUploadInfo
+		info extras.BlockUploadInfo
 		data []byte
 	}
 
-	verification, err := ext.GetVerificationData(ctx, s.protonextAuth(), s.volumeID, linkID, revisionID)
+	verification, err := extras.GetVerificationData(ctx, s.protonextAuth(), s.volumeID, linkID, revisionID)
 	if err != nil {
 		return nil, 0, nil, "", fmt.Errorf("block verification data: %w", err)
 	}
@@ -784,18 +784,18 @@ func (s *Session) uploadBlocks(
 		if len(pending) == 0 {
 			return nil
 		}
-		list := make([]ext.BlockUploadInfo, len(pending))
+		list := make([]extras.BlockUploadInfo, len(pending))
 		for i := range pending {
 			list[i] = pending[i].info
 		}
-		uploadReq := ext.BlockUploadReq{
+		uploadReq := extras.BlockUploadReq{
 			AddressID:  s.mainShare.AddressID,
 			ShareID:    s.mainShare.ShareID,
 			LinkID:     linkID,
 			RevisionID: revisionID,
 			BlockList:  list,
 		}
-		uploadLinks, err := ext.RequestBlockUpload(ctx, s.protonextAuth(), uploadReq)
+		uploadLinks, err := extras.RequestBlockUpload(ctx, s.protonextAuth(), uploadReq)
 		if err != nil {
 			return err
 		}
@@ -853,13 +853,13 @@ func (s *Session) uploadBlocks(
 		manifest = append(manifest, hash[:]...)
 
 		pending = append(pending, pendingBlock{
-			info: ext.BlockUploadInfo{
+			info: extras.BlockUploadInfo{
 				Index:        blockIdx,
 				Size:         int64(len(encData)),
 				EncSignature: encSigArm,
 				Hash:         base64.StdEncoding.EncodeToString(hash[:]),
-				Verifier: ext.BlockVerifier{
-					Token: base64.StdEncoding.EncodeToString(ext.VerificationToken(verification.VerificationCode, encData)),
+				Verifier: extras.BlockVerifier{
+					Token: base64.StdEncoding.EncodeToString(extras.VerificationToken(verification.VerificationCode, encData)),
 				},
 			},
 			data: encData,
@@ -903,20 +903,20 @@ func (s *Session) commitRevision(
 	if err != nil {
 		return err
 	}
-	req := ext.CommitRevisionReq{
+	req := extras.CommitRevisionReq{
 		ManifestSignature: manifestSigArm,
 		SignatureAddress:  s.signatureAddress,
 	}
-	xAttr := &ext.RevisionXAttrCommon{
+	xAttr := &extras.RevisionXAttrCommon{
 		ModificationTime: modTime.UTC().Format("2006-01-02T15:04:05-0700"),
 		Size:             fileSize,
 		BlockSizes:       blockSizes,
 		Digests:          map[string]string{"SHA1": sha1Hex},
 	}
-	if err := ext.SetCommitRevisionXAttr(&req, s.defaultAddrKR, nodeKR, xAttr); err != nil {
+	if err := extras.SetCommitRevisionXAttr(&req, s.defaultAddrKR, nodeKR, xAttr); err != nil {
 		return err
 	}
-	return ext.CommitRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, linkID, revisionID, req)
+	return extras.CommitRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, linkID, revisionID, req)
 }
 
 // contentAlreadyMatches returns true when the active revision of
@@ -944,11 +944,11 @@ func (s *Session) contentAlreadyMatches(
 	// PageSize=1 — we're only after the decrypted XAttr metadata, not
 	// the block list. Upstream's GetRevision drops the XAttr field on
 	// the floor, so we go through protonext to capture it.
-	rev, err := ext.GetRevisionXAttr(ctx, s.protonextAuth(), s.mainShare.ShareID, link.LinkID, revID)
+	rev, err := extras.GetRevisionXAttr(ctx, s.protonextAuth(), s.mainShare.ShareID, link.LinkID, revID)
 	if err != nil || rev.XAttr == "" {
 		return false
 	}
-	xa, err := ext.DecryptRevisionXAttr(rev.XAttr, s.defaultAddrKR, nodeKR)
+	xa, err := extras.DecryptRevisionXAttr(rev.XAttr, s.defaultAddrKR, nodeKR)
 	if err != nil || xa == nil {
 		return false
 	}

@@ -1,4 +1,4 @@
-package ext
+package extras
 
 // Wire-shape types for endpoints upstream go-proton-api doesn't expose.
 // These mirror the JSON the Proton Drive API consumes/returns.
