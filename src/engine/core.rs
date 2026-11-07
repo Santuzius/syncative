@@ -66,6 +66,15 @@ struct UploadJob {
     cancel: Cancel,
 }
 
+impl UploadJob {
+    /// `file` is saved or given up: off the list, here and on disk, and the next file starts with a clean slate.
+    fn file_done(&mut self, file: &Path) {
+        self.upload.files.retain(|f| f != file);
+        share::file_done(&self.upload, file);
+        (self.tries, self.name, self.error, self.retry_at) = (0, None, None, None);
+    }
+}
+
 pub(crate) struct Core {
     repo: Arc<dyn Repository>,
     backend: Arc<dyn BackendClient>,
@@ -796,17 +805,13 @@ impl Core {
             Ok(saved_as) => {
                 let target = if job.upload.folder.is_empty() { saved_as } else { format!("{}/{saved_as}", job.upload.folder) };
                 eprintln!("syncative: uploaded the shared file {name} to {remote_name}:{target}");
-                job.upload.files.retain(|f| *f != file);
-                share::file_done(&job.upload, &file);
-                (job.tries, job.name, job.error, job.retry_at) = (0, None, None, None);
+                job.file_done(&file);
             }
             Err(_) if job.cancel.load(Ordering::Acquire) => return,
             // An original moved or deleted since it was handed over: trying again won't find it either.
             Err(_) if !job.upload.copies && !file.is_file() => {
                 shared_file_given_up(&name, &remote_name, "it was moved or deleted before it was saved");
-                job.upload.files.retain(|f| *f != file);
-                share::file_done(&job.upload, &file);
-                (job.tries, job.name, job.error, job.retry_at) = (0, None, None, None);
+                job.file_done(&file);
             }
             // Saved while it went up: up again under the same name once the save is done, without counting it as a failure.
             Err(UploadFailure { name: chosen, changed: true, error }) => {
@@ -828,9 +833,7 @@ impl Core {
                 eprintln!("syncative: couldn't upload the shared file {name} to {remote_name} (try {}): {err}", job.tries);
                 if job.tries >= UPLOAD_TRIES {
                     shared_file_given_up(&name, &remote_name, &err);
-                    job.upload.files.retain(|f| *f != file);
-                    share::file_done(&job.upload, &file);
-                    (job.tries, job.name, job.error, job.retry_at) = (0, None, None, None);
+                    job.file_done(&file);
                 } else {
                     job.error = Some(err);
                     job.retry_at = Some(Instant::now() + UPLOAD_RETRY * job.tries.max(1));
