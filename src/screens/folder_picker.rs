@@ -148,7 +148,7 @@ pub fn view(picker: &Picker) -> Element<'_, Msg> {
     let mut heading = column![text(title).size(HEADING)].spacing(8);
     if matches!(picker.target, Target::Hidden(_)) {
         heading = heading.push(
-            text("Photos, videos and music in the ticked folders stay out of the gallery and media apps. Syncative puts a .nomedia file into each of them on every phone that syncs this folder; the files stay out of the cloud.")
+            text("Photos, videos and music in the ticked folders stay out of the gallery and media apps. A change can take a while: Android applies it at its next media scan or after a restart of the phone.")
                 .size(TEXT)
                 .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
         );
