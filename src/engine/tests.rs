@@ -117,10 +117,11 @@ fn conflict(path: &str) -> Conflict {
         local_path: format!("/tmp/{path}"),
         remote_path: path.to_owned(),
         local: details.clone(),
-        remote: details,
+        remote: Some(details),
         local_stamp: 1,
         remote_stamp: 2,
         first_sync: false,
+        link: None,
     }
 }
 

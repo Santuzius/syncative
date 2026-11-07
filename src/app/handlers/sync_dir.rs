@@ -279,7 +279,7 @@ impl SyncativeApp {
     }
 
     /// Run `change` against the repository, then reload the sync_dir's exclusions and count the local leftovers under each, including sub-folders now synced as their own folder.
-    fn reload_exclusions<F, Fut>(&self, sd_id: SyncDirId, change: F) -> Task<Message>
+    pub(in crate::app) fn reload_exclusions<F, Fut>(&self, sd_id: SyncDirId, change: F) -> Task<Message>
     where
         F: FnOnce(Arc<dyn Repository>) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send,

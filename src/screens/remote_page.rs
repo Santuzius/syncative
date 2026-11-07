@@ -616,16 +616,21 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
     };
 
     // Second caption line: live progress while syncing, the latest problem while in trouble, otherwise the plain state.
-    let conflict_note = match folder.conflicts.len() {
-        0 => None,
-        1 => Some("1 file differs on both sides".to_owned()),
-        n => Some(format!("{n} files differ on both sides")),
+    let links = folder.conflicts.iter().filter(|c| c.link.is_some()).count();
+    let conflict_note = match (folder.conflicts.len() - links, links) {
+        (0, 0) => None,
+        (1, 0) => Some("1 file differs on both sides".to_owned()),
+        (n, 0) => Some(format!("{n} files differ on both sides")),
+        (0, 1) => Some("1 link can't be synced".to_owned()),
+        (0, n) => Some(format!("{n} links can't be synced")),
+        (n, l) => Some(format!("{n} {} on both sides, {l} {} be synced", if n == 1 { "file differs" } else { "files differ" }, if l == 1 { "link can't" } else { "links can't" })),
     };
     let detail: String = match folder.state {
         RunState::Syncing(_) => folder
             .latest_line
             .unwrap_or(status_label(folder.state))
             .to_owned(),
+        _ if conflict_note.is_some() && links == folder.conflicts.len() => if links == 1 { "Decide what to do with the link".to_owned() } else { "Decide what to do with the links".to_owned() },
         _ if conflict_note.is_some() => "Choose which version to keep".to_owned(),
         // The status icon already shows the warning sign that starts the log line.
         RunState::Warning | RunState::Error => folder

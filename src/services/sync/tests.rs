@@ -17,7 +17,7 @@ use crate::{
     domain::{
         events::SyncEvent,
         ports::cancel_never,
-        sync::{Conflict, ConflictChoice, Resolution, SyncDirId, SyncError},
+        sync::{Conflict, ConflictChoice, LinkTarget, Resolution, SyncDirId, SyncError},
     },
     test_support::{remote, remote_item, sync_dir, touch_mtime, FakeBackend, FakeRepo, TempDir},
 };
@@ -166,38 +166,109 @@ fn nomedia_files_of_hidden_folders_stay_on_the_device() {
     assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
 }
 
-/// Symbolic links aren't synced: a linked file isn't uploaded, a remote copy of it is neither downloaded over the link nor deleted, and nothing is written through a linked folder.
-#[test]
-fn symbolic_links_are_left_alone_on_both_sides() {
-    let tmp = TempDir::new("sync_links");
-    let target = TempDir::new("sync_links_target");
+/// A folder with a link to a file (whose earlier upload left a row and a remote copy), a link to a folder with a remote file below it, and a plain file.
+fn with_links(name: &str) -> (TempDir, TempDir, FakeRepo, FakeBackend) {
+    let tmp = TempDir::new(name);
+    let target = TempDir::new(&format!("{name}_target"));
     target.write_file("data.json", b"behind the link");
     target.write_file("dir/inside.txt", b"inside");
     std::os::unix::fs::symlink(format!("{}/data.json", target.as_str()), format!("{}/linked.json", tmp.as_str())).unwrap();
     std::os::unix::fs::symlink(format!("{}/dir", target.as_str()), format!("{}/linked-dir", tmp.as_str())).unwrap();
     tmp.write_file("plain.txt", b"plain");
     let repo = FakeRepo::new();
-    // The link was uploaded by an older version, which made a row for it.
     repo.insert_item(SyncDirId(1), &format!("{}/linked.json", tmp.as_str()), "linked.json", 1_700_000_000, 1_700_000_000);
     let client = FakeBackend::default();
-    client.set_list(
-        "",
-        Ok(vec![
-            remote_item("linked.json", false, 1_700_000_000),
-            remote_item("linked-dir", true, 1_700_000_000),
-            remote_item("linked-dir/new.txt", false, 1_700_000_000),
-        ]),
-    );
+    let remote_items = vec![
+        remote_item("linked.json", false, 1_700_000_000),
+        remote_item("linked-dir", true, 1_700_000_000),
+        remote_item("linked-dir/new.txt", false, 1_700_000_000),
+    ];
+    for item in &remote_items {
+        client.set_stat(&item.path, Ok(Some(item.clone())));
+    }
+    client.set_list("", Ok(remote_items));
+    (tmp, target, repo, client)
+}
 
+/// Symbolic links are put to the user: nothing goes up or down for them, nothing is written through a linked folder, and a remote copy isn't deleted.
+#[test]
+fn symbolic_links_are_put_to_the_user() {
+    let (tmp, target, repo, client) = with_links("sync_links");
     let (outcome, events) = run_full(&tmp, &repo, &client);
     assert_eq!(outcome, Outcome::Synced);
     assert!(errors(&events).is_empty());
+    let reported = conflicts(&events);
+    let paths: Vec<&str> = reported.iter().map(|c| c.remote_path.as_str()).collect();
+    assert_eq!(paths, ["linked-dir", "linked.json"]);
+    let file_link = reported[1].link.as_ref().unwrap();
+    assert_eq!(file_link.target, format!("{}/data.json", target.as_str()));
+    assert_eq!(file_link.target_kind, LinkTarget::File);
+    assert_eq!(reported[1].local.size, Some(15));
+    assert!(reported[1].remote.is_some());
+    assert_eq!(reported[0].link.as_ref().unwrap().target_kind, LinkTarget::Folder);
     let uploads: Vec<String> = client.copy_to_remote_calls.lock().unwrap().iter().map(|(_, remote)| remote.clone()).collect();
     assert_eq!(uploads, ["plain.txt"]);
     assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
     assert!(client.delete_file_calls.lock().unwrap().is_empty());
     assert!(fs::symlink_metadata(format!("{}/linked.json", tmp.as_str())).unwrap().file_type().is_symlink());
     assert!(!Path::new(&format!("{}/dir/new.txt", target.as_str())).exists());
+}
+
+/// "Replace" puts copies in place of both links; the originals stay, and the copies count as new on this side (their rows are gone) for the next pass.
+#[test]
+fn replacing_links_copies_what_they_point_to() {
+    let (tmp, target, repo, client) = with_links("sync_links_replace");
+    let (_outcome, events) = run_full(&tmp, &repo, &client);
+    let resolutions: Vec<Resolution> = conflicts(&events)
+        .iter()
+        .map(|c| Resolution { remote_path: c.remote_path.clone(), choice: ConflictChoice::ReplaceLink, local_stamp: c.local_stamp, remote_stamp: c.remote_stamp })
+        .collect();
+    let (_outcome, events) = run_resolving(&tmp, &repo, &client, &resolutions);
+    assert!(errors(&events).is_empty());
+    assert!(conflicts(&events).is_empty());
+    let file = format!("{}/linked.json", tmp.as_str());
+    assert!(fs::symlink_metadata(&file).unwrap().is_file());
+    assert_eq!(fs::read(&file).unwrap(), b"behind the link");
+    let dir = format!("{}/linked-dir", tmp.as_str());
+    assert!(fs::symlink_metadata(&dir).unwrap().is_dir());
+    assert_eq!(fs::read(format!("{dir}/inside.txt")).unwrap(), b"inside");
+    assert!(Path::new(&format!("{}/data.json", target.as_str())).exists());
+    assert!(!repo.has_item(&file, "linked.json"));
+    assert!(fs::read_dir(tmp.as_str()).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().ends_with(".part")));
+}
+
+/// A broken link is put to the user too; "Replace" removes it, and without its row the remote copy then comes down instead of being deleted.
+#[test]
+fn a_broken_link_is_removed_on_request() {
+    let (tmp, target, repo, client) = with_links("sync_links_broken");
+    fs::remove_file(format!("{}/data.json", target.as_str())).unwrap();
+    let (_outcome, events) = run_full(&tmp, &repo, &client);
+    let broken = conflicts(&events).into_iter().find(|c| c.remote_path == "linked.json").unwrap();
+    assert_eq!(broken.link.as_ref().unwrap().target_kind, LinkTarget::Missing);
+    let resolution = Resolution { remote_path: "linked.json".into(), choice: ConflictChoice::ReplaceLink, local_stamp: broken.local_stamp, remote_stamp: broken.remote_stamp };
+    run_resolving(&tmp, &repo, &client, &[resolution]);
+    let file = format!("{}/linked.json", tmp.as_str());
+    assert!(fs::symlink_metadata(&file).is_err());
+    assert!(!repo.has_item(&file, "linked.json"));
+    let (_outcome, _events) = run_full(&tmp, &repo, &client);
+    assert!(client.delete_file_calls.lock().unwrap().is_empty());
+    assert!(client.copy_to_local_calls.lock().unwrap().iter().any(|(_, remote)| remote == "linked.json"));
+}
+
+/// A link to a folder that holds the link itself can't be replaced by a copy: that copy would never end.
+#[test]
+fn a_link_to_its_own_ancestor_is_not_copied() {
+    let tmp = TempDir::new("sync_links_loop");
+    std::os::unix::fs::symlink(tmp.as_str(), format!("{}/me", tmp.as_str())).unwrap();
+    let repo = FakeRepo::new();
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![]));
+    let (_outcome, events) = run_full(&tmp, &repo, &client);
+    let c = conflicts(&events).remove(0);
+    let resolution = Resolution { remote_path: "me".into(), choice: ConflictChoice::ReplaceLink, local_stamp: c.local_stamp, remote_stamp: c.remote_stamp };
+    let (_outcome, events) = run_resolving(&tmp, &repo, &client, &[resolution]);
+    assert_eq!(errors(&events).len(), 1);
+    assert!(fs::symlink_metadata(format!("{}/me", tmp.as_str())).unwrap().file_type().is_symlink());
 }
 
 /// A delete whose target vanished since the listing did what it wanted: no warning, and the row goes.

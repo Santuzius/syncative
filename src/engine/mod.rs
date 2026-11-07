@@ -35,6 +35,8 @@ pub const MAX_LOG_LINES: usize = 200;
 /// Starts of the log lines for new conflicts (first sync / changed since the last one).
 pub const CONFLICT_LINE_PREFIXES: [&str; 2] =
     ["⚠ Different on both sides", "⚠ Changed on both sides"];
+/// The log line for a symbolic link waiting for the user's decision.
+pub const LINK_LINE_PREFIX: &str = "⚠ Link can't be synced";
 
 /// What the GUI asks the engine to do.
 #[derive(Debug, Clone)]

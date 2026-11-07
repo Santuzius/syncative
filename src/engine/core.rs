@@ -27,7 +27,7 @@ use crate::{
 };
 
 use super::{
-    CONFLICT_LINE_PREFIXES, Cadence, Command, Input, LogLine, Logs, MAX_LOG_LINES, PassVerdict,
+    CONFLICT_LINE_PREFIXES, LINK_LINE_PREFIX, Cadence, Command, Input, LogLine, Logs, MAX_LOG_LINES, PassVerdict,
     Snapshot, is_auth_failure, pass::Pass,
 };
 
@@ -598,7 +598,7 @@ impl Core {
         let known = self.conflicts.remove(&sync_dir_id).unwrap_or_default();
         for c in &conflicts {
             if !known.iter().any(|k| k.remote_path == c.remote_path) {
-                let prefix = CONFLICT_LINE_PREFIXES[usize::from(!c.first_sync)];
+                let prefix = if c.link.is_some() { LINK_LINE_PREFIX } else { CONFLICT_LINE_PREFIXES[usize::from(!c.first_sync)] };
                 self.push_log_line(
                     sync_dir_id,
                     format!("{prefix}: {}", fmt_home(&c.local_path)),

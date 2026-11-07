@@ -60,6 +60,8 @@ pub(super) enum ConflictKind {
     BothChanged,
     /// Both copies existed before the first sync. Without a content digest to compare (pCloud, WebDAV, Dropbox) the newer one wins as before, so a first sync of two large trees doesn't turn into hundreds of questions.
     BothNew,
+    /// The local path is a symbolic link, which can't be synced as it is (see `Snapshot::local_links`).
+    Link,
 }
 
 pub(super) fn plan(snapshot: &Snapshot, sync_dir: &SyncDir) -> Vec<Action> {
@@ -68,6 +70,7 @@ pub(super) fn plan(snapshot: &Snapshot, sync_dir: &SyncDir) -> Vec<Action> {
         .keys()
         .chain(snapshot.local.keys())
         .chain(snapshot.db.keys())
+        .chain(snapshot.local_links.iter())
         .collect();
     let db_by_parent = group_db_keys_by_parent(&snapshot.db);
     let mut out = Vec::new();
@@ -198,11 +201,6 @@ pub(super) fn log_plan_summary(
         clear_rows,
         record_rows,
     );
-    if !snapshot.local_links.is_empty() {
-        let mut links: Vec<&str> = snapshot.local_links.iter().map(String::as_str).collect();
-        links.sort_unstable();
-        eprintln!("sync: not syncing the symbolic links {links:?} (in '{}'); they and whatever lies behind them stay as they are on both sides.", sync_dir.local_path);
-    }
 }
 
 /// Does `path`, or any of its ancestor directories up to the sync-dir
@@ -268,7 +266,14 @@ fn plan_one(
     snapshot: &Snapshot,
     db_by_parent: &HashMap<&str, Vec<&str>>,
 ) -> Option<Action> {
-    // A local link, or something below a linked folder: neither side is touched (see `Snapshot::local_links`).
+    // A local link is put to the user; below a linked folder, neither side is touched (see `Snapshot::local_links`).
+    if snapshot.local_links.contains(remote_path) {
+        return Some(Action::Conflict {
+            local_path: derive_local_path(remote_path, sync_dir),
+            remote_path: remote_path.to_owned(),
+            kind: ConflictKind::Link,
+        });
+    }
     if ancestor_in_set(remote_path, &snapshot.local_links) {
         return None;
     }

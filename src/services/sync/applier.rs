@@ -12,7 +12,7 @@ use crate::{
         ports::{BackendClient, Cancel, Repository, is_cancelled as cancel_check},
         remote::Remote,
         run_state::{RunState, SyncActivity},
-        sync::{Conflict, ConflictChoice, FileDetails, Resolution, SyncDir, SyncError, SyncItem},
+        sync::{Conflict, ConflictChoice, FileDetails, Link, LinkTarget, Resolution, SyncDir, SyncError, SyncItem},
     },
     util,
 };
@@ -293,7 +293,12 @@ where
                 remote_path,
                 kind,
             } => {
-                let conflict = match inspect_conflict(&local_path, &remote_path, kind, remote, client, cancel) {
+                let inspected = if kind == ConflictKind::Link {
+                    inspect_link(&local_path, &remote_path, remote, client, cancel)
+                } else {
+                    inspect_conflict(&local_path, &remote_path, kind, remote, client, cancel)
+                };
+                let conflict = match inspected {
                     Inspected::Gone => break 'action,
                     Inspected::Failed(err) => {
                         emit_error(SyncError::General(remote_path.clone(), err));
@@ -312,14 +317,35 @@ where
                     .map(|r| r.choice.clone())
                     // Never-synced pair on a backend without content digests: the newer copy wins, as before.
                     .or_else(|| {
-                        (kind == ConflictKind::BothNew && conflict.remote.sha1.is_none()).then_some({
+                        (kind == ConflictKind::BothNew && conflict.remote.as_ref().is_some_and(|r| r.sha1.is_none())).then_some({
                             if conflict.local_stamp > conflict.remote_stamp { ConflictChoice::KeepLocal } else { ConflictChoice::KeepRemote }
                         })
                     });
                 match chosen {
+                    // No Warning state from here: the app sets it for the conflicts it still shows, which leaves out files the user decided on while this pass ran.
+                    None if conflict.link.is_some() => {
+                        eprintln!("sync: CONFLICT '{remote_path}' is a symbolic link — waiting for the user.");
+                        conflicts.push(conflict);
+                    }
                     None => {
-                        // No Warning state from here: the app sets it for the conflicts it still shows, which leaves out files the user decided on while this pass ran.
                         eprintln!("sync: CONFLICT '{remote_path}' changed on both sides — waiting for the user.");
+                        conflicts.push(conflict);
+                    }
+                    Some(ConflictChoice::ReplaceLink) => {
+                        if conflict.link.is_none() {
+                            break 'action;
+                        }
+                        match replace_link(&local_path) {
+                            Ok(note) => {
+                                // Without the rows, the result counts as new on this side: the next pass uploads it, or puts it to the user if the remote has a different version.
+                                let _ = util::await_future(repo.delete_sync_items_with_local_prefix(sync_dir.id, &local_path));
+                                emit_status(note);
+                            }
+                            Err(err) => emit_error(SyncError::General(local_path.clone(), err)),
+                        }
+                        break 'action;
+                    }
+                    Some(_) if conflict.link.is_some() => {
                         conflicts.push(conflict);
                     }
                     Some(ConflictChoice::KeepLocal) => {
@@ -433,11 +459,138 @@ fn inspect_conflict(local_path: &str, remote_path: &str, kind: ConflictKind, rem
             mod_time: OffsetDateTime::from_unix_timestamp(local_stamp as i64).unwrap_or(OffsetDateTime::UNIX_EPOCH),
             sha1: local_sha1,
         },
-        remote: remote_details,
+        remote: Some(remote_details),
         local_stamp: local_stamp as i64,
         remote_stamp,
         first_sync: kind == ConflictKind::BothNew,
+        link: None,
     })
+}
+
+/// Gather what the dialog shows about a symbolic link: where it points, and what the remote has under its name.
+fn inspect_link(local_path: &str, remote_path: &str, remote: &Remote, client: &dyn BackendClient, cancel: &Cancel) -> Inspected {
+    let Ok(meta) = fs::symlink_metadata(local_path) else {
+        return Inspected::Gone;
+    };
+    if !meta.file_type().is_symlink() {
+        return Inspected::Gone;
+    }
+    let Ok(target) = fs::read_link(local_path) else {
+        return Inspected::Gone;
+    };
+    // A relative target counts from the folder the link is in.
+    let target = Path::new(local_path).parent().map_or(target.clone(), |parent| parent.join(&target));
+    let (target_kind, size) = match fs::metadata(local_path) {
+        Ok(m) if m.is_dir() => (LinkTarget::Folder, None),
+        Ok(m) => (LinkTarget::File, Some(m.len())),
+        Err(_) => (LinkTarget::Missing, None),
+    };
+    let local_stamp = meta.modified().ok().and_then(timestamp).unwrap_or(0) as i64;
+    let (remote_details, remote_is_dir, remote_stamp) = match client.stat(&remote.name, remote_path, cancel) {
+        Ok(Some(item)) if item.is_dir => (Some(FileDetails { size: None, mod_time: item.mod_time, sha1: None }), true, item.mod_time.unix_timestamp()),
+        Ok(Some(item)) => match client.details(&remote.name, remote_path, cancel) {
+            Ok(details) => (details.or(Some(FileDetails { size: None, mod_time: item.mod_time, sha1: None })), false, item.mod_time.unix_timestamp()),
+            Err(err) => return Inspected::Failed(err),
+        },
+        Ok(None) => (None, false, 0),
+        Err(err) => return Inspected::Failed(err),
+    };
+    Inspected::Differs(Conflict {
+        local_path: local_path.to_owned(),
+        remote_path: remote_path.to_owned(),
+        local: FileDetails {
+            size,
+            mod_time: OffsetDateTime::from_unix_timestamp(local_stamp).unwrap_or(OffsetDateTime::UNIX_EPOCH),
+            sha1: None,
+        },
+        remote: remote_details,
+        local_stamp,
+        remote_stamp,
+        first_sync: false,
+        link: Some(Link { target: lexical(&target), target_kind, remote_is_dir }),
+    })
+}
+
+/// `a/b/../c` as `a/c`, without asking the disk: a broken link's target can't be resolved there.
+fn lexical(path: &Path) -> String {
+    let mut out = std::path::PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out.to_string_lossy().into_owned()
+}
+
+/// Put a copy of what the link at `local_path` points to in its place, or remove it when it is broken. Returns the line for the folder's log.
+fn replace_link(local_path: &str) -> Result<String, String> {
+    let path = Path::new(local_path);
+    if !fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(tr::tr!("This is no longer a link."));
+    }
+    // Written next to the link under a name the walk skips, then put in its place, so the sync never sees half a copy.
+    let temp = path.with_file_name(format!(".syncative-link-{}.part", std::process::id()));
+    match fs::metadata(path) {
+        Err(_) => {
+            fs::remove_file(path).map_err(|e| e.to_string())?;
+            Ok(tr::tr!("Removed the broken link '{}'.", util::fmt_home(local_path)))
+        }
+        Ok(meta) if meta.is_dir() => {
+            let target = fs::canonicalize(path).map_err(|e| e.to_string())?;
+            let parent = path.parent().and_then(|p| fs::canonicalize(p).ok()).unwrap_or_default();
+            if parent.starts_with(&target) {
+                return Err(tr::tr!("Can't replace the link with a copy: '{}' contains the link itself.", util::fmt_home(&target.to_string_lossy())));
+            }
+            let _ = fs::remove_dir_all(&temp);
+            if let Err(err) = copy_tree(&target, &temp) {
+                let _ = fs::remove_dir_all(&temp);
+                return Err(err.to_string());
+            }
+            fs::remove_file(path).map_err(|e| e.to_string())?;
+            fs::rename(&temp, path).map_err(|e| e.to_string())?;
+            Ok(tr::tr!("Replaced the link '{}' with a copy of the folder it pointed to.", util::fmt_home(local_path)))
+        }
+        Ok(meta) => {
+            if let Err(err) = copy_file(path, &temp, &meta) {
+                let _ = fs::remove_file(&temp);
+                return Err(err.to_string());
+            }
+            // Renaming onto the link replaces the link, not the file it points to.
+            fs::rename(&temp, path).map_err(|e| e.to_string())?;
+            Ok(tr::tr!("Replaced the link '{}' with a copy of the file it pointed to.", util::fmt_home(local_path)))
+        }
+    }
+}
+
+/// A copy of a file with its modification time.
+fn copy_file(from: &Path, to: &Path, meta: &fs::Metadata) -> std::io::Result<()> {
+    fs::copy(from, to)?;
+    if let Ok(modified) = meta.modified() {
+        fs::File::options().write(true).open(to)?.set_modified(modified)?;
+    }
+    Ok(())
+}
+
+/// Copy the folder `from` to `to`, keeping modification times. Links inside stay links, so each turns into a question of its own.
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let dest = to.join(entry.file_name());
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            std::os::unix::fs::symlink(fs::read_link(entry.path())?, &dest)?;
+        } else if kind.is_dir() {
+            copy_tree(&entry.path(), &dest)?;
+        } else {
+            copy_file(&entry.path(), &dest, &entry.metadata()?)?;
+        }
+    }
+    Ok(())
 }
 
 /// The remote copy's details when it holds the same content as the local file, by SHA-1 where the backend keeps one; a transfer would then only move the same bytes again.

@@ -68,17 +68,40 @@ pub struct FileDetails {
 }
 
 /// A file that changed on both sides since the last sync, or that exists on both sides with different content before it was ever synced. Nothing is transferred for it until the user picks a version; every pass detects it again, so resolving it by hand (deleting or replacing one copy) also clears it.
+/// Also a symbolic link in the local folder (`link` is set): Syncative can't sync a link, so the user replaces it with what it points to or leaves it out of the sync.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Conflict {
     pub local_path: String,
     pub remote_path: String,
+    /// For a link: the link's own time, and the size of the file behind it.
     pub local: FileDetails,
-    pub remote: FileDetails,
+    /// `None` only for a link with nothing of its name on the remote.
+    pub remote: Option<FileDetails>,
     /// Timestamps the sync engine compares (local mtime, remote listing time), in Unix seconds. A [`Resolution`] only applies while both are unchanged.
     pub local_stamp: i64,
     pub remote_stamp: i64,
     /// Both copies existed before the file was ever synced (rather than both being edited since the last sync).
     pub first_sync: bool,
+    /// The local path is a symbolic link.
+    pub link: Option<Link>,
+}
+
+/// A symbolic link in a sync folder, as the conflict dialog shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Link {
+    /// Where the link points, as an absolute path.
+    pub target: String,
+    pub target_kind: LinkTarget,
+    /// What the remote has under the link's name is a folder.
+    pub remote_is_dir: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkTarget {
+    File,
+    Folder,
+    /// The link is broken: nothing exists where it points.
+    Missing,
 }
 
 /// What the user picked in the conflict dialog.
@@ -91,6 +114,8 @@ pub enum ConflictChoice {
     /// Rename the local copy to `local_name` (same folder), then fetch the remote one; the renamed file is uploaded as a new file.
     /// `local_name` is the new name as it would be on the remote (see `services::sync::local_names`).
     KeepBoth { local_name: String },
+    /// Put a copy of what the link points to in place of a symbolic link, or remove a broken link; the next pass syncs the result like any new file.
+    ReplaceLink,
 }
 
 /// A choice waiting for the next sync pass. Dropped unused if the file changed again since the dialog showed it.

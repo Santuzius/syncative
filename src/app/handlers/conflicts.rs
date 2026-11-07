@@ -77,6 +77,8 @@ impl SyncativeApp {
             conflict::Msg::KeepRemote => ConflictChoice::KeepRemote,
             conflict::Msg::KeepBoth if dialog.new_name_valid() => ConflictChoice::KeepBoth { local_name: dialog.new_name.trim().to_owned() },
             conflict::Msg::KeepBoth => return Task::none(),
+            conflict::Msg::ReplaceLink => ConflictChoice::ReplaceLink,
+            conflict::Msg::LeaveLink => return self.leave_link(),
         };
         let Some(dialog) = self.conflict_dialog.take() else {
             return Task::none();
@@ -96,5 +98,27 @@ impl SyncativeApp {
         // The next conflict moves up to the same position (2/9 → 2/8).
         self.show_conflict(dialog.sync_dir_id, dialog.position);
         Task::none()
+    }
+
+    /// "Leave the link": the link's path becomes an exclusion of its folder, so neither side of it is synced and the question doesn't come back. A pass right after takes the link off the folder's conflicts.
+    fn leave_link(&mut self) -> Task<Message> {
+        let Some(dialog) = self.conflict_dialog.take() else {
+            return Task::none();
+        };
+        let Some(sd) = self.all_known_sync_dirs.iter().find(|d| d.id == dialog.sync_dir_id) else {
+            return Task::none();
+        };
+        // Exclusions are stored relative to the folder's remote path.
+        let path = &dialog.conflict.remote_path;
+        let relative = if sd.remote_path.is_empty() { path.as_str() } else { path.strip_prefix(&format!("{}/", sd.remote_path)).unwrap_or(path) }.to_owned();
+        if let Some(list) = self.conflicts.get_mut(&dialog.sync_dir_id) {
+            list.retain(|c| c.remote_path != dialog.conflict.remote_path);
+        }
+        self.show_conflict(dialog.sync_dir_id, dialog.position);
+        let (sd_id, remote_id, engine) = (dialog.sync_dir_id, dialog.remote_id, self.engine.clone());
+        self.reload_exclusions(sd_id, move |repo| async move {
+            let _ = repo.insert_exclusion(sd_id, relative).await;
+            engine.send(Command::SyncNow(remote_id));
+        })
     }
 }

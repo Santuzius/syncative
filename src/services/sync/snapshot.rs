@@ -43,7 +43,7 @@ pub(super) struct Snapshot {
     pub walk_unreliable: HashSet<String>,
     /// The first local directory the walk was not allowed to read. The pass stops there: everything below it would look missing.
     pub walk_denied: Option<String>,
-    /// Remote-key paths of the symbolic links in the local folder. Links aren't synced: rclone would read the file behind a link with the link's own size, and a download would replace the link with a plain file or write through it into the folder it points to. The planner leaves these paths and everything below them alone on both sides.
+    /// Remote-key paths of the symbolic links in the local folder. Links can't be synced as they are: rclone would read the file behind a link with the link's own size, and a download would replace the link with a plain file or write through it into the folder it points to. The planner asks the user about each link and leaves everything below it alone on both sides.
     pub local_links: HashSet<String>,
 }
 
