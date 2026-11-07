@@ -202,7 +202,7 @@ fn beta_row(beta: bool) -> Element<'static, Msg> {
     let (detail, control) = if beta {
         ("On. Features that haven't been fully tested yet are marked with 🧪.", button(text("Disable").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::DisableBeta))
     } else {
-        ("Features that haven't been fully tested yet, e.g. if you'd like to help testing them and report issues.", button(text("Enable…").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::EnableBeta))
+        ("Features that haven't been fully tested yet, e.g. if you'd like to try them out yourself.", button(text("Enable…").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::EnableBeta))
     };
     setting_row("Beta features 🧪", detail, control.into())
 }
@@ -219,6 +219,7 @@ pub fn beta_dialog<'a>() -> Element<'a, Msg> {
         text("Beta features to be enabled:").size(TEXT),
         features,
         text("All of them are marked with 🧪.").size(TEXT),
+        text("Please consider posting what worked and what didn't as an issue on GitHub (About → Report issue).").size(TEXT),
         text("Accept all risks and continue?").size(TEXT),
         row![
             Space::new().width(Length::Fill),
