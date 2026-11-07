@@ -699,19 +699,7 @@ impl SyncativeApp {
                 Task::none()
             }
             Message::Preferences(preferences::Msg::FileManagerMenuToggled(on)) => {
-                #[cfg(not(target_os = "android"))]
-                {
-                    use crate::services::file_manager_menu;
-                    match file_manager_menu::set(on, self.beta) {
-                        Ok(()) => {
-                            self.file_manager_menu = file_manager_menu::offer(self.beta);
-                            self.preferences_error = None;
-                        }
-                        Err(err) => self.preferences_error = Some(format!("Could not change the context menu entries in {}: {err}", file_manager_menu::entry_path().display())),
-                    }
-                }
-                #[cfg(target_os = "android")]
-                let _ = on;
+                self.set_file_manager_menu(on);
                 Task::none()
             }
             Message::Preferences(preferences::Msg::TrayHintClosed) => {
@@ -1441,16 +1429,29 @@ impl SyncativeApp {
         }
         self.beta = on;
         // Beta file managers lose their context menu entry with the beta features, and gain it with them while the menu is on for others.
+        if self.file_manager_menu.as_ref().is_some_and(|menu| menu.on) {
+            self.set_file_manager_menu(true);
+        } else {
+            #[cfg(not(target_os = "android"))]
+            {
+                self.file_manager_menu = crate::services::file_manager_menu::offer(on);
+            }
+        }
+    }
+
+    /// Switch the file manager's context menu entries for the file managers offered now; desktop only.
+    fn set_file_manager_menu(&mut self, on: bool) {
         #[cfg(not(target_os = "android"))]
         {
             use crate::services::file_manager_menu;
-            if file_manager_menu::enabled()
-                && let Err(err) = file_manager_menu::set(true, on)
-            {
-                self.preferences_error = Some(format!("Could not change the context menu entries in {}: {err}", file_manager_menu::entry_path().display()));
+            match file_manager_menu::set(on, self.beta) {
+                Ok(()) => self.preferences_error = None,
+                Err(err) => self.preferences_error = Some(format!("Could not change the context menu entries in {}: {err}", file_manager_menu::entry_path().display())),
             }
-            self.file_manager_menu = file_manager_menu::offer(on);
+            self.file_manager_menu = file_manager_menu::offer(self.beta);
         }
+        #[cfg(target_os = "android")]
+        let _ = on;
     }
 
     fn close_tray_hint(&mut self) {
