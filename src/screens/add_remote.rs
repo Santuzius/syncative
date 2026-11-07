@@ -103,9 +103,22 @@ impl ProviderKind {
         matches!(self, ProviderKind::ProtonDrive)
     }
 
-    /// Offered only with the beta features on (see `services::beta`).
+    /// Offered only with the beta features on (see `services::beta`); decided by the domain kind, so the picker and the remote names follow one list.
     pub fn is_beta(self) -> bool {
-        matches!(self, ProviderKind::Nextcloud)
+        self.domain().is_beta()
+    }
+
+    fn domain(self) -> crate::domain::remote::ProviderKind {
+        use crate::domain::remote::ProviderKind as D;
+        match self {
+            ProviderKind::WebDav => D::WebDav,
+            ProviderKind::Nextcloud => D::Nextcloud,
+            ProviderKind::Owncloud => D::Owncloud,
+            ProviderKind::ProtonDrive => D::ProtonDrive,
+            ProviderKind::Dropbox => D::Dropbox,
+            ProviderKind::GDrive => D::GDrive,
+            ProviderKind::PCloud => D::PCloud,
+        }
     }
 
     /// The name in the window, with the beta mark where it applies.

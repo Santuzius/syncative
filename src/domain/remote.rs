@@ -63,7 +63,7 @@ impl ProviderKind {
         !matches!(self, Self::ProtonDrive)
     }
 
-    /// Offered only with the beta features on; such remotes carry the beta mark after their name.
+    /// Offered only with the beta features on; such remotes carry the beta mark after their name. The one list of beta providers: taking one out here drops its mark from the picker and from every remote of it, as names are stored without the mark.
     pub fn is_beta(self) -> bool {
         matches!(self, Self::Nextcloud)
     }
@@ -91,7 +91,7 @@ impl Remote {
     /// The name as the window shows it: with the beta mark (🧪) for a provider that's a beta feature.
     pub fn title(&self) -> String {
         match self.provider_kind {
-            Some(kind) if kind.is_beta() => format!("{} 🧪", self.name),
+            Some(kind) if kind.is_beta() => format!("{} {}", self.name, crate::services::beta::MARK),
             _ => self.name.clone(),
         }
     }
@@ -220,6 +220,19 @@ mod tests {
             backend: Backend::Rclone,
             session_path: None,
         }
+    }
+
+    /// The mark comes from the provider kind at display time, never from the stored name, so it disappears with the kind's beta status.
+    #[test]
+    fn the_beta_mark_follows_the_provider_kind() {
+        let nextcloud = remote_with(Some(ProviderKind::Nextcloud), Interval::FifteenSeconds);
+        assert_eq!(nextcloud.name, "Remote");
+        assert_eq!(nextcloud.title(), if ProviderKind::Nextcloud.is_beta() { "Remote 🧪" } else { "Remote" });
+        for kind in [ProviderKind::ProtonDrive, ProviderKind::GDrive] {
+            assert!(!kind.is_beta());
+            assert_eq!(remote_with(Some(kind), Interval::FifteenSeconds).title(), "Remote");
+        }
+        assert_eq!(remote_with(None, Interval::FifteenSeconds).title(), "Remote");
     }
 
     #[test]
