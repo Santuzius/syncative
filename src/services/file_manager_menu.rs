@@ -131,25 +131,23 @@ pub fn enabled() -> bool {
     Kind::ALL.iter().any(|kind| kind.path(&home).is_file())
 }
 
-/// Add the entries for the installed file managers offered with the beta features on or off, and take out the others; with `enabled` off, take out every one.
+/// Add the entries for the installed file managers offered with the beta features on or off, and take out the others; with `enabled` off, take out every one. An error names the entry it failed on.
 pub fn set(enabled: bool, beta: bool) -> io::Result<()> {
     let home = data_home();
     let wanted = if enabled { installed(beta) } else { Vec::new() };
     let (exec, icon) = (crate::services::autostart::exec_command(), icon_installed(&home));
     Kind::ALL.iter().try_for_each(|kind| {
-        if wanted.contains(kind) {
-            return write_at(&kind.path(&home), &kind.content(&exec, icon));
-        }
-        match std::fs::remove_file(kind.path(&home)) {
-            Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
-            _ => Ok(()),
-        }
+        let path = kind.path(&home);
+        let result = if wanted.contains(kind) {
+            write_at(&path, &kind.content(&exec, icon))
+        } else {
+            match std::fs::remove_file(&path) {
+                Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
+                _ => Ok(()),
+            }
+        };
+        result.map_err(|err| io::Error::new(err.kind(), format!("{}: {err}", path.display())))
     })
-}
-
-/// The path of an entry, for error messages.
-pub fn entry_path() -> PathBuf {
-    data_home()
 }
 
 /// At startup: while switched on, keep the entries' command current (e.g. after the AppImage moved), add those of file managers installed since and take out those that are beta while the beta features are off.

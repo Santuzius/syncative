@@ -255,7 +255,7 @@ impl SyncativeApp {
             use crate::services::file_manager_menu;
             match file_manager_menu::set(on, self.beta) {
                 Ok(()) => self.preferences_error = None,
-                Err(err) => self.preferences_error = Some(format!("Could not change the context menu entries in {}: {err}", file_manager_menu::entry_path().display())),
+                Err(err) => self.preferences_error = Some(format!("Could not change the context menu entry {err}")),
             }
             self.file_manager_menu = file_manager_menu::offer(self.beta);
         }
