@@ -22,7 +22,7 @@ The branch flow:
 
 ## Steps
 
-1. **Bump** the version in `[workspace.package]` of `Cargo.toml`, then run `cargo metadata` in the dev shell so `Cargo.lock` follows. Run `scripts/update-licenses.sh`, which rewrites `assets/licenses.json` (the "Open source licenses" in About) from the licenses of all Rust crates and Go packages. Don't commit yet.
+1. **Bump** the version in `[workspace.package]` of `Cargo.toml`, then run `cargo metadata` in the dev shell so `Cargo.lock` follows. Run `scripts/update-licenses.sh` (the first run installs ScanCode into `temp/scancode-venv/`), which rewrites `assets/licenses.json` (the "Open source licenses" in About) from the licenses of all Rust crates and Go packages. Don't commit yet.
 2. **Build the APK and the AppImage** from this tree. Both write to `temp/release/`:
    ```sh
    scripts/android-release.sh    # Syncative-X.Y.Z-arm64-v8a.apk
