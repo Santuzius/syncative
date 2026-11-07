@@ -23,7 +23,6 @@ PORTED = {"syncative/go/proton/drive": "Proton-API-Bridge"}
 PARTS = {
     ("iced_android", "Apache-2.0"): ("Twemoji font, bundled with iced_android", ["Copyright 2016-2018, Mozilla Foundation"]),
     ("iced_android", "CC-BY-4.0"): ("Twemoji emoji art, bundled with iced_android", ["Twemoji by Twitter (https://twitter.github.io/twemoji)"]),
-    ("webpki", "Pixar"): ("BetterTLS data, bundled with webpki", []),
 }
 # Icons that crates (or Syncative itself) bundle without them being in the crate's license file: the crate, the license, the name to show, the file with their license text inside the crate (None: the common wording of that license) and their copyright lines as upstream gives them (None: from that file).
 BUNDLED = [
@@ -32,8 +31,8 @@ BUNDLED = [
     ("icondata_mdi", "Apache-2.0", "Material Design Icons, bundled with icondata_mdi", None, ["Material Design Icons by Pictogrammers (https://pictogrammers.com), icons under Apache 2.0 by the Pictogrammers Free License"]),
     ("syncative", "MIT", "Ionicons (one icon in Syncative)", None, ["Copyright (c) 2015-present Ionic (http://ionic.io/)"]),
 ]
-# Licenses cargo-about's text detection gets wrong, for crates without a license field: the license the text really is.
-RELABEL = {("webpki", "Pixar"): "Apache-2.0"}
+# Licenses cargo-about finds in a crate for something not in it: webpki names BetterTLS, whose test suite it doesn't ship.
+SKIP = {("webpki", "Pixar")}
 # Crates for which cargo-about took a source file for the license: the file that really holds it.
 LICENSE_TEXT = {("webpki", "ISC"): "LICENSE"}
 # Packages for which ScanCode's finds are wrong, as they name other projects or miss a line without a year; their copyright as the package states it. None: go on to the authors.
@@ -212,7 +211,7 @@ crate_packages = {(c["package"]["name"], c["package"]["version"]): c["package"] 
 for license in rust["licenses"]:
     for user in license["used_by"]:
         crate = user["crate"]
-        if crate["name"] not in OWN_CRATES:
+        if crate["name"] not in OWN_CRATES and (crate["name"], license["id"]) not in SKIP:
             package = crate_packages.get((crate["name"], crate["version"]), crate)
             text = license["text"]
             if (crate["name"], license["id"]) in LICENSE_TEXT:
@@ -248,7 +247,7 @@ for library, _url, kind in csv.reader(open(os.path.join(tmp, "go.csv"))):
     text = open(os.path.join(folder, files[0]), encoding="utf-8", errors="replace").read()
     module = max((path for path in versions if library == path or library.startswith(path + "/")), key=len, default="")
     source = go_dirs.get(library) or next((d for path, d in sorted(go_dirs.items()) if path.startswith(library + "/")), "")
-    add(kind, text, PORTED.get(library, library), versions.get(module, ""), go_files(source) if source else [], go=True)
+    add(kind, text, PORTED.get(library, library), versions.get(module, ""), go_files(source) if source else [], repository="https://" + "/".join(library.split("/")[:3]) if library.startswith("github.com/") else None, go=True)
 
 # The license texts first; the other files only of the packages whose text names nobody.
 key_of = lambda text: hashlib.sha256(text.encode()).hexdigest()
@@ -321,7 +320,7 @@ def notices_of(entry):
 for entry in entries:
     notices = notices_of(entry)
     name = PARTS[(entry["name"], entry["kind"])][0] if (entry["name"], entry["kind"]) in PARTS else entry.get("display", entry["name"])
-    kind = RELABEL.get((entry["name"], entry["kind"]), entry["kind"])
+    kind = entry["kind"]
     group = groups.setdefault((kind, wording(entry["body"])), {"license": kind, "text": reflow(entry["body"]), "packages": {}})
     package = group["packages"].setdefault((name, entry["version"]), {"name": name, "version": entry["version"], "notices": []})
     for notice in notices:
