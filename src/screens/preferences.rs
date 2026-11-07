@@ -66,12 +66,10 @@ pub struct Power {
 pub struct FileManagerMenu {
     /// The entry is in a context menu.
     pub on: bool,
-    /// The installed file managers that show it, by name; the beta ones marked unless `beta` marks the whole setting.
-    pub installed: Vec<String>,
-    /// The file managers it can go into, named when none is installed.
+    /// One of the file managers it can go into is installed.
+    pub available: bool,
+    /// The file managers it can go into, by name; the beta ones marked.
     pub supported: Vec<String>,
-    /// Every file manager offered is a beta feature, so the setting carries the mark.
-    pub beta: bool,
 }
 
 /// `compact`: the phone layout, where the button groups go below their labels.
@@ -130,14 +128,10 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool
                 ))
                 .push(separator());
             if let Some(menu) = file_manager_menu {
-                let available = !menu.installed.is_empty();
-                let title = if menu.beta { format!("Context menu in the file manager {}", crate::services::beta::MARK) } else { "Context menu in the file manager".to_owned() };
-                let detail = if available {
-                    format!("Adds “Save in the cloud with Syncative” to the right-click menu of files in {}.", menu.installed.join(", "))
-                } else {
-                    format!("Needs {}.", or_list(&menu.supported))
-                };
-                rows = rows.push(setting_row(title, detail, toggler(menu.on && available).on_toggle_maybe(available.then_some(Msg::FileManagerMenuToggled)).size(20).into())).push(separator());
+                let available = menu.available;
+                let none_installed = if available { "" } else { " None of them is installed." };
+                let detail = format!("Adds “Save in the cloud with Syncative” to the right-click menu of files. Currently supported: {}.{none_installed}", and_list(&menu.supported));
+                rows = rows.push(setting_row("Context menu in the file manager", detail, toggler(menu.on && available).on_toggle_maybe(available.then_some(Msg::FileManagerMenuToggled)).size(20).into())).push(separator());
             }
             rows = rows
                 .push(metered_row(sync_metered, "E.g. a phone's hotspot, or networks marked as metered in the network settings. When off, Syncative waits for an unmetered network, but you can still start a sync yourself."));
@@ -189,11 +183,11 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool
     container(content).padding(22).max_width(560).style(theme::dialog).into()
 }
 
-/// "a", "a or b", "a, b or c".
-fn or_list(names: &[String]) -> String {
+/// "a", "a and b", "a, b and c".
+fn and_list(names: &[String]) -> String {
     match names.split_last() {
         Some((last, [])) => last.clone(),
-        Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
         None => String::new(),
     }
 }

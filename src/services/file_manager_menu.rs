@@ -40,7 +40,7 @@ impl Kind {
 
     /// Offered only with the beta features on; the one list of beta file managers. Taking one out here drops its mark in Preferences, and its entry stays when the beta features go off.
     fn is_beta(self) -> bool {
-        matches!(self, Kind::Kio | Kind::Nautilus | Kind::Nemo)
+        matches!(self, Kind::Nautilus | Kind::Nemo)
     }
 
     fn offered(self, beta: bool) -> bool {
@@ -51,7 +51,7 @@ impl Kind {
     fn name(self) -> &'static str {
         match self {
             Kind::Kio => "Dolphin",
-            Kind::Nautilus => "Files (Nautilus, under Scripts)",
+            Kind::Nautilus => "Files",
             Kind::Nemo => "Nemo",
         }
     }
@@ -112,19 +112,12 @@ fn installed(beta: bool) -> Vec<Kind> {
 
 /// The setting as Preferences shows it; `None` while no file manager is offered, i.e. all of them are beta and the beta features are off.
 pub fn offer(beta: bool) -> Option<FileManagerMenu> {
-    let offered: Vec<Kind> = Kind::ALL.into_iter().filter(|kind| kind.offered(beta)).collect();
-    if offered.is_empty() {
-        return None;
-    }
-    // The whole setting carries the mark while every file manager offered is beta, otherwise the beta ones do.
-    let all_beta = offered.iter().all(|kind| kind.is_beta());
-    let name = |kind: Kind| if kind.is_beta() && !all_beta { format!("{} {}", kind.name(), super::beta::MARK) } else { kind.name().to_owned() };
-    Some(FileManagerMenu {
-        on: enabled(),
-        installed: installed(beta).into_iter().map(name).collect(),
-        supported: offered.into_iter().map(name).collect(),
-        beta: all_beta,
-    })
+    let supported: Vec<String> = Kind::ALL
+        .into_iter()
+        .filter(|kind| kind.offered(beta))
+        .map(|kind| if kind.is_beta() { format!("{} {}", kind.name(), super::beta::MARK) } else { kind.name().to_owned() })
+        .collect();
+    (!supported.is_empty()).then(|| FileManagerMenu { on: enabled(), available: !installed(beta).is_empty(), supported })
 }
 
 /// Whether the entry is in a context menu.

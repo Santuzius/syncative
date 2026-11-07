@@ -3,7 +3,7 @@
 use std::{io, path::PathBuf};
 
 /// What the beta switch turns on, as listed in the dialog that asks for it.
-pub const FEATURES: &[&str] = &["Nextcloud integration", "Context menu in the file manager (Dolphin, Files, Nemo)"];
+pub const FEATURES: &[&str] = &["Nextcloud integration", "Context menu in the file managers Files and Nemo"];
 
 /// The mark next to every beta feature in the window.
 pub const MARK: &str = "🧪";
