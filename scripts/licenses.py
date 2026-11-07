@@ -319,6 +319,9 @@ def notices_of(entry):
 
 for entry in entries:
     notices = notices_of(entry)
+    # The short forms of GO_PREFIXES aren't names of their own, so the full path stays findable.
+    if "display" in entry and entry["name"].startswith(tuple(GO_PREFIXES)):
+        notices = ["Source: https://" + entry["name"], *notices]
     name = PARTS[(entry["name"], entry["kind"])][0] if (entry["name"], entry["kind"]) in PARTS else entry.get("display", entry["name"])
     kind = entry["kind"]
     group = groups.setdefault((kind, wording(entry["body"])), {"license": kind, "text": reflow(entry["body"]), "packages": {}})
