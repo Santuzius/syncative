@@ -4,7 +4,7 @@ use iced::{
     Element, Length,
     widget::{column, container},
 };
-use iced_fabi::{ActionButton, ActionPlacement, Browser, BuiltInColumn, Mode, Pick, Selection};
+use iced_fabi::{ActionButton, ActionPlacement, Browser, BuiltInColumn, BuiltInTool, Mode, Pick, Selection};
 
 use crate::{
     domain::{
@@ -53,6 +53,8 @@ pub struct Picker {
     pub browser: Browser,
     /// Set when the picker closes, so listings still running stop where the backend allows.
     pub cancel: Cancel,
+    /// Why the last new folder could not be created.
+    pub error: Option<String>,
 }
 
 impl Picker {
@@ -84,7 +86,7 @@ impl Picker {
             Source::Remote(_) => crate::util::strip_slashes(base),
             Source::Local => base.trim_end_matches('/').to_owned(),
         };
-        Self { target, generation, source, base, initial: preselected, browser, cancel: cancel_never() }
+        Self { target, generation, source, base, initial: preselected, browser, cancel: cancel_never(), error: None }
     }
 
     /// The full path of a folder below the root (`path_of` of the browser): on a remote relative to the drive, locally absolute.
@@ -97,11 +99,23 @@ impl Picker {
     }
 }
 
+/// Why a remote can't take `name` as a folder directly inside the open one; `None` when it can. A slash or a dot name would land somewhere else than the open folder.
+pub fn folder_name_problem(name: &str) -> Option<String> {
+    (name.contains('/') || name.contains('\\') || name == "." || name == "..").then(|| format!("\"{name}\" can't be a folder name."))
+}
+
 #[derive(Debug, Clone)]
 pub enum Msg {
     Cabinet(iced_fabi::Event),
     Confirm,
     Cancel,
+}
+
+/// The cabinet's toolbar names its tools through this conversion. The only tool here is Create folder, whose press the cabinet sends as this event.
+impl From<BuiltInTool> for Msg {
+    fn from(_: BuiltInTool) -> Self {
+        Msg::Cabinet(iced_fabi::Event::CreateFolderPressed)
+    }
 }
 
 pub fn view(picker: &Picker) -> Element<'_, Msg> {
@@ -118,7 +132,7 @@ pub fn view(picker: &Picker) -> Element<'_, Msg> {
         Target::Hidden(_) => action = action.when(|_| true),
         Target::AddFolder => {}
     }
-    let cabinet = iced_fabi::cabinet(&picker.browser, Msg::Cabinet)
+    let mut cabinet = iced_fabi::cabinet(&picker.browser, Msg::Cabinet)
         .show_mode_toggle(matches!(picker.target, Target::Hidden(_)))
         .action(action)
         .cancel(Msg::Cancel)
@@ -128,6 +142,9 @@ pub fn view(picker: &Picker) -> Element<'_, Msg> {
         .font(theme::UI_FONT)
         .scrollbar(theme::slim_scrollbar(), theme::scrollbar)
         .height(Length::Fixed(CABINET_HEIGHT));
+    if matches!(picker.source, Source::Remote(_)) {
+        cabinet = cabinet.tool(BuiltInTool::CreateFolder);
+    }
     let mut heading = column![text(title).size(HEADING)].spacing(8);
     if matches!(picker.target, Target::Hidden(_)) {
         heading = heading.push(
@@ -136,9 +153,27 @@ pub fn view(picker: &Picker) -> Element<'_, Msg> {
                 .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
         );
     }
+    if let Some(error) = &picker.error {
+        heading = heading.push(text(error.clone()).size(TEXT).style(theme::danger_text).wrapping(iced::widget::text::Wrapping::WordOrGlyph));
+    }
     container(column![container(heading).padding([14, 16]), cabinet])
         .width(Length::Fill)
         .max_width(MAX_WIDTH)
         .style(theme::dialog)
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::folder_name_problem;
+
+    #[test]
+    fn folder_names_stay_inside_the_open_folder() {
+        for name in ["Fotos", "a.b", "...", "Neuer Ordner (1)"] {
+            assert_eq!(folder_name_problem(name), None, "{name}");
+        }
+        for name in ["a/b", "/", "a\\b", ".", ".."] {
+            assert!(folder_name_problem(name).is_some(), "{name}");
+        }
+    }
 }

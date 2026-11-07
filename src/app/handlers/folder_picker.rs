@@ -7,7 +7,7 @@ use iced_fabi::{Entry, NodeId, Outcome};
 
 use crate::{
     domain::{
-        ports::BackendClient,
+        ports::{BackendClient, Cancel},
         sync::{ListFilter, SyncDirId},
     },
     screens::folder_picker::{self, Picker, Source, Target},
@@ -69,7 +69,11 @@ impl SyncativeApp {
                 let Some(picker) = self.folder_picker.as_mut() else {
                     return Task::none();
                 };
+                picker.error = None;
                 let outcome = picker.browser.update(event);
+                if let Outcome::CreateFolderRequested { parent, name } = outcome {
+                    return self.create_folder_in_picker(parent, name);
+                }
                 let Some(picker) = self.folder_picker.as_ref() else {
                     return Task::none();
                 };
@@ -147,6 +151,72 @@ impl SyncativeApp {
         Task::none()
     }
 
+    /// Create `name` inside `parent` on the remote and list `parent` again.
+    fn create_folder_in_picker(&mut self, parent: NodeId, name: String) -> Task<Message> {
+        let Some(picker) = self.folder_picker.as_mut() else {
+            return Task::none();
+        };
+        let Source::Remote(remote) = picker.source.clone() else {
+            return Task::none();
+        };
+        if let Some(problem) = folder_picker::folder_name_problem(&name) {
+            picker.error = Some(problem);
+            return Task::none();
+        }
+        let parent_path = picker.full_path(&picker.browser.path_of(parent));
+        let path = if parent_path.is_empty() { name.clone() } else { format!("{parent_path}/{name}") };
+        let (router, cancel, generation) = (self.rclone.clone(), picker.cancel.clone(), picker.generation);
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    router.mkdir(&remote, &path, &cancel)?;
+                    Ok(remote_folders(router.as_ref(), &remote, &parent_path, &cancel))
+                })
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()))
+            },
+            move |result| Message::FolderCreated(generation, parent, name.clone(), result),
+        )
+    }
+
+    /// Handle [`Message::FolderCreated`]: show the new folder and open it, since the open folder is the picker's answer. Whoever went elsewhere in the meantime stays there.
+    pub(in crate::app) fn handle_folder_created(
+        &mut self,
+        generation: u64,
+        parent: NodeId,
+        name: String,
+        result: Result<Result<Vec<Entry>, String>, String>,
+    ) -> Task<Message> {
+        let Some(picker) = self.folder_picker.as_mut().filter(|p| p.generation == generation) else {
+            return Task::none();
+        };
+        match result {
+            Err(err) => {
+                eprintln!("syncative: could not create {name}: {err}");
+                picker.error = Some(format!("Could not create \"{name}\": {err}"));
+                Task::none()
+            }
+            Ok(listing) => {
+                let stayed = picker.browser.current() == parent;
+                let task = self.handle_folder_listed(generation, parent, listing);
+                let Some(picker) = self.folder_picker.as_mut().filter(|_| stayed) else {
+                    return task;
+                };
+                let new_folder = picker.browser.node(parent).and_then(|node| {
+                    node.children.iter().copied().find(|id| picker.browser.node(*id).is_some_and(|child| child.name == name))
+                });
+                let Some(new_folder) = new_folder else {
+                    return task;
+                };
+                let outcome = picker.browser.activate(new_folder);
+                let Some(picker) = self.folder_picker.as_ref() else {
+                    return task;
+                };
+                Task::batch([task, self.list_for_picker(picker, outcome)])
+            }
+        }
+    }
+
     /// Close the picker and stop its listings; returns it, `None` when none was open.
     pub(in crate::app) fn close_folder_picker(&mut self) -> Option<Picker> {
         let picker = self.folder_picker.take()?;
@@ -168,15 +238,7 @@ impl SyncativeApp {
         let listing: Box<dyn FnOnce() -> Result<Vec<Entry>, String> + Send> = match &picker.source {
             Source::Remote(remote) => {
                 let (router, remote, cancel) = (self.rclone.clone(), remote.clone(), picker.cancel.clone());
-                Box::new(move || {
-                    router.list(&remote, &path, false, ListFilter::Dirs, &cancel).map(|items| {
-                        items
-                            .into_iter()
-                            .filter(|item| item.is_dir)
-                            .map(|item| Entry::folder(item.name).modified(item.mod_time.unix_timestamp()))
-                            .collect()
-                    })
-                })
+                Box::new(move || remote_folders(router.as_ref(), &remote, &path, &cancel))
             }
             Source::Local => Box::new(move || local_folders(Path::new(&path))),
         };
@@ -185,6 +247,17 @@ impl SyncativeApp {
             move |result| Message::FolderListed(generation, id, result),
         )
     }
+}
+
+/// The folders directly inside `path` on a remote.
+fn remote_folders(backend: &dyn BackendClient, remote: &str, path: &str, cancel: &Cancel) -> Result<Vec<Entry>, String> {
+    backend.list(remote, path, false, ListFilter::Dirs, cancel).map(|items| {
+        items
+            .into_iter()
+            .filter(|item| item.is_dir)
+            .map(|item| Entry::folder(item.name).modified(item.mod_time.unix_timestamp()))
+            .collect()
+    })
 }
 
 /// The folders directly inside `dir` on this device; one without a subfolder of its own is marked empty, so the tree shows it without an expand caret.

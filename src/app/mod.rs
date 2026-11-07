@@ -70,6 +70,8 @@ pub enum Message {
     FolderPicker(folder_picker::Msg),
     /// Folders in a directory the folder picker asked for, tagged with the picker's generation.
     FolderListed(u64, iced_fabi::NodeId, Result<Vec<iced_fabi::Entry>, String>),
+    /// A folder the picker created inside a directory, tagged with the picker's generation: the outer error is the creation's, the inner result the directory's new listing.
+    FolderCreated(u64, iced_fabi::NodeId, String, Result<Result<Vec<iced_fabi::Entry>, String>, String>),
     /// A sync folder's hidden folders, read to open the picker with them ticked.
     HiddenFoldersLoaded(SyncDirId, Vec<String>),
     /// The hidden folders were stored and their `.nomedia` files brought in line.
@@ -719,6 +721,9 @@ impl SyncativeApp {
             Message::FolderListed(generation, id, result) => {
                 self.handle_folder_listed(generation, id, result)
             }
+            Message::FolderCreated(generation, parent, name, result) => {
+                self.handle_folder_created(generation, parent, name, result)
+            }
             Message::SyncDirAdded(id, result) => self.handle_sync_dir_added(id, result),
             Message::Remote(remote_page::Msg::ToggleLog(sd_id)) => self.handle_toggle_log(sd_id),
             Message::Remote(remote_page::Msg::Settings(sub)) | Message::Settings(sub) => {
@@ -1051,6 +1056,11 @@ impl SyncativeApp {
 
     /// Close the topmost dialog, drawer or open panel; `false` when nothing was open.
     fn close_topmost(&mut self) -> bool {
+        // The new folder dialog lies over the picker's cabinet and closes first.
+        if let Some(picker) = self.folder_picker.as_mut().filter(|p| p.browser.new_folder_dialog_open()) {
+            picker.browser.close_new_folder_dialog();
+            return true;
+        }
         if self.close_folder_picker().is_some() {
             return true;
         }
