@@ -201,8 +201,8 @@ pub struct SyncativeApp {
     detailed_log: bool,
     /// The beta features are on (see `services::beta`).
     beta: bool,
-    /// The file manager's context menu entry is on, and the installed file managers that show it (desktop).
-    file_manager_menu: (bool, Vec<&'static str>),
+    /// The file manager's context menu setting; `None` on Android and while no file manager is offered (see `services::file_manager_menu::offer`).
+    file_manager_menu: Option<preferences::FileManagerMenu>,
     /// The question whether to accept the beta features' risks is shown over Preferences.
     beta_dialog_open: bool,
     /// How the last export or import of the settings file went, shown in the Preferences dialog.
@@ -293,9 +293,9 @@ impl SyncativeApp {
             beta: crate::services::beta::enabled(),
             beta_dialog_open: false,
             #[cfg(not(target_os = "android"))]
-            file_manager_menu: (crate::services::file_manager_menu::enabled(), crate::services::file_manager_menu::file_managers()),
+            file_manager_menu: crate::services::file_manager_menu::offer(crate::services::beta::enabled()),
             #[cfg(target_os = "android")]
-            file_manager_menu: (false, Vec::new()),
+            file_manager_menu: None,
             preferences_note: None,
             log_note: None,
             preferences_error: None,
@@ -702,9 +702,9 @@ impl SyncativeApp {
                 #[cfg(not(target_os = "android"))]
                 {
                     use crate::services::file_manager_menu;
-                    match file_manager_menu::set(on) {
+                    match file_manager_menu::set(on, self.beta) {
                         Ok(()) => {
-                            self.file_manager_menu.0 = on;
+                            self.file_manager_menu = file_manager_menu::offer(self.beta);
                             self.preferences_error = None;
                         }
                         Err(err) => self.preferences_error = Some(format!("Could not change the context menu entries in {}: {err}", file_manager_menu::entry_path().display())),
@@ -1069,7 +1069,7 @@ impl SyncativeApp {
                 self.power.sync_metered,
                 self.autostart,
                 self.start_hidden,
-                (self.file_manager_menu.0, &self.file_manager_menu.1),
+                self.file_manager_menu.as_ref(),
                 self.detailed_log,
                 self.log_note.as_deref(),
                 self.preferences_note.as_deref(),
@@ -1435,9 +1435,21 @@ impl SyncativeApp {
     }
 
     fn set_beta(&mut self, on: bool) {
-        match crate::services::beta::set_enabled(on) {
-            Ok(()) => self.beta = on,
-            Err(err) => self.preferences_error = Some(format!("Could not change the beta features: {err}")),
+        if let Err(err) = crate::services::beta::set_enabled(on) {
+            self.preferences_error = Some(format!("Could not change the beta features: {err}"));
+            return;
+        }
+        self.beta = on;
+        // Beta file managers lose their context menu entry with the beta features, and gain it with them while the menu is on for others.
+        #[cfg(not(target_os = "android"))]
+        {
+            use crate::services::file_manager_menu;
+            if file_manager_menu::enabled()
+                && let Err(err) = file_manager_menu::set(true, on)
+            {
+                self.preferences_error = Some(format!("Could not change the context menu entries in {}: {err}", file_manager_menu::entry_path().display()));
+            }
+            self.file_manager_menu = file_manager_menu::offer(on);
         }
     }
 

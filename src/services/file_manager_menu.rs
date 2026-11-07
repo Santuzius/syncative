@@ -5,11 +5,15 @@
 //! - Nemo (Cinnamon): an action in `nemo/actions/`.
 //!
 //! Each entry starts `syncative --save <files>`, which hands the files to the running Syncative (see [`crate::infrastructure::single_instance`]). The entries are the setting, off until the user switches them on in Preferences, and written only for the file managers that are installed; without any of them the switch stays off.
+//!
+//! The entry of a file manager is a beta feature while [`Kind::is_beta`] says so (see [`crate::services::beta`]): offered and written only with the beta features on, and taken out when they go off. Saving files handed over otherwise (`syncative --save`) isn't beta.
 
 use std::{
     io,
     path::{Path, PathBuf},
 };
+
+use crate::screens::preferences::FileManagerMenu;
 
 /// What the entry is called in the menus.
 const LABEL: &str = "Save in the cloud with Syncative";
@@ -32,6 +36,15 @@ impl Kind {
             Kind::Nautilus => &["nautilus"],
             Kind::Nemo => &["nemo"],
         }
+    }
+
+    /// Offered only with the beta features on; the one list of beta file managers. Taking one out here drops its mark in Preferences, and its entry stays when the beta features go off.
+    fn is_beta(self) -> bool {
+        matches!(self, Kind::Kio | Kind::Nautilus | Kind::Nemo)
+    }
+
+    fn offered(self, beta: bool) -> bool {
+        beta || !self.is_beta()
     }
 
     /// The file manager's name as users know it.
@@ -89,17 +102,29 @@ fn icon_installed(data_home: &Path) -> bool {
     })
 }
 
-/// The installed file managers that can show the entry. None in the Snap: the entries would land in the Snap's own home, where no file manager looks.
-fn installed() -> Vec<Kind> {
+/// The installed file managers that can show the entry, with the beta features on or off. None in the Snap: the entries would land in the Snap's own home, where no file manager looks.
+fn installed(beta: bool) -> Vec<Kind> {
     if std::env::var_os("SNAP").is_some() {
         return Vec::new();
     }
-    Kind::ALL.into_iter().filter(|kind| kind.installed()).collect()
+    Kind::ALL.into_iter().filter(|kind| kind.offered(beta) && kind.installed()).collect()
 }
 
-/// The installed file managers that show the entry, by name; empty when there are none.
-pub fn file_managers() -> Vec<&'static str> {
-    installed().into_iter().map(Kind::name).collect()
+/// The setting as Preferences shows it; `None` while no file manager is offered, i.e. all of them are beta and the beta features are off.
+pub fn offer(beta: bool) -> Option<FileManagerMenu> {
+    let offered: Vec<Kind> = Kind::ALL.into_iter().filter(|kind| kind.offered(beta)).collect();
+    if offered.is_empty() {
+        return None;
+    }
+    // The whole setting carries the mark while every file manager offered is beta, otherwise the beta ones do.
+    let all_beta = offered.iter().all(|kind| kind.is_beta());
+    let name = |kind: Kind| if kind.is_beta() && !all_beta { format!("{} {}", kind.name(), super::beta::MARK) } else { kind.name().to_owned() };
+    Some(FileManagerMenu {
+        on: enabled(),
+        installed: installed(beta).into_iter().map(name).collect(),
+        supported: offered.into_iter().map(name).collect(),
+        beta: all_beta,
+    })
 }
 
 /// Whether the entry is in a context menu.
@@ -108,16 +133,19 @@ pub fn enabled() -> bool {
     Kind::ALL.iter().any(|kind| kind.path(&home).is_file())
 }
 
-/// Add the entries for the installed file managers, or take out every one.
-pub fn set(enabled: bool) -> io::Result<()> {
+/// Add the entries for the installed file managers offered with the beta features on or off, and take out the others; with `enabled` off, take out every one.
+pub fn set(enabled: bool, beta: bool) -> io::Result<()> {
     let home = data_home();
-    if enabled {
-        let (exec, icon) = (crate::services::autostart::exec_command(), icon_installed(&home));
-        return installed().into_iter().try_for_each(|kind| write_at(&kind.path(&home), &kind.content(&exec, icon)));
-    }
-    Kind::ALL.iter().try_for_each(|kind| match std::fs::remove_file(kind.path(&home)) {
-        Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
-        _ => Ok(()),
+    let wanted = if enabled { installed(beta) } else { Vec::new() };
+    let (exec, icon) = (crate::services::autostart::exec_command(), icon_installed(&home));
+    Kind::ALL.iter().try_for_each(|kind| {
+        if wanted.contains(kind) {
+            return write_at(&kind.path(&home), &kind.content(&exec, icon));
+        }
+        match std::fs::remove_file(kind.path(&home)) {
+            Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
+            _ => Ok(()),
+        }
     })
 }
 
@@ -126,10 +154,10 @@ pub fn entry_path() -> PathBuf {
     data_home()
 }
 
-/// At startup: while switched on, keep the entries' command current (e.g. after the AppImage moved) and add those of file managers installed since.
+/// At startup: while switched on, keep the entries' command current (e.g. after the AppImage moved), add those of file managers installed since and take out those that are beta while the beta features are off.
 pub fn refresh() {
     if enabled()
-        && let Err(err) = set(true)
+        && let Err(err) = set(true, super::beta::enabled())
     {
         eprintln!("syncative: could not update the file manager's context menu: {err}");
     }
