@@ -115,9 +115,14 @@ pub fn offer(beta: bool) -> Option<FileManagerMenu> {
     let supported: Vec<String> = Kind::ALL
         .into_iter()
         .filter(|kind| kind.offered(beta))
-        .map(|kind| if kind.is_beta() { format!("{} {}", kind.name(), super::beta::MARK) } else { kind.name().to_owned() })
+        .map(|kind| super::beta::marked(kind.name(), kind.is_beta()))
         .collect();
     (!supported.is_empty()).then(|| FileManagerMenu { on: enabled(), available: !installed(beta).is_empty(), supported })
+}
+
+/// The file managers whose entry is a beta feature, by name, for the list of beta features.
+pub fn beta_file_managers() -> Vec<&'static str> {
+    Kind::ALL.into_iter().filter(|kind| kind.is_beta()).map(Kind::name).collect()
 }
 
 /// Whether the entry is in a context menu.

@@ -183,6 +183,20 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool
     container(content).padding(22).max_width(560).style(theme::dialog).into()
 }
 
+/// What the beta switch turns on on this platform, as the dialog lists it; taken from the lists that decide what's beta, so it can't fall behind them.
+fn beta_features() -> Vec<String> {
+    #[cfg(not(target_os = "android"))]
+    let managers: Vec<String> = crate::services::file_manager_menu::beta_file_managers().into_iter().map(str::to_owned).collect();
+    #[cfg(target_os = "android")]
+    let managers: Vec<String> = Vec::new();
+    let context_menu = match managers.len() {
+        0 => None,
+        1 => Some(format!("Context menu in the file manager {}", managers[0])),
+        _ => Some(format!("Context menu in the file managers {}", and_list(&managers))),
+    };
+    super::add_remote::beta_providers().map(|name| format!("{name} integration")).chain(context_menu).collect()
+}
+
 /// "a", "a and b", "a, b and c".
 fn and_list(names: &[String]) -> String {
     match names.split_last() {
@@ -210,7 +224,7 @@ fn beta_row(beta: bool) -> Element<'static, Msg> {
 /// Asked before the beta features go on.
 pub fn beta_dialog<'a>() -> Element<'a, Msg> {
     let mut features = column![].spacing(4);
-    for &feature in crate::services::beta::FEATURES {
+    for feature in beta_features() {
         features = features.push(bullet(feature));
     }
     let content = column![
@@ -333,4 +347,13 @@ fn setting_row<'a>(title: impl iced::widget::text::IntoFragment<'a>, detail: imp
     .padding([12, 14])
     .align_y(Alignment::Center)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    /// The beta dialog lists what the `is_beta` lists say, in words.
+    #[test]
+    fn the_beta_dialog_lists_the_beta_features() {
+        assert_eq!(super::beta_features(), ["Nextcloud integration", "Context menu in the file managers Files and Nemo"]);
+    }
 }

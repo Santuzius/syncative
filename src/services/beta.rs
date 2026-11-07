@@ -2,11 +2,13 @@
 
 use std::{io, path::PathBuf};
 
-/// What the beta switch turns on, as listed in the dialog that asks for it.
-pub const FEATURES: &[&str] = &["Nextcloud integration", "Context menu in the file managers Files and Nemo"];
-
 /// The mark next to every beta feature in the window.
 pub const MARK: &str = "🧪";
+
+/// `name` as the window shows it: with the mark after it for a beta feature.
+pub fn marked(name: &str, beta: bool) -> String {
+    if beta { format!("{name} {MARK}") } else { name.to_owned() }
+}
 
 fn flag_path() -> PathBuf {
     crate::util::get_data_dir().join("beta-features")

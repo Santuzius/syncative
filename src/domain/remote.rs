@@ -90,10 +90,7 @@ pub struct Remote {
 impl Remote {
     /// The name as the window shows it: with the beta mark (🧪) for a provider that's a beta feature.
     pub fn title(&self) -> String {
-        match self.provider_kind {
-            Some(kind) if kind.is_beta() => format!("{} {}", self.name, crate::services::beta::MARK),
-            _ => self.name.clone(),
-        }
+        crate::services::beta::marked(&self.name, self.provider_kind.is_some_and(ProviderKind::is_beta))
     }
 }
 

@@ -123,7 +123,7 @@ impl ProviderKind {
 
     /// The name in the window, with the beta mark where it applies.
     pub fn label(self) -> String {
-        if self.is_beta() { format!("{self} {}", crate::services::beta::MARK) } else { self.to_string() }
+        crate::services::beta::marked(&self.to_string(), self.is_beta())
     }
 }
 
@@ -139,13 +139,17 @@ impl std::fmt::Display for ProviderOption {
     }
 }
 
+/// Every provider the picker can offer, in its order; the beta ones only with the beta features on.
+const OFFERED: [ProviderKind; 3] = [ProviderKind::ProtonDrive, ProviderKind::GDrive, ProviderKind::Nextcloud];
+
 /// The providers in the picker; `beta`: the beta features are on.
 fn provider_options(beta: bool) -> Vec<ProviderOption> {
-    let mut options = vec![ProviderOption(ProviderKind::ProtonDrive), ProviderOption(ProviderKind::GDrive)];
-    if beta {
-        options.push(ProviderOption(ProviderKind::Nextcloud));
-    }
-    options
+    OFFERED.into_iter().filter(|kind| beta || !kind.is_beta()).map(ProviderOption).collect()
+}
+
+/// The beta providers of the picker, by name, for the list of beta features.
+pub fn beta_providers() -> impl Iterator<Item = String> {
+    OFFERED.into_iter().filter(|kind| kind.is_beta()).map(|kind| kind.to_string())
 }
 
 impl std::fmt::Display for ProviderKind {

@@ -45,7 +45,7 @@
 
 ## Code
 - `cargo clippy --workspace --all-targets` in `nix-shell` stays free of warnings. `shell.nix` brings the clippy that matches its rustc; another clippy, e.g. the system's, fails on the files rustc left in `target/` (E0514).
-- **Beta features** (`services::beta`): a provider is beta while `domain::remote::ProviderKind::is_beta` says so; the picker and the remote names take their 🧪 from there at display time and store names without it. A file manager's context menu entry is beta while `services::file_manager_menu::Kind::is_beta` says so: Preferences lists it as supported, with 🧪 after its name, only while the beta features are on, and switching them off takes its entry out. When a feature leaves beta, take it out of `is_beta` and out of `beta::FEATURES`, the list the beta dialog shows.
+- **Beta features** (`services::beta`): a provider is beta while `domain::remote::ProviderKind::is_beta` says so; the picker and the remote names take their 🧪 from there at display time and store names without it. A file manager's context menu entry is beta while `services::file_manager_menu::Kind::is_beta` says so: Preferences lists it as supported, with 🧪 after its name, only while the beta features are on, and switching them off takes its entry out. When a feature leaves beta, take it out of its `is_beta`; the beta dialog builds its list from them (`preferences::beta_features`).
 
 ## Widgets
 - **Bigger widgets get a repository of their own** under the MIT licence, as a crate named `iced_<name>` like iced's own crates (e.g. [iced_storage_bar](https://github.com/Santuzius/iced_storage_bar)), so other iced apps can use them and they can go to crates.io. Small helpers that only arrange Syncative's own widgets stay in `src/widgets/`.
