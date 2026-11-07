@@ -4,8 +4,9 @@ use serde_json::json;
 
 use crate::{
     domain::{
-        ports::{BackendClient, Repository},
+        ports::{cancel_never, BackendClient, Repository},
         remote::RemoteId,
+        sync::ListFilter,
     },
     util,
 };
@@ -27,10 +28,7 @@ impl WebDavVendor {
     }
 }
 
-/// Add a new WebDAV-family remote: create the rclone config, insert the
-/// DB row, and return the new `RemoteId`. Validation (trying to list the
-/// root) is the caller's responsibility — mirrors the GTK flow which
-/// validates via `can_login` before inserting.
+/// Add a new WebDAV-family remote: create the rclone config, check that it signs in, insert the DB row, and return the new `RemoteId`. A config that can't sign in is removed again.
 pub fn add_webdav_remote(
     name: &str,
     url: &str,
@@ -41,6 +39,10 @@ pub fn add_webdav_remote(
     client: &dyn BackendClient,
 ) -> Result<RemoteId, String> {
     client.create_config(config_payload(name, url, user, pass, vendor))?;
+    if let Err(err) = check_sign_in(name, client) {
+        let _ = client.delete_config(name);
+        return Err(err);
+    }
     util::await_future(repo.insert_remote(name.to_owned()))
         .map_err(|e| e.to_string())
 }
@@ -49,7 +51,21 @@ pub fn add_webdav_remote(
 pub fn reauth_webdav_remote(name: &str, url: &str, user: &str, pass: &str, vendor: WebDavVendor, client: &dyn BackendClient) -> Result<(), String> {
     // rclone's `config/create` rejects a name that already exists.
     let _ = client.delete_config(name);
-    client.create_config(config_payload(name, url, user, pass, vendor))
+    client.create_config(config_payload(name, url, user, pass, vendor))?;
+    check_sign_in(name, client)
+}
+
+/// List the top folder once, so wrong credentials or a wrong address show in the dialog instead of at the first sync.
+fn check_sign_in(name: &str, client: &dyn BackendClient) -> Result<(), String> {
+    client.list(name, "", false, ListFilter::Dirs, &cancel_never()).map(drop).map_err(|err| {
+        if err.contains("401") || err.contains("Unauthorized") {
+            "Wrong username or password. With two-factor authentication on, use an app password from the security settings instead.".to_owned()
+        } else if err.contains("429") {
+            "The server refuses sign-ins from this device for now, after too many failed attempts. Try again in a few minutes.".to_owned()
+        } else {
+            format!("Couldn't open the account at this address: {err}")
+        }
+    })
 }
 
 /// The URL the form takes back from a stored config: Nextcloud and Owncloud get their WebDAV path appended again on saving.
