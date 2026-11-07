@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	extras "syncative/go/proton"
+	"syncative/go/proton/extras"
 )
 
 const (

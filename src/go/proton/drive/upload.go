@@ -27,7 +27,7 @@ import (
 	"sort"
 	"time"
 
-	extras "syncative/go/proton"
+	"syncative/go/proton/extras"
 
 	"github.com/ProtonMail/go-proton-api"
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
