@@ -62,9 +62,9 @@ pub struct Power {
 }
 
 /// `compact`: the phone layout, where the button groups go below their labels.
-/// `sync_metered`: sync on metered networks too; `file_manager_menu`: whether the context menu entry is on and whether a file manager for it is installed; `log_note`: how the last copy or clear of the log went; `note`: how the last export or import went; `beta`: the beta features are on.
+/// `sync_metered`: sync on metered networks too; `file_manager_menu`: whether the context menu entry is on, and the installed file managers that show it; `log_note`: how the last copy or clear of the log went; `note`: how the last export or import went; `beta`: the beta features are on.
 #[allow(clippy::too_many_arguments)]
-pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool, autostart: bool, start_hidden: bool, file_manager_menu: (bool, bool), detailed_log: bool, log_note: Option<&'a str>, note: Option<&'a str>, beta: bool, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
+pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool, autostart: bool, start_hidden: bool, file_manager_menu: (bool, &'a [&'static str]), detailed_log: bool, log_note: Option<&'a str>, note: Option<&'a str>, beta: bool, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
     let android = cfg!(target_os = "android");
     let size_hint = if android { "Text and everything else in this window, relative to the system's font and display size." } else { "Text and everything else in this window." };
     let mut rows = column![
@@ -116,11 +116,19 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool
                     toggler(autostart && start_hidden).on_toggle_maybe(autostart.then_some(Msg::StartHiddenToggled)).size(20).into(),
                 ))
                 .push(separator())
-                .push(setting_row(
-                    "Context menu in Dolphin",
-                    if file_manager_menu.1 { "Adds “Save in the cloud with Syncative” to the right-click menu of files in Dolphin and Konqueror." } else { "Needs Dolphin or Konqueror, the file managers of KDE." },
-                    toggler(file_manager_menu.0 && file_manager_menu.1).on_toggle_maybe(file_manager_menu.1.then_some(Msg::FileManagerMenuToggled)).size(20).into(),
-                ))
+                .push({
+                    let (on, managers) = file_manager_menu;
+                    let available = !managers.is_empty();
+                    setting_row(
+                        "Context menu in the file manager",
+                        if available {
+                            format!("Adds “Save in the cloud with Syncative” to the right-click menu of files in {}.", managers.join(", "))
+                        } else {
+                            "Needs Dolphin, Files (Nautilus) or Nemo.".to_owned()
+                        },
+                        toggler(on && available).on_toggle_maybe(available.then_some(Msg::FileManagerMenuToggled)).size(20).into(),
+                    )
+                })
                 .push(separator())
                 .push(metered_row(sync_metered, "E.g. a phone's hotspot, or networks marked as metered in the network settings. When off, Syncative waits for an unmetered network, but you can still start a sync yourself."));
         }
@@ -300,7 +308,7 @@ fn choice_row<'a>(compact: bool, title: &'a str, detail: &'a str, control: Eleme
     column![column![text(title).size(TEXT), text(detail).size(CAPTION).style(theme::muted)].spacing(2), control].spacing(10).padding([12, 14]).into()
 }
 
-fn setting_row<'a>(title: &'a str, detail: &'a str, control: Element<'a, Msg>) -> Element<'a, Msg> {
+fn setting_row<'a>(title: &'a str, detail: impl iced::widget::text::IntoFragment<'a>, control: Element<'a, Msg>) -> Element<'a, Msg> {
     row![
         column![text(title).size(TEXT), text(detail).size(CAPTION).style(theme::muted)]
             .spacing(2)

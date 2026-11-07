@@ -201,8 +201,8 @@ pub struct SyncativeApp {
     detailed_log: bool,
     /// The beta features are on (see `services::beta`).
     beta: bool,
-    /// The file manager's context menu entry is on, and a file manager that shows it is installed (desktop).
-    file_manager_menu: (bool, bool),
+    /// The file manager's context menu entry is on, and the installed file managers that show it (desktop).
+    file_manager_menu: (bool, Vec<&'static str>),
     /// The question whether to accept the beta features' risks is shown over Preferences.
     beta_dialog_open: bool,
     /// How the last export or import of the settings file went, shown in the Preferences dialog.
@@ -293,9 +293,9 @@ impl SyncativeApp {
             beta: crate::services::beta::enabled(),
             beta_dialog_open: false,
             #[cfg(not(target_os = "android"))]
-            file_manager_menu: (crate::services::file_manager_menu::enabled(), crate::services::file_manager_menu::supported()),
+            file_manager_menu: (crate::services::file_manager_menu::enabled(), crate::services::file_manager_menu::file_managers()),
             #[cfg(target_os = "android")]
-            file_manager_menu: (false, false),
+            file_manager_menu: (false, Vec::new()),
             preferences_note: None,
             log_note: None,
             preferences_error: None,
@@ -707,7 +707,7 @@ impl SyncativeApp {
                             self.file_manager_menu.0 = on;
                             self.preferences_error = None;
                         }
-                        Err(err) => self.preferences_error = Some(format!("Could not change {}: {err}", file_manager_menu::entry_path().display())),
+                        Err(err) => self.preferences_error = Some(format!("Could not change the context menu entries in {}: {err}", file_manager_menu::entry_path().display())),
                     }
                 }
                 #[cfg(target_os = "android")]
@@ -1069,7 +1069,7 @@ impl SyncativeApp {
                 self.power.sync_metered,
                 self.autostart,
                 self.start_hidden,
-                self.file_manager_menu,
+                (self.file_manager_menu.0, &self.file_manager_menu.1),
                 self.detailed_log,
                 self.log_note.as_deref(),
                 self.preferences_note.as_deref(),
