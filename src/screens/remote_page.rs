@@ -1133,13 +1133,13 @@ pub fn confirm_delete_overlay<'a>(pending: &'a PendingDelete) -> Element<'a, Msg
             remote_label,
             ..
         } => (
-            "Stop syncing this folder?".to_owned(),
+            "Remove this folder from sync?".to_owned(),
             format!(
-                "{} and {remote_label} will no longer be kept in sync. No files are deleted — neither on {} nor in the cloud.",
+                "{} and {remote_label} are removed from sync. No files are deleted — neither on {} nor in the cloud.",
                 fmt_home(local),
                 crate::util::THIS_DEVICE
             ),
-            "Stop syncing",
+            "Remove from sync",
         ),
     };
 
