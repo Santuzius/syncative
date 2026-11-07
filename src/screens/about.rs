@@ -1,4 +1,4 @@
-//! About dialog: version, project links, licence and credits, and the open source licenses of the packages Syncative is built from (`assets/licenses.json`, from `scripts/update-licenses.sh`, packed by build.rs).
+//! About dialog: version, project links, Syncative's own license (`LICENSE`), and the open source licenses of the packages it is built from (`assets/licenses.json`, from `scripts/update-licenses.sh`). build.rs packs both.
 
 use std::sync::OnceLock;
 
@@ -12,18 +12,19 @@ use crate::{
     branding,
     screens::add_remote::PRIVACY_POLICY,
     theme::{self, CAPTION, ROW_SPACING, TEXT, TITLE},
-    widgets::{bullet, text},
+    widgets::text,
 };
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 const ISSUES: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/issues");
-const LICENSE: &str = "https://www.gnu.org/licenses/gpl-3.0.html";
 
 /// Which part of About shows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Page {
     #[default]
     Main,
+    /// Syncative's own license.
+    OwnLicense,
     Licenses,
     /// One of [`licenses`] by its index, with the package whose license text shows: its wording (variant) and its place in it.
     License { license: usize, variant: usize, package: usize },
@@ -34,7 +35,7 @@ impl Page {
     pub fn back(self) -> Option<Page> {
         match self {
             Page::Main => None,
-            Page::Licenses => Some(Page::Main),
+            Page::OwnLicense | Page::Licenses => Some(Page::Main),
             Page::License { .. } => Some(Page::Licenses),
         }
     }
@@ -91,8 +92,27 @@ fn licenses() -> &'static [License] {
     })
 }
 
-/// The license text a [`Page::License`] shows: the package's copyright lines, then the text of its wording.
+/// `LICENSE` with one line per paragraph, so the text wraps to the dialog's width. Centered lines such as the title keep their own line.
+fn reflowed(text: &str) -> String {
+    let paragraph = |block: &str| {
+        let mut out = String::new();
+        for line in block.lines() {
+            if !out.is_empty() {
+                out.push(if line.starts_with("        ") { '\n' } else { ' ' });
+            }
+            out.push_str(line.trim());
+        }
+        out
+    };
+    text.split("\n\n").filter(|block| !block.trim().is_empty()).map(paragraph).collect::<Vec<_>>().join("\n\n")
+}
+
+/// The text a page with a license shows: Syncative's own license, or for a [`Page::License`] the package's copyright lines, then the text of its wording.
 pub fn license_text(page: Page) -> String {
+    if page == Page::OwnLicense {
+        let packed = include_bytes!(concat!(env!("OUT_DIR"), "/license.deflate"));
+        return miniz_oxide::inflate::decompress_to_vec(packed).ok().map(|text| reflowed(&String::from_utf8_lossy(&text))).unwrap_or_default();
+    }
     let Page::License { license, variant, package } = page else { return String::new() };
     let Some(variant) = licenses().get(license).and_then(|l| l.variants.get(variant)) else { return String::new() };
     let notices = variant.packages.get(package).map(|p| p.notices.join("\n")).unwrap_or_default();
@@ -103,6 +123,7 @@ pub fn license_text(page: Page) -> String {
 pub fn view<'a>(page: Page, text: &'a text_editor::Content) -> Element<'a, Msg> {
     let dialog = container(match page {
         Page::Main => main(),
+        Page::OwnLicense => own_license(text),
         Page::Licenses => license_list(),
         Page::License { license, variant, package } => match licenses().get(license) {
             Some(entry) => license_page(license, entry, (variant, package), text),
@@ -142,6 +163,12 @@ fn scrolling<'a>(content: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
         .direction(theme::slim_scrollbar())
         .style(theme::scrollbar)
         .into()
+}
+
+/// Syncative's own license in full.
+fn own_license<'a>(license_text: &'a text_editor::Content) -> Element<'a, Msg> {
+    let body = text_editor(license_text).height(Length::Fill).padding(8).size(CAPTION).on_action(Msg::TextAction);
+    framed("License", Some("Syncative is licensed under the GNU GPL, version 3 or later.".to_owned()), body.into(), Page::Main)
 }
 
 /// Every license with the packages under it; each opens its text.
@@ -202,27 +229,13 @@ fn license_page<'a>(index: usize, license: &'static License, selected: (usize, u
 
 fn main<'a>() -> Element<'a, Msg> {
     let link = |label: &'a str, url: &'static str| button(text(label).size(CAPTION)).padding([5, 12]).style(theme::button_secondary).on_press(Msg::Open(url));
-
-    let mut credits = column![
-        text("Credits").size(TEXT),
-        bullet("Hunter Wittenborn (hwittenborn): idea and original code of Celeste"),
-        bullet("Proton AG: go-proton-api"),
-        bullet("Chun-Hung Tseng: Proton-API-Bridge"),
-        bullet("rclone, iced, Tabler Icons, Material Design Icons and Ionicons"),
-    ]
-    .spacing(4);
-    // The emoji font iced_android bundles for Android 15+; its licence asks for this credit.
-    if cfg!(target_os = "android") {
-        credits = credits.push(bullet("Emoji on Android 15+: Twemoji by Twitter, CC-BY 4.0"));
-    }
+    let page = |label: &'a str, page: Page| button(text(label).size(CAPTION)).padding([5, 12]).style(theme::button_secondary).on_press(Msg::Show(page));
 
     let copyright = column![
-        text("© 2022–2024 Hunter Wittenborn").size(CAPTION).style(theme::muted),
+        text("© 2022–2024 Hunter Wittenborn (Celeste)").size(CAPTION).style(theme::muted),
         text("© 2026 Alexander Menzel").size(CAPTION).style(theme::muted),
         text("Licensed under the GNU GPL, version 3 or later.").size(CAPTION).style(theme::muted),
-        row![link("License", LICENSE), button(text("Open source licenses").size(CAPTION)).padding([5, 12]).style(theme::button_secondary).on_press(Msg::Show(Page::Licenses))]
-            .spacing(ROW_SPACING)
-            .padding(iced::Padding::default().top(6.0)),
+        container(page("License", Page::OwnLicense)).padding(iced::Padding::default().top(6.0)),
     ]
     .spacing(2);
 
@@ -238,8 +251,11 @@ fn main<'a>() -> Element<'a, Msg> {
         .spacing(14)
         .align_y(Alignment::Center),
         text(format!("Two-way file sync between folders on {} and Google Drive or Proton Drive.", crate::util::THIS_DEVICE)).size(TEXT),
-        row![link("Source", REPOSITORY), link("Privacy", PRIVACY_POLICY), link("Report issue", ISSUES)].spacing(ROW_SPACING),
-        credits,
+        column![
+            row![link("Source", REPOSITORY), link("Privacy", PRIVACY_POLICY), link("Report issue", ISSUES)].spacing(ROW_SPACING),
+            page("Open source licenses", Page::Licenses),
+        ]
+        .spacing(ROW_SPACING),
         copyright,
         row![
             Space::new().width(Length::Fill),
@@ -248,4 +264,16 @@ fn main<'a>() -> Element<'a, Msg> {
     ]
     .spacing(14)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn own_license_wraps_by_paragraph() {
+        let text = license_text(Page::OwnLicense);
+        assert!(text.starts_with("GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n\n"), "{}", &text[..80]);
+        assert!(text.contains("The GNU General Public License is a free, copyleft license for software and other kinds of works."));
+    }
 }

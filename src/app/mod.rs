@@ -168,7 +168,7 @@ pub struct SyncativeApp {
     /// The About dialog is shown.
     about_open: bool,
     about_page: about::Page,
-    /// The license text on [`about::Page::License`].
+    /// The license text on the license pages of About.
     about_text: iced::widget::text_editor::Content,
     /// The Preferences dialog is shown.
     preferences_open: bool,
