@@ -43,6 +43,8 @@ pub(super) struct Snapshot {
     pub walk_unreliable: HashSet<String>,
     /// The first local directory the walk was not allowed to read. The pass stops there: everything below it would look missing.
     pub walk_denied: Option<String>,
+    /// Remote-key paths of the symbolic links in the local folder. Links aren't synced: rclone would read the file behind a link with the link's own size, and a download would replace the link with a plain file or write through it into the folder it points to. The planner leaves these paths and everything below them alone on both sides.
+    pub local_links: HashSet<String>,
 }
 
 impl Snapshot {
@@ -155,7 +157,7 @@ impl Snapshot {
             .collect();
 
         // 3. Local walk — skip subtrees managed by descendant sync_dirs.
-        let (local, walk_unreliable, walk_denied) = walk_local(sync_dir, &excluded_local_prefixes);
+        let (local, walk_unreliable, walk_denied, local_links) = walk_local(sync_dir, &excluded_local_prefixes);
 
         Ok(Snapshot {
             remote,
@@ -163,6 +165,7 @@ impl Snapshot {
             db,
             walk_unreliable,
             walk_denied,
+            local_links,
         })
     }
 }
@@ -233,20 +236,22 @@ fn path_is_excluded(path: &str, excluded_prefixes: &[String]) -> bool {
 fn walk_local(
     sync_dir: &SyncDir,
     excluded_local_prefixes: &[String],
-) -> (HashMap<String, LocalEntry>, HashSet<String>, Option<String>) {
+) -> (HashMap<String, LocalEntry>, HashSet<String>, Option<String>, HashSet<String>) {
     let root = Path::new(&sync_dir.local_path);
     let mut out: HashMap<String, LocalEntry> = HashMap::new();
     let mut unreliable: HashSet<String> = HashSet::new();
     let mut denied: Option<String> = None;
+    let mut links: HashSet<String> = HashSet::new();
     walk_dir(
         root,
         &mut out,
         &mut unreliable,
         &mut denied,
+        &mut links,
         &sync_dir.remote_path,
         excluded_local_prefixes,
     );
-    (out, unreliable, denied)
+    (out, unreliable, denied, links)
 }
 
 /// Remember the first directory the walk may not read (EACCES, or EPERM as on Android without All files access or outside GrapheneOS' Storage Scopes).
@@ -266,6 +271,7 @@ fn walk_dir(
     out: &mut HashMap<String, LocalEntry>,
     unreliable: &mut HashSet<String>,
     denied: &mut Option<String>,
+    links: &mut HashSet<String>,
     current_dir_key: &str,
     excluded_local_prefixes: &[String],
 ) {
@@ -345,6 +351,10 @@ fn walk_dir(
         if path_is_excluded(local_path_str, excluded_local_prefixes) {
             continue;
         }
+        if file_type.is_symlink() {
+            links.insert(remote_key);
+            continue;
+        }
         let mtime_secs = entry
             .metadata()
             .ok()
@@ -361,7 +371,7 @@ fn walk_dir(
             },
         );
         if file_type.is_dir() {
-            walk_dir(&path, out, unreliable, denied, &remote_key, excluded_local_prefixes);
+            walk_dir(&path, out, unreliable, denied, links, &remote_key, excluded_local_prefixes);
         }
     }
 }

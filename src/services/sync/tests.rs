@@ -166,6 +166,40 @@ fn nomedia_files_of_hidden_folders_stay_on_the_device() {
     assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
 }
 
+/// Symbolic links aren't synced: a linked file isn't uploaded, a remote copy of it is neither downloaded over the link nor deleted, and nothing is written through a linked folder.
+#[test]
+fn symbolic_links_are_left_alone_on_both_sides() {
+    let tmp = TempDir::new("sync_links");
+    let target = TempDir::new("sync_links_target");
+    target.write_file("data.json", b"behind the link");
+    target.write_file("dir/inside.txt", b"inside");
+    std::os::unix::fs::symlink(format!("{}/data.json", target.as_str()), format!("{}/linked.json", tmp.as_str())).unwrap();
+    std::os::unix::fs::symlink(format!("{}/dir", target.as_str()), format!("{}/linked-dir", tmp.as_str())).unwrap();
+    tmp.write_file("plain.txt", b"plain");
+    let repo = FakeRepo::new();
+    // The link was uploaded by an older version, which made a row for it.
+    repo.insert_item(SyncDirId(1), &format!("{}/linked.json", tmp.as_str()), "linked.json", 1_700_000_000, 1_700_000_000);
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("linked.json", false, 1_700_000_000),
+            remote_item("linked-dir", true, 1_700_000_000),
+            remote_item("linked-dir/new.txt", false, 1_700_000_000),
+        ]),
+    );
+
+    let (outcome, events) = run_full(&tmp, &repo, &client);
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    let uploads: Vec<String> = client.copy_to_remote_calls.lock().unwrap().iter().map(|(_, remote)| remote.clone()).collect();
+    assert_eq!(uploads, ["plain.txt"]);
+    assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
+    assert!(client.delete_file_calls.lock().unwrap().is_empty());
+    assert!(fs::symlink_metadata(format!("{}/linked.json", tmp.as_str())).unwrap().file_type().is_symlink());
+    assert!(!Path::new(&format!("{}/dir/new.txt", target.as_str())).exists());
+}
+
 /// A delete whose target vanished since the listing did what it wanted: no warning, and the row goes.
 #[test]
 fn deleting_what_is_already_gone_is_no_problem() {

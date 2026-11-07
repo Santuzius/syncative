@@ -198,6 +198,11 @@ pub(super) fn log_plan_summary(
         clear_rows,
         record_rows,
     );
+    if !snapshot.local_links.is_empty() {
+        let mut links: Vec<&str> = snapshot.local_links.iter().map(String::as_str).collect();
+        links.sort_unstable();
+        eprintln!("sync: not syncing the symbolic links {links:?} (in '{}'); they and whatever lies behind them stay as they are on both sides.", sync_dir.local_path);
+    }
 }
 
 /// Does `path`, or any of its ancestor directories up to the sync-dir
@@ -263,6 +268,10 @@ fn plan_one(
     snapshot: &Snapshot,
     db_by_parent: &HashMap<&str, Vec<&str>>,
 ) -> Option<Action> {
+    // A local link, or something below a linked folder: neither side is touched (see `Snapshot::local_links`).
+    if ancestor_in_set(remote_path, &snapshot.local_links) {
+        return None;
+    }
     match (local, remote, db) {
         (None, None, None) => None,
         // Stale DB: both sides gone. Clean the row.
