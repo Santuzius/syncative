@@ -109,8 +109,7 @@ impl SyncativeApp {
             return Task::none();
         };
         // Exclusions are stored relative to the folder's remote path.
-        let path = &dialog.conflict.remote_path;
-        let relative = if sd.remote_path.is_empty() { path.as_str() } else { path.strip_prefix(&format!("{}/", sd.remote_path)).unwrap_or(path) }.to_owned();
+        let relative = sd.relative(&dialog.conflict.remote_path).to_owned();
         if let Some(list) = self.conflicts.get_mut(&dialog.sync_dir_id) {
             list.retain(|c| c.remote_path != dialog.conflict.remote_path);
         }

@@ -838,17 +838,6 @@ fn tip_below<'a>(content: impl Into<Element<'a, Msg>>, tip: &'a str) -> Element<
     .into()
 }
 
-/// `desc`'s remote path relative to `sd`, i.e. where it sits inside `sd`.
-pub fn relative_to<'a>(sd: &SyncDir, desc: &'a SyncDir) -> &'a str {
-    if sd.remote_path.is_empty() {
-        desc.remote_path.as_str()
-    } else {
-        desc.remote_path
-            .strip_prefix(&format!("{}/", sd.remote_path))
-            .unwrap_or(&desc.remote_path)
-    }
-}
-
 /// Exclusion list + add form for one sync_dir.
 fn exclusion_panel<'a>(
     sd: &'a SyncDir,
@@ -885,7 +874,7 @@ fn exclusion_panel<'a>(
 
     // Sub-trees owned by another sync folder — read-only.
     for desc in auto_excl {
-        let relative = relative_to(sd, desc);
+        let relative = sd.relative(&desc.remote_path);
         let mut line = row![
             muted_icon(icondata::TbFolderOutline, 14.0),
             text(relative.to_owned()).size(CAPTION).width(Length::Fill),

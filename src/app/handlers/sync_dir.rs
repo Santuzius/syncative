@@ -288,7 +288,7 @@ impl SyncativeApp {
         let sd = self.all_known_sync_dirs.iter().find(|d| d.id == sd_id);
         let local_root = sd.map(|d| d.local_path.clone());
         let auto: Vec<String> = sd
-            .map(|sd| remote_page_auto_excluded(sd, &self.all_known_sync_dirs).into_iter().map(|d| remote_page::relative_to(sd, d).to_owned()).collect())
+            .map(|sd| remote_page_auto_excluded(sd, &self.all_known_sync_dirs).into_iter().map(|d| sd.relative(&d.remote_path).to_owned()).collect())
             .unwrap_or_default();
         Task::perform(
             async move {

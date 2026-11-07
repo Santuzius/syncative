@@ -30,6 +30,16 @@ pub struct SyncDir {
     pub remote_path: String,
 }
 
+impl SyncDir {
+    /// `remote_path` relative to this folder's remote path, e.g. as an exclusion is stored; a path outside it comes back whole.
+    pub fn relative<'a>(&self, remote_path: &'a str) -> &'a str {
+        if self.remote_path.is_empty() {
+            return remote_path;
+        }
+        remote_path.strip_prefix(self.remote_path.as_str()).and_then(|rest| rest.strip_prefix('/')).unwrap_or(remote_path)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SyncItem {
     pub id: SyncItemId,
@@ -144,4 +154,19 @@ pub enum SyncError {
     /// Local and remote copies both changed since the last sync; user must
     /// pick a winner. `(local_path, remote_path)`.
     BothMoreCurrent(String, String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SyncDir, SyncDirId};
+    use crate::domain::remote::RemoteId;
+
+    #[test]
+    fn paths_are_made_relative_to_the_folder_only_inside_it() {
+        let dir = |remote_path: &str| SyncDir { id: SyncDirId(1), remote_id: RemoteId(1), local_path: "/home/me/Docs".to_owned(), remote_path: remote_path.to_owned() };
+        assert_eq!(dir("Docs").relative("Docs/a/b.txt"), "a/b.txt");
+        assert_eq!(dir("Docs").relative("Docs"), "Docs");
+        assert_eq!(dir("Docs").relative("Documents/a.txt"), "Documents/a.txt");
+        assert_eq!(dir("").relative("Docs/a.txt"), "Docs/a.txt");
+    }
 }

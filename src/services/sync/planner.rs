@@ -458,18 +458,11 @@ fn plan_one(
 }
 
 fn derive_local_path(remote_path: &str, sync_dir: &SyncDir) -> String {
-    let relative = if sync_dir.remote_path.is_empty() {
-        remote_path.to_owned()
-    } else {
-        remote_path
-            .strip_prefix(&format!("{}/", sync_dir.remote_path))
-            .unwrap_or(remote_path)
-            .to_owned()
-    };
+    let relative = sync_dir.relative(remote_path);
     if relative.is_empty() {
         sync_dir.local_path.clone()
     } else {
-        format!("{}/{}", sync_dir.local_path, local_names::to_local(&relative))
+        format!("{}/{}", sync_dir.local_path, local_names::to_local(relative))
     }
 }
 
