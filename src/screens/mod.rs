@@ -9,3 +9,4 @@ pub mod main_page;
 pub mod preferences;
 pub mod remote_page;
 pub mod settings;
+pub mod share;

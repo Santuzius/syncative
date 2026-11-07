@@ -18,5 +18,6 @@ pub mod power;
 pub mod remote_lifecycle;
 pub mod secrets;
 pub mod settings_file;
+pub mod share;
 pub mod storage_access;
 pub mod sync;

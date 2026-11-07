@@ -8,7 +8,7 @@ import android.os.Bundle;
 
 import io.github.santuzius.icedandroid.IcedActivity;
 
-/** Syncative's window. The GUI itself is iced, drawn by the native library; this adds what only an activity can do: ask for permissions and show the folder picker and the file dialogs. */
+/** Syncative's window. The GUI itself is iced, drawn by the native library; this adds what only an activity can do: ask for permissions, show the folder picker and the file dialogs, and receive files shared from other apps. */
 public class SyncativeActivity extends IcedActivity {
     private static final int ASK_NOTIFICATIONS = 3;
 
@@ -16,10 +16,28 @@ public class SyncativeActivity extends IcedActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Bridge.setActivity(this);
+        // A recreated activity gets the intent it started with once more; that share was taken already.
+        if (savedInstanceState == null) {
+            receiveShare(getIntent());
+        }
 
         // Without it the sync status and sign-in requests stay hidden from Android 13 on; syncing works either way.
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[] { Manifest.permission.POST_NOTIFICATIONS }, ASK_NOTIFICATIONS);
+        }
+    }
+
+    /** launchMode singleTask: a share while the activity exists arrives here. */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        receiveShare(intent);
+    }
+
+    private void receiveShare(Intent intent) {
+        if (Bridge.receiveShare(this, intent)) {
+            setIntent(new Intent(Intent.ACTION_MAIN));
         }
     }
 

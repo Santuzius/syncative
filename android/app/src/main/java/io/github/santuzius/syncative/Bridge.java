@@ -7,9 +7,11 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -19,18 +21,24 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.PowerManager;
 import android.provider.DocumentsContract;
+import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Log;
+import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.security.KeyStore;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import javax.crypto.Cipher;
@@ -39,7 +47,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 /**
- * Static helpers the native library calls (src/infrastructure/android/ in the repository): notifications, the sync service, the folder picker, the Keystore and whether the network is metered.
+ * Static helpers the native library calls (src/infrastructure/android/ in the repository): notifications, the sync service, the folder picker, shared files, the Keystore and whether the network is metered.
  *
  * They run on whatever native thread calls them; UI work is posted to the activity's UI thread.
  */
@@ -49,6 +57,8 @@ public final class Bridge {
     private static final int ASK_STORAGE = 2;
     static final int SAVE_DOCUMENT = 4;
     static final int OPEN_DOCUMENT = 5;
+    /** Folder in the cache with the copies of shared files, one sub-folder per share. */
+    static final String SHARED_DIR = "shared";
     static final String CHANNEL_SYNC = "sync";
     private static final String CHANNEL_PROBLEMS = "problems";
     private static final String KEY_ALIAS = "syncative-secrets";
@@ -322,6 +332,131 @@ public final class Bridge {
                 nativeDocumentDone(null, String.valueOf(e.getMessage()));
             }
         }).start();
+    }
+
+    // Files shared from other apps -------------------------------------------
+
+    /** A share arrived: its files are being copied to `folder`. */
+    static native void nativeShareStarted(String folder, int count);
+
+    /** The files of the share started with `folder` are copied there, as `paths`; `error` non-null when copying failed. */
+    static native void nativeShareReady(String folder, String[] paths, String error);
+
+    /** Takes a share ("Share" → Syncative in another app) and copies its files to the cache, as the permission to read them can end with the activity. False when `intent` is no share. Text and links have no file to save and are turned down. */
+    @SuppressWarnings("deprecation")
+    static boolean receiveShare(Activity activity, Intent intent) {
+        String action = intent == null ? null : intent.getAction();
+        if (!Intent.ACTION_SEND.equals(action) && !Intent.ACTION_SEND_MULTIPLE.equals(action)) {
+            return false;
+        }
+        List<Uri> uris = new ArrayList<>();
+        if (Intent.ACTION_SEND.equals(action)) {
+            Uri uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (uri != null) {
+                uris.add(uri);
+            }
+        } else {
+            ArrayList<Uri> list = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+            if (list != null) {
+                uris.addAll(list);
+            }
+        }
+        ClipData clip = intent.getClipData();
+        if (uris.isEmpty() && clip != null) {
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                if (clip.getItemAt(i).getUri() != null) {
+                    uris.add(clip.getItemAt(i).getUri());
+                }
+            }
+        }
+        if (uris.isEmpty()) {
+            Toast.makeText(activity, "Syncative saves shared files, not text or links.", Toast.LENGTH_LONG).show();
+            return true;
+        }
+        Context context = activity.getApplicationContext();
+        File folder = new File(new File(context.getCacheDir(), SHARED_DIR), String.valueOf(System.nanoTime()));
+        nativeShareStarted(folder.getPath(), uris.size());
+        // Off the UI thread: a video takes a while, and a cloud app may fetch the file first.
+        new Thread(() -> {
+            List<String> paths = new ArrayList<>();
+            try {
+                if (!folder.mkdirs()) {
+                    throw new java.io.IOException("can't create " + folder);
+                }
+                for (Uri uri : uris) {
+                    paths.add(copyShared(context, uri, folder).getPath());
+                }
+                nativeShareReady(folder.getPath(), paths.toArray(new String[0]), null);
+            } catch (Exception e) {
+                Log.w(TAG, "could not copy a shared file", e);
+                nativeShareReady(folder.getPath(), paths.toArray(new String[0]), "Could not read the shared file: " + e.getMessage());
+            }
+        }).start();
+        return true;
+    }
+
+    /** Copies `uri` into `folder` under its display name, a free one if two shared files have the same, and keeps its modification time where the provider tells it. */
+    private static File copyShared(Context context, Uri uri, File folder) throws Exception {
+        String name = null;
+        long modified = 0;
+        try (Cursor cursor = context.getContentResolver().query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (nameColumn >= 0) {
+                    name = cursor.getString(nameColumn);
+                }
+                int modifiedColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED);
+                if (modifiedColumn >= 0 && !cursor.isNull(modifiedColumn)) {
+                    modified = cursor.getLong(modifiedColumn);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "no details for " + uri, e);
+        }
+        if (name == null || name.trim().isEmpty()) {
+            name = uri.getLastPathSegment();
+        }
+        if (name == null || name.trim().isEmpty() || name.equals(".") || name.equals("..")) {
+            name = "Shared file";
+        }
+        name = name.replace('/', '_');
+        File file = new File(folder, name);
+        for (int n = 1; file.exists(); n++) {
+            int dot = name.lastIndexOf('.');
+            file = new File(folder, dot > 0 ? name.substring(0, dot) + " (" + n + ")" + name.substring(dot) : name + " (" + n + ")");
+        }
+        try (InputStream in = context.getContentResolver().openInputStream(uri); OutputStream out = new FileOutputStream(file)) {
+            if (in == null) {
+                throw new java.io.IOException("no data in " + uri);
+            }
+            byte[] buffer = new byte[64 * 1024];
+            for (int n; (n = in.read(buffer)) > 0; ) {
+                out.write(buffer, 0, n);
+            }
+        }
+        if (modified > 0) {
+            file.setLastModified(modified);
+        }
+        return file;
+    }
+
+    /** Deletes `file` and, for a folder, everything in it. */
+    static void deleteTree(File file) {
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                deleteTree(child);
+            }
+        }
+        file.delete();
+    }
+
+    /** Back to the app that shared: Syncative's task goes behind the one before it. */
+    public static void returnToCaller() {
+        Activity current = activity.get();
+        if (current != null) {
+            current.runOnUiThread(() -> current.moveTaskToBack(true));
+        }
     }
 
     // Folder picker ---------------------------------------------------------

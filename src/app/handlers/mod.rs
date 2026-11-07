@@ -5,6 +5,7 @@
 pub(super) mod folder_picker;
 pub(super) mod conflicts;
 pub(super) mod remotes;
+pub(super) mod share;
 pub(super) mod sync;
 pub(super) mod sync_dir;
 pub(super) mod tray;

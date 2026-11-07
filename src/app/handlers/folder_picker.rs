@@ -32,6 +32,7 @@ impl SyncativeApp {
                 dir.remote_path.clone()
             }
             Target::Hidden(sd_id) => return self.handle_browse_hidden(sd_id),
+            Target::Share => return Task::none(),
         };
         self.open_picker(target, source, &base, Vec::new())
     }
@@ -53,7 +54,7 @@ impl SyncativeApp {
         self.open_picker(Target::Hidden(sd_id), Source::Local, &base, hidden)
     }
 
-    fn open_picker(&mut self, target: Target, source: Source, base: &str, preselected: Vec<String>) -> Task<Message> {
+    pub(in crate::app) fn open_picker(&mut self, target: Target, source: Source, base: &str, preselected: Vec<String>) -> Task<Message> {
         self.folder_picker_generation += 1;
         let mut picker = Picker::new(target, self.folder_picker_generation, source, base, preselected);
         let outcome = picker.browser.open();
@@ -99,10 +100,13 @@ impl SyncativeApp {
                         picked.sort();
                         self.save_hidden_folders(sd_id, picker.base, picker.initial, picked)
                     }
+                    Target::Share => self.save_share_in(picked.into_iter().next().unwrap_or_default()),
                 }
             }
             folder_picker::Msg::Cancel => {
-                self.close_folder_picker();
+                if self.close_folder_picker().is_some_and(|picker| picker.target == Target::Share) {
+                    return self.share_folder_cancelled();
+                }
                 Task::none()
             }
         }

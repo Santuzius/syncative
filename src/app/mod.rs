@@ -29,7 +29,7 @@ use crate::{
         single_instance,
         tray::{self, TrayAction, TrayUpdate},
     },
-    screens::{about, add_remote, conflict, folder_picker, main_page, preferences, remote_page, settings},
+    screens::{about, add_remote, conflict, folder_picker, main_page, preferences, remote_page, settings, share},
     services::{
         appearance::{Appearance, ThemeChoice, TrayIconChoice},
         autostart, leftovers,
@@ -126,6 +126,11 @@ pub enum Message {
     WindowFocused,
     /// Compact layout: the scrim around the drawer was tapped.
     CloseDrawer,
+    Share(share::Msg),
+    /// News of files shared from another app (Android).
+    ShareIncoming(crate::services::share::Incoming),
+    /// A shared file was uploaded under the given name, or not; tagged with its share's cache folder.
+    ShareSaved(std::path::PathBuf, Result<String, String>),
 }
 
 pub struct SyncativeApp {
@@ -230,6 +235,10 @@ pub struct SyncativeApp {
     folder_picker: Option<folder_picker::Picker>,
     /// Counts the pickers opened, so a late listing can't land in a newer one.
     folder_picker_generation: u64,
+    /// Files shared from another app, full screen over everything while open.
+    share: Option<share::Share>,
+    /// News of further shares that arrived while one uploaded.
+    pending_shares: std::collections::VecDeque<crate::services::share::Incoming>,
     /// Room the system bars and the keyboard take (Android); zero on the desktop.
     insets: iced_android::Insets,
     /// What the user is about to delete, set while the confirmation
@@ -299,6 +308,8 @@ impl SyncativeApp {
             add_folder_open: false,
             folder_picker: None,
             folder_picker_generation: 0,
+            share: None,
+            pending_shares: std::collections::VecDeque::new(),
             insets: iced_android::Insets::default(),
             window_id: None,
         };
@@ -394,6 +405,19 @@ impl SyncativeApp {
             _ => None,
         });
         let foreground = iced_android::foreground().map(Message::Foreground);
+        // Only Android's share sheet sends any.
+        let shares = Subscription::run(|| {
+            stream::channel(1, async move |mut output| {
+                use iced::futures::SinkExt;
+                loop {
+                    let incoming = crate::services::share::next().await;
+                    if output.send(Message::ShareIncoming(incoming)).await.is_err() {
+                        break;
+                    }
+                }
+                std::future::pending::<()>().await;
+            })
+        });
         let insets = iced_android::insets().map(Message::Insets);
         let font_scale = iced_android::system_scale().map(Message::SystemScale);
         // Android's question about battery optimization only pauses the activity; the window gets its focus back when it closes.
@@ -413,6 +437,7 @@ impl SyncativeApp {
             insets,
             font_scale,
             focused,
+            shares,
         ])
     }
 
@@ -799,11 +824,17 @@ impl SyncativeApp {
             Message::Quit => self.handle_quit(),
             Message::WindowClosed(id) => self.handle_window_closed(id),
             Message::Escape => {
+                if let Some(task) = self.share_back() {
+                    return task;
+                }
                 self.close_topmost();
                 Task::none()
             }
             // Back closes what is open; at the top it leaves Syncative like any Android app, which keeps syncing.
             Message::Back => {
+                if let Some(task) = self.share_back() {
+                    return task;
+                }
                 if !self.close_topmost() {
                     iced_android::move_to_background();
                 }
@@ -823,6 +854,9 @@ impl SyncativeApp {
                 self.drawer_open = false;
                 Task::none()
             }
+            Message::Share(msg) => self.handle_share_msg(msg),
+            Message::ShareIncoming(incoming) => self.handle_share_incoming(incoming),
+            Message::ShareSaved(folder, result) => self.handle_share_saved(folder, result),
             Message::Remote(remote_page::Msg::OpenDrawer) => {
                 self.drawer_open = true;
                 Task::none()
@@ -881,6 +915,9 @@ impl SyncativeApp {
 impl SyncativeApp {
     /// The window's content: the navigation pane beside the page, or in the compact layout the page alone with the navigation as a drawer.
     fn layout(&self, compact: bool, width: f32) -> Element<'_, Message> {
+        if let Some(share) = self.share.as_ref() {
+            return self.share_screen(share);
+        }
         let nav_width = if compact {
             Length::Fixed((width * 0.85).min(theme::NAV_WIDTH + 40.0))
         } else {
@@ -1085,6 +1122,28 @@ impl SyncativeApp {
             .into(),
             None => with_dialog,
         }
+    }
+
+    /// The share screen in place of everything else: its bar, below it the folder picker while that's open, else the step's body.
+    fn share_screen<'a>(&'a self, share: &'a share::Share) -> Element<'a, Message> {
+        let body = match self.folder_picker.as_ref().filter(|p| p.target == folder_picker::Target::Share) {
+            Some(picker) => folder_picker::view(picker).map(Message::FolderPicker),
+            None => share::body(share, self.share_accounts()).map(Message::Share),
+        };
+        iced::widget::column![share::header(share).map(Message::Share), rule::horizontal(1).style(theme::separator), body].into()
+    }
+
+    /// Back or Escape on the share screen: the picker's new folder dialog closes first, the picker goes back to the accounts, else the screen closes. `None` while no share is open.
+    fn share_back(&mut self) -> Option<Task<Message>> {
+        self.share.as_ref()?;
+        if let Some(picker) = self.folder_picker.as_mut().filter(|p| p.browser.new_folder_dialog_open()) {
+            picker.browser.close_new_folder_dialog();
+            return Some(Task::none());
+        }
+        if self.folder_picker.as_ref().is_some_and(|p| p.target == folder_picker::Target::Share) {
+            return Some(self.handle_folder_picker_msg(folder_picker::Msg::Cancel));
+        }
+        Some(self.close_share())
     }
 
     /// Close the topmost dialog, drawer or open panel; `false` when nothing was open.

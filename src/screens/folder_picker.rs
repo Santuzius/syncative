@@ -1,4 +1,4 @@
-//! Folder picker: an `iced_fabi` cabinet in a modal, over a remote's folders (the "Browse…" for a new folder's remote path and for an exclusion) or over a sync folder on this device (which sub-folders to hide from the gallery). The app answers the cabinet's listing requests.
+//! Folder picker: an `iced_fabi` cabinet in a modal, over a remote's folders (the "Browse…" for a new folder's remote path and for an exclusion) or over a sync folder on this device (which sub-folders to hide from the gallery); full screen for the folder that files shared from another app go to. The app answers the cabinet's listing requests.
 
 use iced::{
     Element, Length,
@@ -29,6 +29,8 @@ pub enum Target {
     Exclusion(SyncDirId),
     /// The sub-folders of a sync folder that get a `.nomedia` file; paths are relative to its local path.
     Hidden(SyncDirId),
+    /// The folder that files shared from another app are saved in; full screen, below the share screen's bar.
+    Share,
 }
 
 /// Where the folders come from.
@@ -123,6 +125,7 @@ pub fn view(picker: &Picker) -> Element<'_, Msg> {
         Target::AddFolder => ("Choose a folder in the cloud", "Use this folder"),
         Target::Exclusion(_) => ("Choose a folder to exclude", "Exclude this folder"),
         Target::Hidden(_) => ("Hide folders from the gallery", "Save"),
+        Target::Share => ("Choose a folder", "Save here"),
     };
     let mut action = ActionButton::new(confirm, Msg::Confirm).placement(ActionPlacement::Footer);
     match picker.target {
@@ -130,7 +133,7 @@ pub fn view(picker: &Picker) -> Element<'_, Msg> {
         Target::Exclusion(_) => action = action.when(|browser| browser.picked().first().is_some_and(|path| !path.is_empty())),
         // Unticking every hidden folder is an answer too.
         Target::Hidden(_) => action = action.when(|_| true),
-        Target::AddFolder => {}
+        Target::AddFolder | Target::Share => {}
     }
     let mut cabinet = iced_fabi::cabinet(&picker.browser, Msg::Cabinet)
         .show_mode_toggle(matches!(picker.target, Target::Hidden(_)))
@@ -141,7 +144,7 @@ pub fn view(picker: &Picker) -> Element<'_, Msg> {
         .text_size(TEXT)
         .font(theme::UI_FONT)
         .scrollbar(theme::slim_scrollbar(), theme::scrollbar)
-        .height(Length::Fixed(CABINET_HEIGHT));
+        .height(if picker.target == Target::Share { Length::Fill } else { Length::Fixed(CABINET_HEIGHT) });
     if matches!(picker.source, Source::Remote(_)) {
         cabinet = cabinet.tool(BuiltInTool::CreateFolder);
     }
@@ -156,7 +159,11 @@ pub fn view(picker: &Picker) -> Element<'_, Msg> {
     if let Some(error) = &picker.error {
         heading = heading.push(text(error.clone()).size(TEXT).style(theme::danger_text).wrapping(iced::widget::text::Wrapping::WordOrGlyph));
     }
-    container(column![container(heading).padding([14, 16]), cabinet])
+    let content = column![container(heading).padding([14, 16]), cabinet];
+    if picker.target == Target::Share {
+        return container(content).width(Length::Fill).height(Length::Fill).style(theme::page).into();
+    }
+    container(content)
         .width(Length::Fill)
         .max_width(MAX_WIDTH)
         .style(theme::dialog)

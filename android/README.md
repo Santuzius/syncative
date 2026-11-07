@@ -7,6 +7,7 @@ The same app as on the desktop, built from the same crate. The phone layout swit
 - `SyncativeApplication` runs first in every process. It points the XDG and temp directories at the app's private storage and loads `libsyncative.so`.
 - `SyncService` is a foreground service with a silent notification that shows the sync status. It keeps the process, and with it the sync engine (`src/engine`), alive while no window is open. The engine starts with the app, after a reboot (`BootReceiver`, unless autostart is off in the preferences), after an update, and when Android restarts the service.
 - `SyncativeActivity` shows the iced GUI ([iced_android](https://github.com/Santuzius/iced_android)). Its window closes while Syncative is not on screen; syncing goes on.
+- Files shared from other apps ("Share" → Syncative) arrive at `SyncativeActivity`, which copies them into the app's cache right away (`Bridge.receiveShare`), as the permission to read them can end with the activity. The window then shows a full-screen account choice (skipped with a single account) and the cloud folder picker, uploads the files under names that are free in that folder, deletes the copies and goes back to the app they came from. Text and links are turned down with a short message.
 - Credentials are encrypted with a Keystore key (`Bridge.encrypt`/`decrypt`). Folders are picked with the system's folder picker, and syncing them needs "All files access".
 
 ## Building

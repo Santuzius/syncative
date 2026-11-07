@@ -5,6 +5,7 @@
 pub mod documents;
 pub mod folders;
 pub mod secrets;
+pub mod share;
 
 use std::sync::{Mutex, OnceLock};
 

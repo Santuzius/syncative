@@ -20,6 +20,8 @@ public class SyncativeApplication extends Application {
         File run = new File(files, "run");
         cache.mkdirs();
         run.mkdirs();
+        // Copies of shared files that a killed process left behind; nothing uses them at its start.
+        Bridge.deleteTree(new File(getCacheDir(), Bridge.SHARED_DIR));
 
         // Syncative, rclone and Go look for their directories here, and Android sets none of them. Set before the library loads: the Go runtime copies the environment when it starts.
         try {
