@@ -196,6 +196,10 @@ pub struct SyncativeApp {
     system_scale: f32,
     /// Every captured line goes to the system log, not only problems.
     detailed_log: bool,
+    /// The beta features are on (see `services::beta`).
+    beta: bool,
+    /// The question whether to accept the beta features' risks is shown over Preferences.
+    beta_dialog_open: bool,
     /// How the last export or import of the settings file went, shown in the Preferences dialog.
     preferences_note: Option<String>,
     /// How the last copy or clear of the log went; shown under the log row.
@@ -279,6 +283,8 @@ impl SyncativeApp {
             storage_access: crate::services::storage_access::granted(),
             system_scale: 1.0,
             detailed_log: crate::services::diagnostics::detailed_log(),
+            beta: crate::services::beta::enabled(),
+            beta_dialog_open: false,
             preferences_note: None,
             log_note: None,
             preferences_error: None,
@@ -544,6 +550,23 @@ impl SyncativeApp {
                             Some(format!("Could not change the detailed log: {err}"))
                     }
                 }
+                Task::none()
+            }
+            Message::Preferences(preferences::Msg::EnableBeta) => {
+                self.beta_dialog_open = true;
+                Task::none()
+            }
+            Message::Preferences(preferences::Msg::BetaDeclined) => {
+                self.beta_dialog_open = false;
+                Task::none()
+            }
+            Message::Preferences(preferences::Msg::BetaAccepted) => {
+                self.beta_dialog_open = false;
+                self.set_beta(true);
+                Task::none()
+            }
+            Message::Preferences(preferences::Msg::DisableBeta) => {
+                self.set_beta(false);
                 Task::none()
             }
             Message::Preferences(preferences::Msg::CopyLog) => {
@@ -939,7 +962,7 @@ impl SyncativeApp {
                 .then_some(Message::AddRemote(add_remote::Msg::Cancel));
             stack![
                 base,
-                remote_page::modal(add_remote::view(draft).map(Message::AddRemote), dismiss)
+                remote_page::modal(add_remote::view(draft, self.beta).map(Message::AddRemote), dismiss)
             ]
             .into()
         } else if let Some(dialog) = self.conflict_dialog.as_ref() {
@@ -995,15 +1018,25 @@ impl SyncativeApp {
                 self.detailed_log,
                 self.log_note.as_deref(),
                 self.preferences_note.as_deref(),
+                self.beta,
                 self.preferences_error.as_deref(),
                 compact,
             )
             .map(Message::Preferences);
-            stack![
+            let preferences = stack![
                 base,
                 remote_page::modal(dialog, Some(Message::Preferences(preferences::Msg::Close)))
-            ]
-            .into()
+            ];
+            if self.beta_dialog_open {
+                preferences
+                    .push(remote_page::modal(
+                        preferences::beta_dialog().map(Message::Preferences),
+                        Some(Message::Preferences(preferences::Msg::BetaDeclined)),
+                    ))
+                    .into()
+            } else {
+                preferences.into()
+            }
         } else if self.about_open {
             stack![
                 base,
@@ -1083,6 +1116,9 @@ impl SyncativeApp {
             && let Some(page) = self.about_page.back()
         {
             self.show_about(page);
+            return true;
+        }
+        if self.preferences_open && std::mem::take(&mut self.beta_dialog_open) {
             return true;
         }
         if std::mem::take(&mut self.preferences_open) || std::mem::take(&mut self.about_open) {
@@ -1298,6 +1334,13 @@ impl SyncativeApp {
     fn show_about(&mut self, page: about::Page) {
         self.about_page = page;
         self.about_text = iced::widget::text_editor::Content::with_text(&about::license_text(page));
+    }
+
+    fn set_beta(&mut self, on: bool) {
+        match crate::services::beta::set_enabled(on) {
+            Ok(()) => self.beta = on,
+            Err(err) => self.preferences_error = Some(format!("Could not change the beta features: {err}")),
+        }
     }
 
     fn close_tray_hint(&mut self) {

@@ -50,18 +50,11 @@ pub const GDRIVE_CLIENT_ID_GUIDE: &str = "https://rclone.org/drive/#making-your-
 /// Syncative's privacy policy, usable as privacy policy link in the Google consent screen's branding.
 pub const PRIVACY_POLICY: &str = "https://github.com/Santuzius/syncative/blob/main/PRIVACY.md";
 
-/// The set of backends Syncative's sync algorithm has been exercised
-/// against. WebDAV / Nextcloud / Owncloud / Dropbox / pCloud are
-/// deliberately absent from the Add Remote picker: the snapshot
-/// algorithm is backend-agnostic so they should work, but none of them
-/// have been rate-limit-tested the way Proton and Google have. The
-/// enum variants stay in place so the auth / RPC code paths keep
-/// compiling — just the UI surface is slimmed.
+/// The backends the auth code can set up. The picker offers Proton and Google, which the sync algorithm has been exercised against, and Nextcloud as a beta feature (see [`provider_options`]). WebDAV / Owncloud / Dropbox / pCloud stay out of it: the snapshot algorithm is backend-agnostic so they should work, but none of them have been tested; their variants stay so the auth / RPC code paths keep compiling.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderKind {
     #[allow(dead_code)]
     WebDav,
-    #[allow(dead_code)]
     Nextcloud,
     #[allow(dead_code)]
     Owncloud,
@@ -74,10 +67,6 @@ pub enum ProviderKind {
 }
 
 impl ProviderKind {
-    /// Providers visible in the Add Remote UI today. Order matches the
-    /// picker: Proton first (most recently tested), Google next.
-    pub const ALL: [ProviderKind; 2] = [ProviderKind::ProtonDrive, ProviderKind::GDrive];
-
     pub fn webdav_vendor(self) -> Option<WebDavVendor> {
         match self {
             ProviderKind::WebDav => Some(WebDavVendor::WebDav),
@@ -113,6 +102,16 @@ impl ProviderKind {
     pub fn is_proton_drive(self) -> bool {
         matches!(self, ProviderKind::ProtonDrive)
     }
+
+    /// Offered only with the beta features on (see `services::beta`).
+    pub fn is_beta(self) -> bool {
+        matches!(self, ProviderKind::Nextcloud)
+    }
+
+    /// The name in the window, with the beta mark where it applies.
+    pub fn label(self) -> String {
+        if self.is_beta() { format!("{self} {}", crate::services::beta::MARK) } else { self.to_string() }
+    }
 }
 
 /// Pick-list wrapper over `ProviderKind`. Kept as a distinct type so
@@ -123,14 +122,18 @@ struct ProviderOption(ProviderKind);
 
 impl std::fmt::Display for ProviderOption {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        f.write_str(&self.0.label())
     }
 }
 
-const PROVIDER_OPTIONS: [ProviderOption; 2] = [
-    ProviderOption(ProviderKind::ProtonDrive),
-    ProviderOption(ProviderKind::GDrive),
-];
+/// The providers in the picker; `beta`: the beta features are on.
+fn provider_options(beta: bool) -> Vec<ProviderOption> {
+    let mut options = vec![ProviderOption(ProviderKind::ProtonDrive), ProviderOption(ProviderKind::GDrive)];
+    if beta {
+        options.push(ProviderOption(ProviderKind::Nextcloud));
+    }
+    options
+}
 
 impl std::fmt::Display for ProviderKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -228,17 +231,18 @@ fn third_party_notice<'a>(company: &str) -> Element<'a, Msg> {
 }
 
 /// The dialog card; the app centres it over a dimmed backdrop.
-pub fn view(draft: &Draft) -> Element<'_, Msg> {
+/// `beta`: the beta features are on, which adds their providers to the picker.
+pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
     let heading = text(if draft.reauth { "Sign in again" } else { "Add remote" }).size(HEADING + 2.0);
 
     // In reauth mode the name and provider are fixed (the name keys the DB row + session), so show them as plain text.
     let mut body = column![heading].spacing(12);
     if draft.reauth {
-        let provider = draft.provider.map(|p| p.to_string()).unwrap_or_default();
+        let provider = draft.provider.map(ProviderKind::label).unwrap_or_default();
         body = body.push(hint("Enter fresh credentials. Folders, exclusions and schedule are kept — only the sign-in session is replaced."));
         body = body.push(field("Remote", text(format!("{} ({provider})", draft.name)).size(TEXT)));
     } else {
-        let picker = pick_list(&PROVIDER_OPTIONS[..], draft.provider.map(ProviderOption), |o| Msg::ProviderChanged(o.0))
+        let picker = pick_list(provider_options(beta), draft.provider.map(ProviderOption), |o| Msg::ProviderChanged(o.0))
             .text_shaping(Shaping::Advanced)
             .text_size(TEXT)
             .padding([6, 10])

@@ -39,6 +39,13 @@ pub enum Msg {
     Export,
     /// Add remotes and folders from such a file and take over its preferences.
     Import,
+    /// "Enable…" next to the beta features: asks with [`beta_dialog`] first.
+    EnableBeta,
+    /// "Yes" in [`beta_dialog`].
+    BetaAccepted,
+    /// "No" in [`beta_dialog`], or its backdrop.
+    BetaDeclined,
+    DisableBeta,
     Close,
 }
 
@@ -53,9 +60,9 @@ pub struct Power {
 }
 
 /// `compact`: the phone layout, where the button groups go below their labels.
-/// `sync_metered`: sync on metered networks too; `log_note`: how the last copy or clear of the log went; `note`: how the last export or import went.
+/// `sync_metered`: sync on metered networks too; `log_note`: how the last copy or clear of the log went; `note`: how the last export or import went; `beta`: the beta features are on.
 #[allow(clippy::too_many_arguments)]
-pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool, autostart: bool, start_hidden: bool, detailed_log: bool, log_note: Option<&'a str>, note: Option<&'a str>, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
+pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool, autostart: bool, start_hidden: bool, detailed_log: bool, log_note: Option<&'a str>, note: Option<&'a str>, beta: bool, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
     let android = cfg!(target_os = "android");
     let size_hint = if android { "Text and everything else in this window, relative to the system's font and display size." } else { "Text and everything else in this window." };
     let mut rows = column![
@@ -138,6 +145,7 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool
     if let Some(note) = note {
         rows = rows.push(row_note(note));
     }
+    rows = rows.push(separator()).push(beta_row(beta));
 
     let mut content = column![
         text("Preferences").size(HEADING + 2.0),
@@ -158,6 +166,40 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool
 /// "Sync on metered networks", with what counts as metered on this platform.
 fn metered_row(sync_metered: bool, hint: &'static str) -> Element<'static, Msg> {
     setting_row("Sync on metered networks", hint, toggler(sync_metered).on_toggle(Msg::SyncMeteredToggled).size(20).into())
+}
+
+/// Switches the beta features: on only after [`beta_dialog`], off at once.
+fn beta_row(beta: bool) -> Element<'static, Msg> {
+    let (detail, control) = if beta {
+        ("On. Features that haven't been fully tested yet are marked with 🧪.", button(text("Disable").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::DisableBeta))
+    } else {
+        ("Features that haven't been fully tested yet, e.g. if you'd like to help testing them and report issues.", button(text("Enable…").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::EnableBeta))
+    };
+    setting_row("Beta features 🧪", detail, control.into())
+}
+
+/// Asked before the beta features go on.
+pub fn beta_dialog<'a>() -> Element<'a, Msg> {
+    let mut features = column![].spacing(4);
+    for &feature in crate::services::beta::FEATURES {
+        features = features.push(bullet(feature));
+    }
+    let content = column![
+        text("Enable beta features 🧪").size(HEADING + 2.0),
+        text("⚠️ Use beta features at your own risk. In the worst case you can lose data, so don't use them with important files, or make a backup first.").size(TEXT),
+        text("Beta features to be enabled:").size(TEXT),
+        features,
+        text("All of them are marked with 🧪.").size(TEXT),
+        text("Accept all risks and continue?").size(TEXT),
+        row![
+            Space::new().width(Length::Fill),
+            button(text("No").size(TEXT)).padding([6, 16]).style(theme::button_primary).on_press(Msg::BetaDeclined),
+            button(text("Yes").size(TEXT)).padding([6, 16]).style(theme::button_danger).on_press(Msg::BetaAccepted),
+        ]
+        .spacing(8),
+    ]
+    .spacing(12);
+    container(content).padding(22).max_width(520).style(theme::dialog).into()
 }
 
 /// A short note under the row above it.
