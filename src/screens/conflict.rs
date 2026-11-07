@@ -354,26 +354,28 @@ fn link_view<'a>(dialog: &'a Dialog, link: &'a Link, compact: bool) -> Element<'
     let remote = dialog.remote_name.as_str();
     let name = file_name(&c.local_path);
     let target = fmt_home(&link.target);
+    let size = |size: Option<u64>| size.map_or_else(|| "size unknown".to_owned(), fmt_size);
     let points_to = match link.target_kind {
-        LinkTarget::File => format!("'{name}' is a link to the file {target} ({}).", c.local.size.map_or_else(|| "size unknown".to_owned(), fmt_size)),
+        LinkTarget::File => format!("'{name}' is a link to the file {target} ({}).", size(c.local.size)),
         LinkTarget::Folder => format!("'{name}' is a link to the folder {target}."),
         LinkTarget::Missing => format!("'{name}' is a link to {target}, which doesn't exist anymore."),
     };
     let mut body = column![text(format!("{points_to} Syncative can't sync links, so its content isn't synced.")).size(TEXT)].spacing(12);
     if let Some(details) = &c.remote {
-        let what = if link.remote_is_dir { "a folder".to_owned() } else { format!("a file ({})", details.size.map_or_else(|| "size unknown".to_owned(), fmt_size)) };
+        let what = if link.remote_is_dir { "a folder".to_owned() } else { format!("a file ({})", size(details.size)) };
         body = body.push(text(format!("{remote} has {what} of the same name, last modified {}.", fmt_date(details.mod_time))).size(TEXT));
     }
 
-    let (replace_label, replace_note) = match (link.target_kind, c.remote.is_some()) {
-        (LinkTarget::File, true) | (LinkTarget::Folder, true) => (
-            if link.target_kind == LinkTarget::File { "Replace with a copy of the file" } else { "Replace with a copy of the folder" },
-            format!("The copy takes the link's place and is synced from then on; the original stays where it is, separate from the copy. If it differs from the version on {remote}, you'll be asked which to keep."),
-        ),
-        (LinkTarget::File, false) => ("Replace with a copy of the file", "The copy takes the link's place and is uploaded; the original stays where it is, separate from the copy.".to_owned()),
-        (LinkTarget::Folder, false) => ("Replace with a copy of the folder", "The copy takes the link's place and is uploaded; the original stays where it is, separate from the copy.".to_owned()),
-        (LinkTarget::Missing, true) => ("Delete the link", format!("The version on {remote} is downloaded in its place.")),
-        (LinkTarget::Missing, false) => ("Delete the link", "Nothing takes its place.".to_owned()),
+    let (replace_glyph, replace_label) = match link.target_kind {
+        LinkTarget::File => (icondata::TbCopyOutline, "Replace with a copy of the file"),
+        LinkTarget::Folder => (icondata::TbCopyOutline, "Replace with a copy of the folder"),
+        LinkTarget::Missing => (icondata::TbTrashOutline, "Delete the link"),
+    };
+    let replace_note = match (link.target_kind, c.remote.is_some()) {
+        (LinkTarget::Missing, true) => format!("The version on {remote} is downloaded in its place."),
+        (LinkTarget::Missing, false) => "Nothing takes its place.".to_owned(),
+        (_, true) => format!("The copy takes the link's place and is synced from then on; the original stays where it is, separate from the copy. If it differs from the version on {remote}, you'll be asked which to keep."),
+        (_, false) => "The copy takes the link's place and is uploaded; the original stays where it is, separate from the copy.".to_owned(),
     };
     let leave_note = if c.remote.is_some() {
         format!("The link stays as it is, and so does the version on {remote}. Both are added to this folder's exclusions, where you can remove them again.")
@@ -390,7 +392,6 @@ fn link_view<'a>(dialog: &'a Dialog, link: &'a Link, compact: bool) -> Element<'
         ]
         .spacing(6)
     };
-    let replace_glyph = if link.target_kind == LinkTarget::Missing { icondata::TbTrashOutline } else { icondata::TbCopyOutline };
     body = body
         .push(choice(replace_glyph, replace_label, replace_note, Msg::ReplaceLink))
         .push(choice(icondata::TbLinkOutline, "Leave the link", leave_note, Msg::LeaveLink));
