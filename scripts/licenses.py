@@ -247,7 +247,7 @@ for library, _url, kind in csv.reader(open(os.path.join(tmp, "go.csv"))):
     text = open(os.path.join(folder, files[0]), encoding="utf-8", errors="replace").read()
     module = max((path for path in versions if library == path or library.startswith(path + "/")), key=len, default="")
     source = go_dirs.get(library) or next((d for path, d in sorted(go_dirs.items()) if path.startswith(library + "/")), "")
-    add(kind, text, PORTED.get(library, library), versions.get(module, ""), go_files(source) if source else [], repository="https://" + "/".join(library.split("/")[:3]) if library.startswith("github.com/") else None, go=True)
+    add(kind, text, PORTED.get(library, library), versions.get(module, ""), go_files(source) if source else [], go=True)
 
 # The license texts first; the other files only of the packages whose text names nobody.
 key_of = lambda text: hashlib.sha256(text.encode()).hexdigest()
@@ -260,41 +260,24 @@ for entry in entries:
             pieces.setdefault(path, head(path))
 file_finds = scan({path: text for path, text in pieces.items() if text.strip()})
 
-# Go paths whose start says little: the short form that replaces it.
-GO_PREFIXES = {
-    "golang.org/x/": "x/",
-    "cloud.google.com/go/": "cloud/",
-    "google.golang.org/": "google/",
-    "go.opentelemetry.io/otel": "otel",
-    "go.opentelemetry.io/": "otel/",
-}
-# Repository names that need their owner to mean anything.
-GO_GENERIC = {"common", "errors"}
+def go_name(library, depth=1):
+    """A Go package's name: the last part of its path without a major version, such as x/crypto → crypto. "go" names nothing, so client_model/go is client_model. `depth` parts tell apart packages with the same last part."""
+    parts = [re.sub(r"\.v\d+$", "", part) for part in library.split("/")[1:] if not re.fullmatch(r"v\d+", part)]
+    if parts and parts[-1] == "go":
+        parts.pop()
+    return "/".join(parts[-depth:]) or library
 
 
-def go_name(library):
-    """A Go package's name without its host, owner and major version: github.com/spf13/pflag → pflag, golang.org/x/crypto → x/crypto."""
-    parts = library.split("/")
-    for start, short in GO_PREFIXES.items():
-        if library.startswith(start):
-            parts = (short + library[len(start):]).split("/")
-            break
-    else:
-        keep_owner = len(parts) > 2 and parts[2] in GO_GENERIC
-        parts = parts[1:] if keep_owner else parts[2:] if parts[0] in ("github.com", "gitlab.com", "bitbucket.org", "codeberg.org") else parts[1:]
-    parts = [re.sub(r"\.v\d+$", "", part) for part in parts if not re.fullmatch(r"v\d+", part)]
-    return "/".join(parts) or library
+def go_source(library):
+    """Where a Go package comes from. Its path, which on GitHub only leads somewhere up to the repository."""
+    return "https://" + ("/".join(library.split("/")[:3]) if library.startswith("github.com/") else library)
 
 
-# A short name that several packages would share keeps the full path.
 go_libraries = {e["name"] for e in entries if e["go"] and e["name"] not in PORTED.values()}
-crate_names = {e["name"] for e in entries if not e["go"]}
 short_counts = collections.Counter(go_name(library) for library in go_libraries)
 for entry in entries:
     if entry["name"] in go_libraries:
-        short = go_name(entry["name"])
-        if short_counts[short] == 1 and short not in crate_names:
-            entry["display"] = short
+        entry["display"] = go_name(entry["name"], 1 if short_counts[go_name(entry["name"])] == 1 else 2)
 
 groups = {}
 
@@ -319,9 +302,9 @@ def notices_of(entry):
 
 for entry in entries:
     notices = notices_of(entry)
-    # The short forms of GO_PREFIXES aren't names of their own, so the full path stays findable.
-    if "display" in entry and entry["name"].startswith(tuple(GO_PREFIXES)):
-        notices = ["Source: https://" + entry["name"], *notices]
+    # The name alone doesn't say which package it is.
+    if "display" in entry:
+        notices = ["Source: " + go_source(entry["name"]), *notices]
     name = PARTS[(entry["name"], entry["kind"])][0] if (entry["name"], entry["kind"]) in PARTS else entry.get("display", entry["name"])
     kind = entry["kind"]
     group = groups.setdefault((kind, wording(entry["body"])), {"license": kind, "text": reflow(entry["body"]), "packages": {}})
