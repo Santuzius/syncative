@@ -232,7 +232,7 @@ fn main<'a>() -> Element<'a, Msg> {
     let page = |label: &'a str, page: Page| button(text(label).size(CAPTION)).padding([5, 12]).style(theme::button_secondary).on_press(Msg::Show(page));
 
     let copyright = column![
-        text("© 2022–2024 Hunter Wittenborn (Celeste)").size(CAPTION).style(theme::muted),
+        text("© 2022–2024 Hunter Wittenborn (original project name: Celeste)").size(CAPTION).style(theme::muted),
         text("© 2026 Alexander Menzel").size(CAPTION).style(theme::muted),
         text("Licensed under the GNU GPL, version 3 or later.").size(CAPTION).style(theme::muted),
         container(page("License", Page::OwnLicense)).padding(iced::Padding::default().top(6.0)),
