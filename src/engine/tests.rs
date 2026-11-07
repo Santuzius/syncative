@@ -634,3 +634,41 @@ async fn originals_go_up_untouched_and_a_vanished_one_is_given_up_at_once() {
     assert!(!dir.exists());
     assert!(kept.exists());
 }
+
+#[tokio::test]
+async fn a_shared_file_saved_during_its_upload_goes_up_again_under_the_same_name() {
+    let mut rig = rig().await;
+    let data = TempDir::new("engine-changed");
+    let original = data.write_file("docs/notes.txt", b"v1");
+    let dir = crate::services::share::queue_upload(&data.path, std::path::Path::new("originals-1"), false, std::slice::from_ref(&original), R1, "").unwrap();
+    // First try: the file is saved while it goes up.
+    *rig.backend.during_copy_to_remote.lock().unwrap() = Some(Box::new(|local: &str| {
+        std::fs::write(local, b"v2, longer").unwrap();
+    }));
+    rig.send(Command::Upload(dir.clone())).await;
+    let start = Instant::now();
+    rig.core.start_due(start);
+    rig.next_upload().await;
+    let status = rig.snap().uploads[&R1].clone();
+    assert_eq!((status.files, status.active), (1, false));
+    assert!(status.error.is_some());
+    // The failed try left notes.txt in the cloud; the next one replaces it instead of adding "notes (1).txt".
+    rig.backend.set_list("", Ok(vec![crate::test_support::remote_item("notes.txt", false, 0)]));
+    *rig.backend.during_copy_to_remote.lock().unwrap() = None;
+    // rclone's own report of a save while it reads counts the same, and neither counts as a failed try.
+    for _ in 0..super::core::UPLOAD_TRIES {
+        rig.backend.set_copy_to_remote(Err("can't copy - source file is being updated (size changed from 2 to 10)".to_owned()));
+        rig.core.start_due(start + Duration::from_secs(3600));
+        rig.next_upload().await;
+    }
+    assert_eq!(rig.snap().uploads[&R1].files, 1);
+    rig.backend.set_copy_to_remote(Ok(()));
+    rig.core.start_due(start + Duration::from_secs(7200));
+    rig.next_upload().await;
+
+    let copies: Vec<String> = rig.backend.copy_to_remote_calls.lock().unwrap().iter().map(|(_, to)| to.clone()).collect();
+    assert_eq!(copies.len(), 2 + super::core::UPLOAD_TRIES as usize);
+    assert!(copies.iter().all(|to| to == "notes.txt"), "{copies:?}");
+    assert!(rig.snap().uploads.is_empty());
+    assert!(!dir.exists());
+}

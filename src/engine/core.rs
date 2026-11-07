@@ -37,6 +37,18 @@ use super::{
 pub(crate) const UPLOAD_TRIES: u32 = 3;
 /// Wait before a failed upload is tried again, times the tries so far.
 const UPLOAD_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
+/// Wait before a file that changed during its upload goes up again, so a save in progress can finish.
+const UPLOAD_SETTLE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Why a shared file didn't go up.
+#[derive(Debug)]
+pub(crate) struct UploadFailure {
+    /// The name it was uploaded under in the cloud folder, once chosen; a retry uses it again, so it replaces what the failed try may have left instead of adding "name (1)".
+    name: Option<String>,
+    /// The file changed while it was read, so the cloud may hold an old or a mixed state; it goes up again without counting as a failed try.
+    changed: bool,
+    error: String,
+}
 
 /// Shared files on their way to a remote (see [`Command::Upload`]).
 struct UploadJob {
@@ -45,6 +57,8 @@ struct UploadJob {
     active: bool,
     /// Failed tries of its first file.
     tries: u32,
+    /// The name its first file got in the cloud folder at an earlier try (see [`UploadFailure::name`]).
+    name: Option<String>,
     error: Option<String>,
     /// Not tried again before.
     retry_at: Option<Instant>,
@@ -736,7 +750,7 @@ impl Core {
             share::discard(dir);
             return;
         }
-        self.uploads.push(UploadJob { upload, active: false, tries: 0, error: None, retry_at: None, cancel: Arc::new(AtomicBool::new(false)) });
+        self.uploads.push(UploadJob { upload, active: false, tries: 0, name: None, error: None, retry_at: None, cancel: Arc::new(AtomicBool::new(false)) });
     }
 
     /// Whether uploads to the remote can go ahead: online and signed in.
@@ -762,16 +776,16 @@ impl Core {
             let Some(file) = job.upload.files.first().cloned() else { continue };
             let Some(remote) = self.remotes.iter().find(|r| r.id == id).map(|r| r.name.clone()) else { continue };
             job.active = true;
-            let (backend, folder, dir, cancel, tx) = (self.backend.clone(), job.upload.folder.clone(), job.upload.dir.clone(), job.cancel.clone(), self.tx.clone());
+            let (backend, folder, dir, cancel, tx, name) = (self.backend.clone(), job.upload.folder.clone(), job.upload.dir.clone(), job.cancel.clone(), self.tx.clone(), job.name.clone());
             tokio::task::spawn_blocking(move || {
-                let result = upload_shared(&*backend, &remote, &folder, &file, &cancel);
+                let result = upload_shared(&*backend, &remote, &folder, &file, name, &cancel);
                 let _ = tx.send(Input::Uploaded { dir, file, result });
             });
         }
     }
 
     /// A shared file went up or not: on to the next, try again later, or give it up after [`UPLOAD_TRIES`].
-    fn uploaded(&mut self, dir: &Path, file: PathBuf, result: Result<String, String>) {
+    fn uploaded(&mut self, dir: &Path, file: PathBuf, result: Result<String, UploadFailure>) {
         let Some(index) = self.uploads.iter().position(|j| j.upload.dir == dir) else { return };
         let remote_id = self.uploads[index].upload.remote_id;
         let remote_name = self.remotes.iter().find(|r| r.id == remote_id).map(|r| r.name.clone()).unwrap_or_default();
@@ -784,7 +798,7 @@ impl Core {
                 eprintln!("syncative: uploaded the shared file {name} to {remote_name}:{target}");
                 job.upload.files.retain(|f| *f != file);
                 share::file_done(&job.upload, &file);
-                (job.tries, job.error, job.retry_at) = (0, None, None);
+                (job.tries, job.name, job.error, job.retry_at) = (0, None, None, None);
             }
             Err(_) if job.cancel.load(Ordering::Acquire) => return,
             // An original moved or deleted since it was handed over: trying again won't find it either.
@@ -792,9 +806,17 @@ impl Core {
                 shared_file_given_up(&name, &remote_name, "it was moved or deleted before it was saved");
                 job.upload.files.retain(|f| *f != file);
                 share::file_done(&job.upload, &file);
-                (job.tries, job.error, job.retry_at) = (0, None, None);
+                (job.tries, job.name, job.error, job.retry_at) = (0, None, None, None);
             }
-            Err(err) => {
+            // Saved while it went up: up again under the same name once the save is done, without counting it as a failure.
+            Err(UploadFailure { name: chosen, changed: true, error }) => {
+                eprintln!("syncative: the shared file {name} changed during its upload to {remote_name}; uploading it again ({error})");
+                job.name = chosen;
+                job.error = Some("it changed while it was uploading".to_owned());
+                job.retry_at = Some(Instant::now() + UPLOAD_SETTLE);
+            }
+            Err(UploadFailure { name: chosen, error: err, .. }) => {
+                job.name = chosen;
                 let auth = is_auth_failure(&err);
                 let offline = self.offline || crate::infrastructure::translators::is_offline(&err);
                 if auth {
@@ -808,7 +830,7 @@ impl Core {
                     shared_file_given_up(&name, &remote_name, &err);
                     job.upload.files.retain(|f| *f != file);
                     share::file_done(&job.upload, &file);
-                    (job.tries, job.error, job.retry_at) = (0, None, None);
+                    (job.tries, job.name, job.error, job.retry_at) = (0, None, None, None);
                 } else {
                     job.error = Some(err);
                     job.retry_at = Some(Instant::now() + UPLOAD_RETRY * job.tries.max(1));
@@ -846,21 +868,42 @@ impl Core {
     }
 }
 
-/// Upload `file` into `folder` of `remote` under its name, or the first free "name (n)" there; returns the name used. Nothing in the cloud is overwritten.
-fn upload_shared(backend: &dyn BackendClient, remote: &str, folder: &str, file: &Path, cancel: &Cancel) -> Result<String, String> {
-    let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).ok_or("no file name")?;
-    let taken: Vec<String> = match backend.list(remote, folder, false, crate::domain::sync::ListFilter::All, cancel) {
-        Ok(items) => items.into_iter().map(|item| item.name).collect(),
-        // A folder deleted in the meantime is created by the upload; any other failure would risk overwriting a file.
-        Err(err) => match backend.stat(remote, folder, cancel) {
-            Ok(None) if !folder.is_empty() => Vec::new(),
-            _ => return Err(err),
-        },
+/// Upload `file` into `folder` of `remote` under `name` from an earlier try, else under its own name or the first free "name (n)" there; returns the name used. Nothing in the cloud is overwritten but what an earlier try of this file left.
+fn upload_shared(backend: &dyn BackendClient, remote: &str, folder: &str, file: &Path, name: Option<String>, cancel: &Cancel) -> Result<String, UploadFailure> {
+    let fail = |name: Option<String>, changed: bool, error: String| UploadFailure { name, changed, error };
+    let name = match name {
+        Some(name) => name,
+        None => {
+            let own = file.file_name().map(|n| n.to_string_lossy().into_owned()).ok_or_else(|| fail(None, false, "no file name".to_owned()))?;
+            let taken: Vec<String> = match backend.list(remote, folder, false, crate::domain::sync::ListFilter::All, cancel) {
+                Ok(items) => items.into_iter().map(|item| item.name).collect(),
+                // A folder deleted in the meantime is created by the upload; any other failure would risk overwriting a file.
+                Err(err) => match backend.stat(remote, folder, cancel) {
+                    Ok(None) if !folder.is_empty() => Vec::new(),
+                    _ => return Err(fail(None, false, err)),
+                },
+            };
+            share::free_name(&own, |candidate| taken.iter().any(|t| t == candidate))
+        }
     };
-    let name = share::free_name(&name, |candidate| taken.iter().any(|t| t == candidate));
     let path = if folder.is_empty() { name.clone() } else { format!("{folder}/{name}") };
-    backend.copy_to_remote(&file.to_string_lossy(), remote, &path, cancel)?;
+    let before = file_state(file);
+    if let Err(err) = backend.copy_to_remote(&file.to_string_lossy(), remote, &path, cancel) {
+        // rclone stops reading a file that is written into while it reads.
+        let changed = err.contains("source file is being updated");
+        return Err(fail(Some(name), changed, err));
+    }
+    // Other backends read on regardless; size and time tell whether the file was saved meanwhile.
+    if file_state(file) != before {
+        return Err(fail(Some(name), true, "size or time changed during the upload".to_owned()));
+    }
     Ok(name)
+}
+
+/// Size and modification time, to notice a save during an upload.
+fn file_state(file: &Path) -> Option<(u64, std::time::SystemTime)> {
+    let meta = std::fs::metadata(file).ok()?;
+    Some((meta.len(), meta.modified().ok()?))
 }
 
 /// Tell the user that a shared file couldn't be saved; on Android as a notification, as nobody may be looking at the window.

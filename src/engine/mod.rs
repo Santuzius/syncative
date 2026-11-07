@@ -110,7 +110,7 @@ pub(crate) enum Input {
     /// The provider's space numbers asked for after a pass; `Ok(None)` when the backend has no quota to report.
     Usage(RemoteId, Result<Option<RemoteUsage>, String>),
     /// A shared file of the upload in `dir` went up under the given name, or not.
-    Uploaded { dir: std::path::PathBuf, file: std::path::PathBuf, result: Result<String, String> },
+    Uploaded { dir: std::path::PathBuf, file: std::path::PathBuf, result: Result<String, self::core::UploadFailure> },
 }
 
 /// Shared files on their way to a remote, as its state shows them.
