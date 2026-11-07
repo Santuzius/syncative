@@ -127,6 +127,10 @@ impl Core {
                 }
             }
             Err(err) => {
+                // A remote without folders makes no other calls, so this is where a wrong password shows. Flagging it keeps the scheduler off the remote; otherwise every pass would try again, and servers such as Nextcloud throttle all logins from this address after a few failures.
+                if super::is_auth_failure(&err) {
+                    self.state.auth_failure(id);
+                }
                 if self.usage_failed.insert(id) {
                     eprintln!("syncative: couldn't get the used space of '{}': {err}", remote.name);
                 }

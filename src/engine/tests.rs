@@ -398,6 +398,21 @@ async fn auth_failure_holds_the_remote_until_signed_in() {
 }
 
 #[tokio::test]
+async fn a_rejected_password_on_the_space_request_holds_the_remote() {
+    let mut rig = rig().await;
+    // rclone's WebDAV wording for Nextcloud with a wrong password.
+    rig.core
+        .handle(Input::Usage(R1, Err("about call failed: 401 Unauthorized".into())))
+        .await;
+    assert!(rig.snap().state.needs_reauth(R1));
+    // Other failures, e.g. a backend without quota, don't.
+    rig.core
+        .handle(Input::Usage(R2, Err("webdav doesn't support about".into())))
+        .await;
+    assert!(!rig.snap().state.needs_reauth(R2));
+}
+
+#[tokio::test]
 async fn degraded_passes_skip_turns() {
     let mut rig = rig().await;
     rig.set_enabled(R2, false);
