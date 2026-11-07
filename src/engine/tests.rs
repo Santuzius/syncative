@@ -546,7 +546,7 @@ fn queued_upload(data: &TempDir, remote: RemoteId, folder: &str, names: &[&str])
     for name in names {
         data.write_file(&format!("share/{name}"), name.as_bytes());
     }
-    crate::services::share::queue_upload(&data.path, &data.path.join("share"), remote, folder).unwrap()
+    crate::services::share::queue_upload(&data.path, &data.path.join("share"), true, &[], remote, folder).unwrap()
 }
 
 #[tokio::test]
@@ -611,4 +611,26 @@ async fn shared_files_wait_for_the_connection() {
     rig.core.start_due(Instant::now());
     rig.next_upload().await;
     assert!(rig.snap().uploads.is_empty());
+}
+
+#[tokio::test]
+async fn originals_go_up_untouched_and_a_vanished_one_is_given_up_at_once() {
+    let mut rig = rig().await;
+    let data = TempDir::new("engine-originals");
+    let kept = data.write_file("docs/kept.txt", b"kept");
+    let gone = data.path.join("docs/gone.txt");
+    let dir = crate::services::share::queue_upload(&data.path, std::path::Path::new("originals-1"), false, &[kept.clone(), gone.clone()], R1, "").unwrap();
+    rig.backend.set_copy_to_remote(Ok(()));
+    rig.send(Command::Upload(dir.clone())).await;
+    rig.core.start_due(Instant::now());
+    rig.next_upload().await;
+    assert_eq!(std::fs::read(&kept).unwrap(), b"kept");
+    // The next one no longer exists: its upload fails and isn't tried again.
+    rig.backend.set_copy_to_remote(Err("no such file".to_owned()));
+    rig.core.start_due(Instant::now());
+    rig.next_upload().await;
+    assert_eq!(rig.backend.copy_to_remote_calls.lock().unwrap().len(), 2);
+    assert!(rig.snap().uploads.is_empty());
+    assert!(!dir.exists());
+    assert!(kept.exists());
 }

@@ -18,10 +18,10 @@ impl SyncativeApp {
     /// Handle [`Message::ShareIncoming`]. A new share replaces one that waits for the user's choice.
     pub(in crate::app) fn handle_share_incoming(&mut self, incoming: Incoming) -> Task<Message> {
         match incoming {
-            Incoming::Started { folder, count } => {
+            Incoming::Started { folder, count, copies } => {
                 self.drop_share();
                 self.drawer_open = false;
-                self.share = Some(Share::new(folder, count));
+                self.share = Some(Share::new(folder, count, copies));
                 Task::none()
             }
             Incoming::Ready { folder, files, error } if self.share.as_ref().is_some_and(|s| s.folder == folder && s.step == Step::Preparing) => {
@@ -104,7 +104,7 @@ impl SyncativeApp {
         let Some(remote) = share.remote.and_then(|id| self.remotes.iter().find(|r| r.id == id)) else {
             return Task::none();
         };
-        match shared::queue_upload(&crate::util::get_data_dir(), &share.folder, remote.id, &folder) {
+        match shared::queue_upload(&crate::util::get_data_dir(), &share.folder, share.copies, &share.files, remote.id, &folder) {
             Ok(dir) => {
                 self.engine.send(Command::Upload(dir));
                 let place = if folder.is_empty() { remote.title() } else { format!("{} › {}", remote.title(), folder.replace('/', " › ")) };
@@ -141,7 +141,7 @@ impl SyncativeApp {
         if self.folder_picker.as_ref().is_some_and(|p| p.target == Target::Share) {
             self.close_folder_picker();
         }
-        if let Some(share) = self.share.take() {
+        if let Some(share) = self.share.take().filter(|s| s.copies) {
             shared::discard(&share.folder);
         }
     }

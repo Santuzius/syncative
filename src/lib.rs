@@ -115,13 +115,6 @@ fn set_up() -> Option<Services> {
     if let infrastructure::single_instance::Instance::Secondary = infrastructure::single_instance::acquire(&data_dir, SAVE.get().map_or(&[], Vec::as_slice)) {
         return None;
     }
-    // Files handed over by an earlier run that ended before they were saved; nothing uses them now.
-    #[cfg(not(target_os = "android"))]
-    if let Err(err) = std::fs::remove_dir_all(services::share::shared_dir())
-        && err.kind() != std::io::ErrorKind::NotFound
-    {
-        eprintln!("syncative: could not clear {}: {err}", services::share::shared_dir().display());
-    }
 
     legacy_config_dir::run(&data_dir);
     #[cfg(not(target_os = "android"))]

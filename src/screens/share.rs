@@ -24,11 +24,13 @@ const DIALOG_HEIGHT: f32 = 360.0;
 
 /// A share being saved.
 pub struct Share {
-    /// The cache folder with the copies of the shared files; deleted when the share is done with.
+    /// The cache folder with the copies of the shared files, deleted when the share is done with (Android); only the share's name for originals (desktop).
     pub folder: PathBuf,
+    /// The files are Syncative's copies in `folder`; otherwise the user's originals, which are never deleted.
+    pub copies: bool,
     /// How many files were shared.
     pub count: usize,
-    /// The copies, once they are all there.
+    /// The copies once they are all there, or the originals.
     pub files: Vec<PathBuf>,
     pub step: Step,
     /// The chosen account.
@@ -46,8 +48,8 @@ pub enum Step {
 }
 
 impl Share {
-    pub fn new(folder: PathBuf, count: usize) -> Self {
-        Self { folder, count, files: Vec::new(), step: Step::Preparing, remote: None }
+    pub fn new(folder: PathBuf, count: usize, copies: bool) -> Self {
+        Self { folder, copies, count, files: Vec::new(), step: Step::Preparing, remote: None }
     }
 
     /// What is being saved: the file's name, or how many files.

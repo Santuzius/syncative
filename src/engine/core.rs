@@ -783,10 +783,17 @@ impl Core {
                 let target = if job.upload.folder.is_empty() { saved_as } else { format!("{}/{saved_as}", job.upload.folder) };
                 eprintln!("syncative: uploaded the shared file {name} to {remote_name}:{target}");
                 job.upload.files.retain(|f| *f != file);
-                let _ = std::fs::remove_file(&file);
+                share::file_done(&job.upload, &file);
                 (job.tries, job.error, job.retry_at) = (0, None, None);
             }
             Err(_) if job.cancel.load(Ordering::Acquire) => return,
+            // An original moved or deleted since it was handed over: trying again won't find it either.
+            Err(_) if !job.upload.copies && !file.is_file() => {
+                shared_file_given_up(&name, &remote_name, "it was moved or deleted before it was saved");
+                job.upload.files.retain(|f| *f != file);
+                share::file_done(&job.upload, &file);
+                (job.tries, job.error, job.retry_at) = (0, None, None);
+            }
             Err(err) => {
                 let auth = is_auth_failure(&err);
                 let offline = self.offline || crate::infrastructure::translators::is_offline(&err);
@@ -800,7 +807,7 @@ impl Core {
                 if job.tries >= UPLOAD_TRIES {
                     shared_file_given_up(&name, &remote_name, &err);
                     job.upload.files.retain(|f| *f != file);
-                    let _ = std::fs::remove_file(&file);
+                    share::file_done(&job.upload, &file);
                     (job.tries, job.error, job.retry_at) = (0, None, None);
                 } else {
                     job.error = Some(err);

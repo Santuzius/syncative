@@ -3,7 +3,6 @@
 //! Two instances on the same SQLite DB would run overlapping sync passes over the same trees. The first process takes an exclusive `flock` on `<data_dir>/instance.lock` and listens on `<data_dir>/instance.sock`; a later launch (e.g. the app-menu entry while the autostarted copy sits in the tray) fails the lock, asks the running instance to show its window over the socket, and exits. A launch with `--save <files>` (the file manager's context menu) sends `save`, a newline and the paths separated by NUL bytes instead, and the running instance asks where to save them.
 
 use std::{
-    ffi::OsStr,
     fs::File,
     io::{Read, Write},
     os::{
@@ -89,7 +88,7 @@ pub fn show_requests() -> Subscription<()> {
                         }
                         if let Some(paths) = request.strip_prefix(b"save\n") {
                             #[cfg(not(target_os = "android"))]
-                            crate::services::share::receive_files(paths.split(|b| *b == 0).filter(|p| !p.is_empty()).map(|p| PathBuf::from(OsStr::from_bytes(p))).collect());
+                            crate::services::share::receive_files(paths.split(|b| *b == 0).filter(|p| !p.is_empty()).map(|p| PathBuf::from(std::ffi::OsStr::from_bytes(p))).collect());
                             #[cfg(target_os = "android")]
                             let _ = paths;
                         } else if request.trim_ascii() != b"show" {

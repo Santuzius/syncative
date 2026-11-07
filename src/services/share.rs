@@ -1,4 +1,4 @@
-//! Files shared from other apps (Android's "Share" → Syncative): what arrives, queued until the window takes it, the uploads waiting in the data dir, and the free name a shared file gets in its cloud folder. The Android side copies the files into a cache folder of their own first and reports through [`push`]; once the user chose where they go, [`queue_upload`] moves them to `uploads/` in the data dir, where the engine uploads them in the background, also after a restart.
+//! Files shared from other apps (Android's "Share" → Syncative) or handed over by the file manager (desktop): what arrives, queued until the window takes it, the uploads waiting in the data dir, and the free name a shared file gets in its cloud folder. The Android side copies the files into a cache folder of their own first and reports through [`push`]; the desktop hands over the originals ([`receive_files`]). Once the user chose where they go, [`queue_upload`] records the upload in `uploads/` in the data dir (with Android's copies moved there), where the engine uploads the files in the background, also after a restart.
 
 use std::{
     collections::VecDeque,
@@ -11,11 +11,11 @@ use tokio::sync::Notify;
 
 use crate::domain::remote::RemoteId;
 
-/// A share's news, in the order it happened. A share is told apart by its cache folder.
+/// A share's news, in the order it happened. A share is told apart by its folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Incoming {
-    /// `count` files are being copied to `folder`.
-    Started { folder: PathBuf, count: usize },
+    /// `count` files are being copied to the cache folder `folder` (`copies`, Android), or handed over as they are, where `folder` only names the share (desktop).
+    Started { folder: PathBuf, count: usize, copies: bool },
     /// The files are in `folder`; `error` says why some or all are missing.
     Ready { folder: PathBuf, files: Vec<PathBuf>, error: Option<String> },
 }
@@ -41,8 +41,11 @@ pub async fn next() -> Incoming {
     }
 }
 
-/// Delete a share's cache folder once it is no longer needed.
+/// Delete a share's cache folder or an upload's folder once it is no longer needed. Only absolute paths: a desktop share's name (`originals-…`) is relative and must never delete a folder of that name wherever Syncative happens to run.
 pub fn discard(folder: &std::path::Path) {
+    if !folder.is_absolute() {
+        return;
+    }
     if let Err(err) = std::fs::remove_dir_all(folder)
         && err.kind() != std::io::ErrorKind::NotFound
     {
@@ -50,17 +53,7 @@ pub fn discard(folder: &std::path::Path) {
     }
 }
 
-/// Desktop: the folder in the cache that holds the files handed over by `syncative --save`, one sub-folder per hand-over.
-#[cfg(not(target_os = "android"))]
-pub fn shared_dir() -> PathBuf {
-    let base = match std::env::var_os("XDG_CACHE_HOME") {
-        Some(path) if !path.is_empty() => PathBuf::from(path),
-        _ => PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache"),
-    };
-    base.join("syncative/shared")
-}
-
-/// Desktop: files handed over by `syncative --save` (the file manager's context menu). They are linked, or copied where that fails, into a folder of their own in the cache, as Android's activity does with shared files, so the upload neither moves nor waits on the originals; folders are skipped.
+/// Desktop: files handed over by `syncative --save` (the file manager's context menu). They are uploaded straight from where they are, in the state they have at the time of the upload; nothing is copied, and Syncative never changes, moves or deletes them. Folders are skipped.
 #[cfg(not(target_os = "android"))]
 pub fn receive_files(paths: Vec<PathBuf>) {
     let files: Vec<PathBuf> = paths.into_iter().filter(|p| p.is_file()).collect();
@@ -68,42 +61,21 @@ pub fn receive_files(paths: Vec<PathBuf>) {
         return;
     }
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let folder = shared_dir().join(stamp.to_string());
-    push(Incoming::Started { folder: folder.clone(), count: files.len() });
-    std::thread::spawn(move || {
-        let mut copies = Vec::new();
-        let mut error = None;
-        if let Err(err) = std::fs::create_dir_all(&folder) {
-            error = Some(format!("Could not prepare the files: {err}"));
-        }
-        for file in &files {
-            if error.is_some() {
-                break;
-            }
-            let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".to_owned());
-            let name = free_name(&name, |candidate| folder.join(candidate).exists());
-            let copy = folder.join(name);
-            let done = std::fs::hard_link(file, &copy).or_else(|_| {
-                std::fs::copy(file, &copy)?;
-                // Keep the time of the original, as the upload passes it on.
-                let modified = std::fs::metadata(file)?.modified()?;
-                std::fs::File::options().write(true).open(&copy)?.set_modified(modified)
-            });
-            match done {
-                Ok(()) => copies.push(copy),
-                Err(err) => error = Some(format!("Could not read {}: {err}", file.display())),
-            }
-        }
-        push(Incoming::Ready { folder, files: copies, error });
-    });
+    // Only names the share; there is no such folder.
+    let folder = PathBuf::from(format!("originals-{stamp}"));
+    push(Incoming::Started { folder: folder.clone(), count: files.len(), copies: false });
+    push(Incoming::Ready { folder, files, error: None });
 }
 
-/// Where an upload goes: kept as `target.json` next to its `files/`.
+/// Where an upload goes: kept as `target.json`, next to its `files/` for copies.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Target {
     remote_id: i32,
     /// Folder on the drive, relative to its top; empty for the top itself.
     folder: String,
+    /// The user's own files still to upload, where they are; empty for copies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    originals: Vec<PathBuf>,
 }
 
 /// Shared files waiting to be uploaded.
@@ -113,8 +85,10 @@ pub struct Upload {
     pub dir: PathBuf,
     pub remote_id: RemoteId,
     pub folder: String,
-    /// The files still to upload, in name order.
+    /// The files still to upload: copies in name order, or originals in the order handed over.
     pub files: Vec<PathBuf>,
+    /// The files are Syncative's copies in `files/`, deleted once up; otherwise the user's originals, which are never touched.
+    pub copies: bool,
 }
 
 /// The folder in the data dir that holds the waiting uploads.
@@ -122,8 +96,8 @@ pub fn uploads_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("uploads")
 }
 
-/// Hand the copies in `share_folder` over to the background uploads: move them below `uploads/` with where they go, and return the upload's folder for [`load`].
-pub fn queue_upload(data_dir: &Path, share_folder: &Path, remote_id: RemoteId, folder: &str) -> std::io::Result<PathBuf> {
+/// Hand a share over to the background uploads, and return the upload's folder for [`load`]. With `copies`, the files in the cache folder `share_folder` move below `uploads/`; otherwise only the list of `originals` is kept.
+pub fn queue_upload(data_dir: &Path, share_folder: &Path, copies: bool, originals: &[PathBuf], remote_id: RemoteId, folder: &str) -> std::io::Result<PathBuf> {
     let base = uploads_dir(data_dir);
     std::fs::create_dir_all(&base)?;
     let name = share_folder.file_name().map_or_else(|| "upload".into(), |n| n.to_owned());
@@ -137,7 +111,7 @@ pub fn queue_upload(data_dir: &Path, share_folder: &Path, remote_id: RemoteId, f
     std::fs::create_dir_all(&dir)?;
     let files = dir.join("files");
     // The cache and the data dir share a file system on Android; elsewhere fall back to copying.
-    if std::fs::rename(share_folder, &files).is_err() {
+    if copies && std::fs::rename(share_folder, &files).is_err() {
         std::fs::create_dir_all(&files)?;
         for entry in std::fs::read_dir(share_folder)? {
             let entry = entry?;
@@ -145,20 +119,46 @@ pub fn queue_upload(data_dir: &Path, share_folder: &Path, remote_id: RemoteId, f
         }
         discard(share_folder);
     }
-    let target = serde_json::to_vec(&Target { remote_id: remote_id.0, folder: folder.to_owned() }).map_err(std::io::Error::other)?;
+    let originals = if copies { Vec::new() } else { originals.to_vec() };
     // Written last: a folder without it is an upload that never got queued.
-    std::fs::write(dir.join("target.json"), target)?;
+    write_target(&dir, &Target { remote_id: remote_id.0, folder: folder.to_owned(), originals })?;
     Ok(dir)
+}
+
+/// Write `target.json` next to it and rename, so a crash never leaves a half-written one.
+fn write_target(dir: &Path, target: &Target) -> std::io::Result<()> {
+    let json = serde_json::to_vec(target).map_err(std::io::Error::other)?;
+    let tmp = dir.join("target.json.tmp");
+    std::fs::write(&tmp, json)?;
+    std::fs::rename(&tmp, dir.join("target.json"))
+}
+
+/// `file` of `upload` is done with, up or given up, and already out of its list: delete it when it is a copy, else take it off the list in `target.json`, so a restart doesn't upload it again.
+pub fn file_done(upload: &Upload, file: &Path) {
+    let result = if upload.copies {
+        std::fs::remove_file(file)
+    } else {
+        write_target(&upload.dir, &Target { remote_id: upload.remote_id.0, folder: upload.folder.clone(), originals: upload.files.clone() })
+    };
+    if let Err(err) = result {
+        eprintln!("syncative: could not record the upload of {}: {err}", file.display());
+    }
 }
 
 /// The upload in `dir`, `None` when it isn't one (no `target.json`).
 pub fn load(dir: &Path) -> Option<Upload> {
     let target: Target = serde_json::from_slice(&std::fs::read(dir.join("target.json")).ok()?).ok()?;
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir.join("files"))
-        .map(|read| read.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect())
-        .unwrap_or_default();
-    files.sort();
-    Some(Upload { dir: dir.to_owned(), remote_id: RemoteId(target.remote_id), folder: target.folder, files })
+    let copies = target.originals.is_empty();
+    let files = if copies {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(dir.join("files"))
+            .map(|read| read.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect())
+            .unwrap_or_default();
+        files.sort();
+        files
+    } else {
+        target.originals
+    };
+    Some(Upload { dir: dir.to_owned(), remote_id: RemoteId(target.remote_id), folder: target.folder, files, copies })
 }
 
 /// Every waiting upload, oldest first; leftovers of uploads that never got queued are deleted.
@@ -218,7 +218,7 @@ mod tests {
         // Half-queued: no target.json.
         std::fs::create_dir_all(uploads_dir(&data).join("0")).unwrap();
 
-        let dir = queue_upload(&data, &share, RemoteId(7), "Inbox/Phone").unwrap();
+        let dir = queue_upload(&data, &share, true, &[], RemoteId(7), "Inbox/Phone").unwrap();
         assert!(!share.exists());
         let pending = pending(&data);
         assert_eq!(pending.len(), 1);
@@ -226,14 +226,31 @@ mod tests {
         let upload = &pending[0];
         assert_eq!((upload.dir.clone(), upload.remote_id, upload.folder.as_str()), (dir.clone(), RemoteId(7), "Inbox/Phone"));
         assert_eq!(upload.files, vec![dir.join("files/a.txt"), dir.join("files/b.txt")]);
+        assert!(upload.copies);
+    }
+
+    #[test]
+    fn originals_are_listed_not_moved_and_stay_when_done() {
+        let temp = crate::test_support::TempDir::new("share-originals");
+        let data = temp.path.join("data");
+        let (b, a) = (temp.write_file("docs/b.txt", b"b"), temp.write_file("docs/a.txt", b"a"));
+        let dir = queue_upload(&data, Path::new("originals-1"), false, &[b.clone(), a.clone()], RemoteId(3), "").unwrap();
+        assert!(!dir.join("files").exists());
+        let mut upload = load(&dir).unwrap();
+        assert_eq!((upload.files.clone(), upload.copies), (vec![b.clone(), a.clone()], false));
+
+        upload.files.retain(|f| *f != b);
+        file_done(&upload, &b);
+        assert!(b.exists() && a.exists());
+        assert_eq!(load(&dir).unwrap().files, vec![a]);
     }
 
     #[tokio::test]
     async fn news_arrives_in_order_even_before_anyone_waits() {
         let folder = PathBuf::from("/cache/shared/1");
-        push(Incoming::Started { folder: folder.clone(), count: 1 });
+        push(Incoming::Started { folder: folder.clone(), count: 1, copies: true });
         push(Incoming::Ready { folder: folder.clone(), files: vec![folder.join("a.txt")], error: None });
-        assert_eq!(next().await, Incoming::Started { folder: folder.clone(), count: 1 });
+        assert_eq!(next().await, Incoming::Started { folder: folder.clone(), count: 1, copies: true });
         assert!(matches!(next().await, Incoming::Ready { .. }));
     }
 }

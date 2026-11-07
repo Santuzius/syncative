@@ -16,7 +16,7 @@ extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeShareStarted(
     let Ok(folder) = env.get_string(&folder).map(String::from) else {
         return;
     };
-    share::push(Incoming::Started { folder: PathBuf::from(folder), count: count.max(0) as usize });
+    share::push(Incoming::Started { folder: PathBuf::from(folder), count: count.max(0) as usize, copies: true });
 }
 
 #[unsafe(no_mangle)]
