@@ -258,6 +258,7 @@ impl ksni::Tray for SyncativeTray {
             MenuItem::Separator,
             MenuItem::Standard(StandardItem {
                 label: "Sync all now".to_owned(),
+                enabled: !matches!(self.status, TrayStatus::Offline),
                 activate: Box::new(|t: &mut Self| {
                     let _ = t.click_tx.try_send(TrayAction::SyncAll);
                 }),
