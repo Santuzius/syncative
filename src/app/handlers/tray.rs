@@ -116,6 +116,7 @@ impl SyncativeApp {
                 }
                 Task::none()
             }
+            TrayAction::SyncAll => self.handle_refresh_all(),
             TrayAction::Quit => self.handle_quit(),
         }
     }

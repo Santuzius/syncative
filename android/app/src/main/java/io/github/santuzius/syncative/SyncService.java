@@ -2,12 +2,14 @@ package io.github.santuzius.syncative;
 
 import android.app.Notification;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
+import android.graphics.drawable.Icon;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.IBinder;
@@ -19,6 +21,8 @@ import java.io.File;
 /** Keeps the process, and with it the sync engine, alive while Syncative is not on screen. Its silent notification shows the sync status. Started by the engine itself and after a reboot. */
 public class SyncService extends Service {
     private static final int NOTIFICATION_ID = 1;
+    /** Sent to the service by the notification's "Sync all now". */
+    private static final String ACTION_SYNC_ALL = "io.github.santuzius.syncative.SYNC_ALL";
 
     private static volatile SyncService running;
     private static volatile String status = "Starting…";
@@ -26,6 +30,8 @@ public class SyncService extends Service {
 
     /** Starts the sync engine without a GUI, unless it already runs. */
     static native void nativeStartEngine();
+    /** Starts a sync pass for every remote that can have one. */
+    static native void nativeSyncAll();
 
     /** The power mode syncs less often depending on these. */
     static native void nativeConditions(boolean screenOff, boolean charging, boolean batterySaver);
@@ -94,6 +100,9 @@ public class SyncService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && ACTION_SYNC_ALL.equals(intent.getAction())) {
+            nativeSyncAll();
+        }
         Notification notification = notification();
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
@@ -118,10 +127,12 @@ public class SyncService extends Service {
 
     private Notification notification() {
         Bridge.createChannels(this);
+        PendingIntent syncAll = PendingIntent.getService(this, 0, new Intent(this, SyncService.class).setAction(ACTION_SYNC_ALL), PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, Bridge.CHANNEL_SYNC)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(status)
                 .setContentIntent(Bridge.openApp(this))
+                .addAction(new Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_notification), "Sync all now", syncAll).build())
                 .setOngoing(true)
                 .setWhen(statusSince)
                 .setShowWhen(statusSince != 0)

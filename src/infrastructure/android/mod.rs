@@ -44,6 +44,14 @@ extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeStartEng
     std::thread::spawn(crate::start_engine);
 }
 
+/// Called by `SyncService` when "Sync all now" in its notification is tapped.
+#[unsafe(no_mangle)]
+extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeSyncAll(_: JNIEnv, _: JClass) {
+    if let Some(engine) = crate::engine::get() {
+        engine.send(crate::engine::Command::SyncAll);
+    }
+}
+
 /// The screen, the charger and the battery saver, as `SyncService` last reported them; whether the network is metered is kept in [`crate::services::network`].
 static CONDITIONS: Mutex<Conditions> = Mutex::new(Conditions { screen_off: false, charging: false, battery_saver: false, metered: false });
 

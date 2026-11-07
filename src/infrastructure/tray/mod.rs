@@ -51,6 +51,8 @@ pub enum TrayAction {
     Open,
     /// Hide the main window; syncing continues in the background.
     Hide,
+    /// Start a sync pass for every remote that can have one.
+    SyncAll,
     /// Close the main window and exit the process.
     Quit,
 }
@@ -250,6 +252,14 @@ impl ksni::Tray for SyncativeTray {
                 label: "Hide window".to_owned(),
                 activate: Box::new(|t: &mut Self| {
                     let _ = t.click_tx.try_send(TrayAction::Hide);
+                }),
+                ..Default::default()
+            }),
+            MenuItem::Separator,
+            MenuItem::Standard(StandardItem {
+                label: "Sync all now".to_owned(),
+                activate: Box::new(|t: &mut Self| {
+                    let _ = t.click_tx.try_send(TrayAction::SyncAll);
                 }),
                 ..Default::default()
             }),
