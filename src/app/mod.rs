@@ -488,24 +488,7 @@ impl SyncativeApp {
                 self.preferences_error = None;
                 Task::none()
             }
-            Message::Preferences(preferences::Msg::Close) => {
-                self.preferences_open = false;
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::WindowThemeChanged(choice)) => {
-                self.set_appearance(Appearance {
-                    window: choice,
-                    ..self.appearance
-                });
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::SizeChanged(choice)) => {
-                self.set_appearance(Appearance {
-                    size: choice,
-                    ..self.appearance
-                });
-                Task::none()
-            }
+            Message::Preferences(msg) => self.handle_preferences_msg(msg),
             Message::WindowFocused => {
                 self.background_allowed = power::background_allowed();
                 self.refresh_storage_access()
@@ -513,151 +496,6 @@ impl SyncativeApp {
             Message::SystemScale(scale) => {
                 self.system_scale = scale;
                 Task::none()
-            }
-            Message::Preferences(preferences::Msg::TrayIconChanged(choice)) => {
-                self.set_appearance(Appearance {
-                    tray_icon: choice,
-                    ..self.appearance
-                });
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::PowerModeChanged(mode)) => {
-                self.set_power(PowerSettings { mode, ..self.power });
-                power::apply();
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::SyncMeteredToggled(on)) => {
-                self.set_power(PowerSettings {
-                    sync_metered: on,
-                    ..self.power
-                });
-                power::apply();
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::AllowBackground) => {
-                self.background_dialog_open = false;
-                self.set_power(PowerSettings {
-                    asked_battery: true,
-                    ..self.power
-                });
-                power::allow_background();
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::BackgroundToggled(on)) => {
-                match power::set_background(on) {
-                    Ok(()) => {
-                        self.background = on;
-                        self.preferences_error = None;
-                        // Without Android's exemption the background would not last long.
-                        if on && !self.background_allowed {
-                            power::allow_background();
-                        }
-                    }
-                    Err(err) => {
-                        self.preferences_error =
-                            Some(format!("Could not change \"Run in background\": {err}"))
-                    }
-                }
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::KeepOptimized) => {
-                self.background_dialog_open = false;
-                self.set_power(PowerSettings {
-                    asked_battery: true,
-                    ..self.power
-                });
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::DetailedLogToggled(on)) => {
-                match crate::services::diagnostics::set_detailed_log(on) {
-                    Ok(()) => self.detailed_log = on,
-                    Err(err) => {
-                        self.preferences_error =
-                            Some(format!("Could not change the detailed log: {err}"))
-                    }
-                }
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::EnableBeta) => {
-                self.beta_dialog_open = true;
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::BetaDeclined) => {
-                self.beta_dialog_open = false;
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::BetaAccepted) => {
-                self.beta_dialog_open = false;
-                self.set_beta(true);
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::DisableBeta) => {
-                self.set_beta(false);
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::CopyLog) => {
-                let log = crate::infrastructure::stderr_capture::dump();
-                let lines = log.lines().count();
-                self.preferences_error = None;
-                self.preferences_note = None;
-                self.log_note = Some(if lines == 1 {
-                    "Copied 1 line to the clipboard.".to_owned()
-                } else {
-                    format!("Copied {lines} lines to the clipboard.")
-                });
-                iced::clipboard::write(log)
-            }
-            Message::Preferences(preferences::Msg::ClearLog) => {
-                crate::infrastructure::stderr_capture::clear();
-                self.preferences_error = None;
-                self.preferences_note = None;
-                self.log_note = Some("Log cleared.".to_owned());
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::Export) => {
-                self.preferences_note = None;
-                self.log_note = None;
-                self.preferences_error = None;
-                let (repo, router) = (self.repo.clone(), self.rclone.clone());
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            let text = settings_file::export(&*repo, &*router)?;
-                            crate::infrastructure::portal::save_file(
-                                "Export Syncative's settings",
-                                "syncative-settings.json",
-                                text.as_bytes(),
-                            )
-                        })
-                        .await
-                        .unwrap_or_else(|e| Err(e.to_string()))
-                    },
-                    Message::SettingsExported,
-                )
-            }
-            Message::Preferences(preferences::Msg::Import) => {
-                self.preferences_note = None;
-                self.log_note = None;
-                self.preferences_error = None;
-                let (repo, router) = (self.repo.clone(), self.rclone.clone());
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            let Some(bytes) = crate::infrastructure::portal::open_file(
-                                "Import Syncative's settings",
-                            )?
-                            else {
-                                return Ok(None);
-                            };
-                            let text = String::from_utf8(bytes)
-                                .map_err(|_| "Not a Syncative settings file.".to_owned())?;
-                            settings_file::import(&text, &*repo, &router).map(Some)
-                        })
-                        .await
-                        .unwrap_or_else(|e| Err(e.to_string()))
-                    },
-                    Message::SettingsImported,
-                )
             }
             Message::SettingsExported(result) => {
                 match result {
@@ -668,44 +506,6 @@ impl SyncativeApp {
                 Task::none()
             }
             Message::SettingsImported(result) => self.handle_settings_imported(result),
-            Message::Preferences(preferences::Msg::AutostartToggled(on)) => {
-                match autostart::set(on) {
-                    Ok(()) => {
-                        self.autostart = on;
-                        self.preferences_error = None;
-                    }
-                    Err(err) => {
-                        self.preferences_error = Some(format!(
-                            "Could not change {}: {err}",
-                            autostart::entry_path().display()
-                        ))
-                    }
-                }
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::StartHiddenToggled(hidden)) => {
-                match autostart::set_hidden(hidden) {
-                    Ok(()) => {
-                        self.start_hidden = hidden;
-                        self.preferences_error = None;
-                    }
-                    Err(err) => {
-                        self.preferences_error = Some(format!(
-                            "Could not change {}: {err}",
-                            autostart::entry_path().display()
-                        ))
-                    }
-                }
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::FileManagerMenuToggled(on)) => {
-                self.set_file_manager_menu(on);
-                Task::none()
-            }
-            Message::Preferences(preferences::Msg::TrayHintClosed) => {
-                self.close_tray_hint();
-                Task::none()
-            }
             Message::TrayUnavailable => {
                 // Nothing to explain without a tray; the window is all there is.
                 self.tray_hint_open = false;
@@ -1406,70 +1206,18 @@ impl SyncativeApp {
         )
     }
 
-    /// Store changed power settings; the caller applies a new mode.
-    fn set_power(&mut self, power: PowerSettings) {
-        self.power = power;
-        self.preferences_error = power
-            .save(&crate::util::get_data_dir())
-            .err()
-            .map(|err| format!("Could not save the choice: {err}"));
-    }
-
-    /// Close the explanation of the tray icon's colour for good.
     /// Switch About to `page`, with the license text it shows.
     fn show_about(&mut self, page: about::Page) {
         self.about_page = page;
         self.about_text = iced::widget::text_editor::Content::with_text(&about::license_text(page));
     }
 
-    fn set_beta(&mut self, on: bool) {
-        if let Err(err) = crate::services::beta::set_enabled(on) {
-            self.preferences_error = Some(format!("Could not change the beta features: {err}"));
-            return;
-        }
-        self.beta = on;
-        // Beta file managers lose their context menu entry with the beta features, and gain it with them while the menu is on for others.
-        if self.file_manager_menu.as_ref().is_some_and(|menu| menu.on) {
-            self.set_file_manager_menu(true);
-        } else {
-            #[cfg(not(target_os = "android"))]
-            {
-                self.file_manager_menu = crate::services::file_manager_menu::offer(on);
-            }
-        }
-    }
-
-    /// Switch the file manager's context menu entries for the file managers offered now; desktop only.
-    fn set_file_manager_menu(&mut self, on: bool) {
-        #[cfg(not(target_os = "android"))]
-        {
-            use crate::services::file_manager_menu;
-            match file_manager_menu::set(on, self.beta) {
-                Ok(()) => self.preferences_error = None,
-                Err(err) => self.preferences_error = Some(format!("Could not change the context menu entries in {}: {err}", file_manager_menu::entry_path().display())),
-            }
-            self.file_manager_menu = file_manager_menu::offer(self.beta);
-        }
-        #[cfg(target_os = "android")]
-        let _ = on;
-    }
-
+    /// Close the explanation of the tray icon's colour for good.
     fn close_tray_hint(&mut self) {
         self.tray_hint_open = false;
         if let Err(err) = crate::services::appearance::mark_tray_hint_seen() {
             eprintln!("syncative: could not remember that the tray hint was shown: {err}");
         }
-    }
-
-    /// Store a changed appearance and apply it; the window re-reads it through `theme()`.
-    fn set_appearance(&mut self, appearance: Appearance) {
-        self.appearance = appearance;
-        self.preferences_error = appearance
-            .save(&crate::util::get_data_dir())
-            .err()
-            .map(|err| format!("Could not save the choice: {err}"));
-        self.push_tray_theme();
-        self.update_system_bars();
     }
 
     /// Android: light icons in the status and navigation bars on the dark theme, dark ones on the light theme.
