@@ -1,4 +1,4 @@
-//! Saving files shared from another app: full screen, first the account (skipped when there is only one), then the folder in the cloud (the folder picker, drawn by the app over this screen's body), then the upload.
+//! Saving files shared from another app: full screen, first the account (skipped when there is only one), then the folder in the cloud (the folder picker, drawn by the app over this screen's body). The engine uploads the files in the background afterwards.
 
 use std::path::{Path, PathBuf};
 
@@ -8,15 +8,11 @@ use iced::{
 };
 
 use crate::{
-    domain::{
-        ports::{Cancel, cancel_never},
-        remote::RemoteId,
-        run_state::RunState,
-    },
+    domain::{remote::RemoteId, run_state::RunState},
     screens::main_page::status_label,
     theme::{self, CAPTION, HEADING, ROW_SPACING, TEXT},
     widgets::{
-        icon::{accent_icon, icon, muted_icon, status_icon},
+        icon::{icon, muted_icon, status_icon},
         text,
     },
 };
@@ -35,8 +31,6 @@ pub struct Share {
     pub step: Step,
     /// The chosen account.
     pub remote: Option<RemoteId>,
-    /// Set when the user leaves while the upload runs.
-    pub cancel: Cancel,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,16 +40,12 @@ pub enum Step {
     Account,
     /// The folder picker is open.
     Folder,
-    /// `done` files are saved in `folder` (relative to the drive).
-    Saving { folder: String, done: usize },
-    /// Everything is in `place`, as the user reads it.
-    Saved { place: String },
     Failed(String),
 }
 
 impl Share {
     pub fn new(folder: PathBuf, count: usize) -> Self {
-        Self { folder, count, files: Vec::new(), step: Step::Preparing, remote: None, cancel: cancel_never() }
+        Self { folder, count, files: Vec::new(), step: Step::Preparing, remote: None }
     }
 
     /// What is being saved: the file's name, or how many files.
@@ -83,7 +73,7 @@ pub struct Account {
 #[derive(Debug, Clone)]
 pub enum Msg {
     Choose(RemoteId),
-    /// Leave, at any step; a running upload stops.
+    /// Leave, at any step.
     Close,
 }
 
@@ -130,17 +120,6 @@ pub fn body<'a>(share: &'a Share, accounts: Vec<Account>) -> Element<'a, Msg> {
             .spacing(ROW_SPACING + 4.0)
             .into()
         }
-        Step::Saving { done, .. } => {
-            let current = share.files.get(*done).map(|f| file_name(f)).unwrap_or_default();
-            let counter = if share.files.len() > 1 { format!("Saving {} of {}…", done + 1, share.files.len()) } else { "Saving…".to_owned() };
-            message(accent_icon(icondata::TbCloudUploadOutline, 48.0).into(), counter, Some(current), Some(("Cancel", Msg::Close)))
-        }
-        Step::Saved { place } => message(
-            accent_icon(icondata::TbCircleCheckOutline, 48.0).into(),
-            format!("Saved {}", share.what()),
-            Some(format!("in {place}")),
-            Some(("Done", Msg::Close)),
-        ),
         Step::Failed(error) => message(
             muted_icon(icondata::TbAlertTriangleOutline, 48.0).into(),
             "Not saved".to_owned(),

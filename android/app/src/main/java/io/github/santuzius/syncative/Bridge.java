@@ -451,6 +451,11 @@ public final class Bridge {
         file.delete();
     }
 
+    /** A short message at the bottom of the screen, e.g. that shared files are being saved. */
+    public static void toast(Context context, String text) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> Toast.makeText(context, text, Toast.LENGTH_SHORT).show());
+    }
+
     /** Back to the app that shared: Syncative's task goes behind the one before it. */
     public static void returnToCaller() {
         Activity current = activity.get();

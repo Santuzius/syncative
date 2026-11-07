@@ -128,6 +128,8 @@ pub struct Page<'a> {
     pub shared_oauth_client: bool,
     /// Space at the provider, as last fetched at a pass end or when the page opened; `None` while unknown or the backend has no quota.
     pub usage: Option<RemoteUsage>,
+    /// Shared files on their way to this remote; they decide the status line while there are any.
+    pub uploads: Option<crate::engine::UploadStatus>,
     /// Phone layout: a top bar with icon buttons, and the add-folder form behind a floating button.
     pub compact: bool,
 }
@@ -540,6 +542,18 @@ fn status_line(page: &Page<'_>) -> String {
         Some((remaining, _)) => format!("{prefix} · next sync in {}", format_duration(remaining)),
         None => prefix.to_owned(),
     };
+    if let Some(upload) = &page.uploads {
+        let (files, wait) = if upload.files == 1 { ("1 shared file".to_owned(), "waits") } else { (format!("{} shared files", upload.files), "wait") };
+        return match page.state {
+            RunState::AuthNeeded => format!("Not signed in — {files} {wait} to be saved"),
+            RunState::Offline => format!("Offline — {files} {wait} to be saved"),
+            _ if upload.active => format!("Saving {files}…"),
+            _ => match &upload.error {
+                Some(error) => format!("{files} not saved yet, trying again soon: {error}"),
+                None => format!("Saving {files}…"),
+            },
+        };
+    }
     match page.state {
         RunState::AuthNeeded => "Not signed in — syncing is on hold".to_owned(),
         RunState::Paused => "Paused — automatic sync is off".to_owned(),

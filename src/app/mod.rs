@@ -129,8 +129,6 @@ pub enum Message {
     Share(share::Msg),
     /// News of files shared from another app (Android).
     ShareIncoming(crate::services::share::Incoming),
-    /// A shared file was uploaded under the given name, or not; tagged with its share's cache folder.
-    ShareSaved(std::path::PathBuf, Result<String, String>),
 }
 
 pub struct SyncativeApp {
@@ -237,8 +235,6 @@ pub struct SyncativeApp {
     folder_picker_generation: u64,
     /// Files shared from another app, full screen over everything while open.
     share: Option<share::Share>,
-    /// News of further shares that arrived while one uploaded.
-    pending_shares: std::collections::VecDeque<crate::services::share::Incoming>,
     /// Room the system bars and the keyboard take (Android); zero on the desktop.
     insets: iced_android::Insets,
     /// What the user is about to delete, set while the confirmation
@@ -309,7 +305,6 @@ impl SyncativeApp {
             folder_picker: None,
             folder_picker_generation: 0,
             share: None,
-            pending_shares: std::collections::VecDeque::new(),
             insets: iced_android::Insets::default(),
             window_id: None,
         };
@@ -856,7 +851,6 @@ impl SyncativeApp {
             }
             Message::Share(msg) => self.handle_share_msg(msg),
             Message::ShareIncoming(incoming) => self.handle_share_incoming(incoming),
-            Message::ShareSaved(folder, result) => self.handle_share_saved(folder, result),
             Message::Remote(remote_page::Msg::OpenDrawer) => {
                 self.drawer_open = true;
                 Task::none()
@@ -1228,7 +1222,18 @@ impl SyncativeApp {
             } else {
                 RunState::Paused
             });
-        self.held(remote, state)
+        let state = self.held(remote, state);
+        // Shared files on their way show over whatever the folders say, also on a paused remote; only a needed sign-in, which holds them, and being offline stay.
+        match self.snapshot.uploads.get(&remote.id) {
+            Some(upload) if !matches!(state, RunState::AuthNeeded | RunState::Offline) => {
+                if upload.active || upload.error.is_none() {
+                    RunState::Syncing(crate::domain::run_state::SyncActivity::Uploading)
+                } else {
+                    RunState::Warning
+                }
+            }
+            _ => state,
+        }
     }
 
     /// `Held` in place of an idle state while scheduled passes wait for an unmetered network; problems, passes and pauses show as they are.
@@ -1288,6 +1293,7 @@ impl SyncativeApp {
             add_error: self.add_sync_dir_error.as_deref(),
             shared_oauth_client: self.shared_oauth_client.contains(&remote.id),
             usage: self.snapshot.usage.get(&remote.id).copied(),
+            uploads: self.snapshot.uploads.get(&remote.id).cloned(),
             compact,
         }
     }

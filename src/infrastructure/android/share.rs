@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use jni::{
-    objects::{JClass, JObjectArray, JString},
+    objects::{JClass, JObjectArray, JString, JValue},
     sys::jint,
     JNIEnv,
 };
@@ -43,6 +43,16 @@ pub fn return_to_caller() {
     with_context(|env, context| {
         let class = bridge(env, context)?;
         env.call_static_method(class, "returnToCaller", "()V", &[])?;
+        Ok(())
+    });
+}
+
+/// A short message at the bottom of the screen.
+pub fn toast(text: &str) {
+    with_context(|env, context| {
+        let class = bridge(env, context)?;
+        let text = env.new_string(text)?;
+        env.call_static_method(class, "toast", "(Landroid/content/Context;Ljava/lang/String;)V", &[JValue::Object(context), JValue::Object(&text)])?;
         Ok(())
     });
 }

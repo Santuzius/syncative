@@ -1,15 +1,9 @@
-//! Files shared from another app: take them from [`services::share`](crate::services::share), let the user choose the account and the folder, upload them one by one under free names, and go back to the app they came from.
-
-use std::sync::atomic::Ordering;
+//! Files shared from another app: take them from [`services::share`](crate::services::share), let the user choose the account and the folder, then hand them to the engine, which uploads them in the background, and go back to the app they came from.
 
 use iced::Task;
 
 use crate::{
-    domain::{
-        ports::BackendClient,
-        run_state::RunState,
-        sync::ListFilter,
-    },
+    domain::run_state::RunState,
     engine::Command,
     screens::{
         folder_picker::{Source, Target},
@@ -21,11 +15,10 @@ use crate::{
 use super::super::{Message, SyncativeApp};
 
 impl SyncativeApp {
-    /// Handle [`Message::ShareIncoming`]. A new share replaces one that waits for the user's choice; while one uploads, the news waits.
+    /// Handle [`Message::ShareIncoming`]. A new share replaces one that waits for the user's choice.
     pub(in crate::app) fn handle_share_incoming(&mut self, incoming: Incoming) -> Task<Message> {
-        let busy = self.share.as_ref().is_some_and(|s| matches!(s.step, Step::Saving { .. }));
         match incoming {
-            Incoming::Started { folder, count } if !busy => {
+            Incoming::Started { folder, count } => {
                 self.drop_share();
                 self.drawer_open = false;
                 self.share = Some(Share::new(folder, count));
@@ -54,16 +47,11 @@ impl SyncativeApp {
                     _ => Task::none(),
                 }
             }
-            incoming if busy => {
-                self.pending_shares.push_back(incoming);
-                Task::none()
-            }
             // The news of a share that was replaced in the meantime.
             Incoming::Ready { folder, .. } => {
                 shared::discard(&folder);
                 Task::none()
             }
-            Incoming::Started { .. } => Task::none(),
         }
     }
 
@@ -103,77 +91,26 @@ impl SyncativeApp {
         Task::none()
     }
 
-    /// The folder picker's answer: save the files in `folder` (relative to the drive).
+    /// The folder picker's answer: hand the files to the engine, which uploads them to `folder` (relative to the drive) in the background, and go back to the app they came from right away.
     pub(in crate::app) fn save_share_in(&mut self, folder: String) -> Task<Message> {
         let Some(share) = self.share.as_mut() else {
             return Task::none();
         };
-        share.step = Step::Saving { folder, done: 0 };
-        self.save_next_shared()
-    }
-
-    /// Upload the next file under a name that's free in the folder.
-    fn save_next_shared(&self) -> Task<Message> {
-        let Some(share) = self.share.as_ref() else {
+        let Some(remote) = share.remote.and_then(|id| self.remotes.iter().find(|r| r.id == id)) else {
             return Task::none();
         };
-        let Step::Saving { folder, done } = &share.step else {
-            return Task::none();
-        };
-        let (Some(file), Some(remote)) = (share.files.get(*done), share.remote.and_then(|id| self.remotes.iter().find(|r| r.id == id))) else {
-            return Task::none();
-        };
-        let (router, remote, folder, cancel) = (self.rclone.clone(), remote.name.clone(), folder.clone(), share.cancel.clone());
-        let (local, name, share_folder) = (file.to_string_lossy().into_owned(), share::file_name(file), share.folder.clone());
-        Task::perform(
-            async move {
-                tokio::task::spawn_blocking(move || {
-                    let taken: Vec<String> = router.list(&remote, &folder, false, ListFilter::All, &cancel)?.into_iter().map(|item| item.name).collect();
-                    let name = shared::free_name(&name, |candidate| taken.iter().any(|t| t == candidate));
-                    let path = if folder.is_empty() { name.clone() } else { format!("{folder}/{name}") };
-                    router.copy_to_remote(&local, &remote, &path, &cancel)?;
-                    Ok(name)
-                })
-                .await
-                .unwrap_or_else(|e| Err(e.to_string()))
-            },
-            move |result| Message::ShareSaved(share_folder.clone(), result),
-        )
-    }
-
-    /// Handle [`Message::ShareSaved`]: on to the next file, or say where everything is.
-    pub(in crate::app) fn handle_share_saved(&mut self, share_folder: std::path::PathBuf, result: Result<String, String>) -> Task<Message> {
-        let remote = self.share.as_ref().and_then(|s| s.remote).and_then(|id| self.remotes.iter().find(|r| r.id == id)).map(|r| (r.id, r.title()));
-        let Some(share) = self.share.as_mut().filter(|s| s.folder == share_folder) else {
-            return Task::none();
-        };
-        let Step::Saving { folder, done } = &mut share.step else {
-            return Task::none();
-        };
-        match result {
-            Ok(name) => {
-                eprintln!("syncative: saved a shared file as {folder}/{name}");
-                *done += 1;
-                if *done < share.files.len() {
-                    return self.save_next_shared();
-                }
-                let title = remote.as_ref().map(|(_, title)| title.clone()).unwrap_or_default();
-                let place = if folder.is_empty() { title } else { format!("{title} › {}", folder.replace('/', " › ")) };
-                share.step = Step::Saved { place };
-                // Into a synced folder, the files come down to this device at once rather than at the next scheduled pass.
-                if let Some((remote_id, _)) = remote {
-                    self.engine.send(Command::SyncNow(remote_id));
-                }
-                Task::none()
+        match shared::queue_upload(&crate::util::get_data_dir(), &share.folder, remote.id, &folder) {
+            Ok(dir) => {
+                self.engine.send(Command::Upload(dir));
+                let place = if folder.is_empty() { remote.title() } else { format!("{} › {}", remote.title(), folder.replace('/', " › ")) };
+                #[cfg(target_os = "android")]
+                crate::infrastructure::android::share::toast(&format!("Saving {} in {place}", share.what()));
+                #[cfg(not(target_os = "android"))]
+                let _ = place;
+                self.close_share()
             }
             Err(err) => {
-                let name = share.files.get(*done).map(|f| share::file_name(f)).unwrap_or_default();
-                let saved = match *done {
-                    0 => String::new(),
-                    1 => " The file before it is saved.".to_owned(),
-                    n => format!(" The {n} files before it are saved."),
-                };
-                share.step = Step::Failed(format!("Could not save {name}: {err}.{saved}"));
+                share.step = Step::Failed(format!("Could not keep the files for their upload: {err}"));
                 Task::none()
             }
         }
@@ -187,28 +124,16 @@ impl SyncativeApp {
         self.drop_share();
         #[cfg(target_os = "android")]
         crate::infrastructure::android::share::return_to_caller();
-        self.next_pending_share()
+        Task::none()
     }
 
-    /// Forget the open share: close its picker, stop its upload and delete its copies.
+    /// Forget the open share: close its picker and delete its copies, unless they went to the uploads.
     fn drop_share(&mut self) {
         if self.folder_picker.as_ref().is_some_and(|p| p.target == Target::Share) {
             self.close_folder_picker();
         }
         if let Some(share) = self.share.take() {
-            share.cancel.store(true, Ordering::Release);
             shared::discard(&share.folder);
         }
-    }
-
-    /// Take the news that waited while a share uploaded.
-    fn next_pending_share(&mut self) -> Task<Message> {
-        let mut tasks = Vec::new();
-        while self.share.as_ref().is_none_or(|s| !matches!(s.step, Step::Saving { .. }))
-            && let Some(incoming) = self.pending_shares.pop_front()
-        {
-            tasks.push(self.handle_share_incoming(incoming));
-        }
-        Task::batch(tasks)
     }
 }

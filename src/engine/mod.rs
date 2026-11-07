@@ -65,6 +65,8 @@ pub enum Command {
     Cadence(Cadence),
     /// Whether the device has a network that reaches the internet, as the platform reports it. While it hasn't, folders show Offline, and a remote that is due only makes the platform check again (see [`crate::services::network::recheck`]). Once it is back, everything syncs right away.
     Online(bool),
+    /// Upload the shared files queued in this folder of `uploads/` (see [`crate::services::share::queue_upload`]) in the background, whether the remote is paused or not.
+    Upload(std::path::PathBuf),
 }
 
 /// How the remotes' own intervals apply right now.
@@ -107,6 +109,19 @@ pub(crate) enum Input {
     PassFinished(RemoteId, PassVerdict),
     /// The provider's space numbers asked for after a pass; `Ok(None)` when the backend has no quota to report.
     Usage(RemoteId, Result<Option<RemoteUsage>, String>),
+    /// A shared file of the upload in `dir` went up under the given name, or not.
+    Uploaded { dir: std::path::PathBuf, file: std::path::PathBuf, result: Result<String, String> },
+}
+
+/// Shared files on their way to a remote, as its state shows them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UploadStatus {
+    /// Files still to upload.
+    pub files: usize,
+    /// One is being uploaded right now.
+    pub active: bool,
+    /// Why the last try failed; the file is tried again shortly, or when the connection or the sign-in is back.
+    pub error: Option<String>,
 }
 
 /// The engine's state as the GUI sees it. Published after every change.
@@ -133,6 +148,8 @@ pub struct Snapshot {
     pub offline: bool,
     /// Space at each provider that reports one, refreshed at the end of every pass and asked right away when a page opens a remote it doesn't know yet. Remotes without a quota (plain WebDAV) stay absent.
     pub usage: HashMap<RemoteId, RemoteUsage>,
+    /// Shared files waiting for or in their upload, per remote; absent when there are none.
+    pub uploads: HashMap<RemoteId, UploadStatus>,
 }
 
 /// One log entry: local `HH:MM:SS` plus the message.
@@ -204,6 +221,10 @@ fn spawn(
     let _ = tx.send(Input::Command(Command::Cadence(
         crate::services::power::current_cadence(),
     )));
+    // Shared files whose upload a quit or a killed process cut short.
+    for upload in crate::services::share::pending(&crate::util::get_data_dir()) {
+        let _ = tx.send(Input::Command(Command::Upload(upload.dir)));
+    }
     std::thread::Builder::new()
         .name("syncative-engine".to_owned())
         .spawn(move || {
@@ -231,7 +252,7 @@ async fn run(
     loop {
         core.start_due(Instant::now());
         let snapshot = Arc::new(core.snapshot());
-        if busy == snapshot.syncing.is_empty() {
+        if busy == (snapshot.syncing.is_empty() && !snapshot.uploads.values().any(|u| u.active)) {
             busy = !busy;
             busy_changed(busy);
         }
@@ -280,7 +301,7 @@ fn status_changed(status: &crate::infrastructure::tray::TrayStatus) {
 #[cfg(not(target_os = "android"))]
 fn status_changed(_status: &crate::infrastructure::tray::TrayStatus) {}
 
-/// A pass started while none ran (`true`), or the last one ended. On Android the device stays awake in between, so a pass that started finishes even when the screen goes off.
+/// A pass or an upload of shared files started while none ran (`true`), or the last one ended. On Android the device stays awake in between, so what started finishes even when the screen goes off.
 #[cfg(target_os = "android")]
 fn busy_changed(busy: bool) {
     crate::infrastructure::android::keep_awake(busy);

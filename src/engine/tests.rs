@@ -29,6 +29,7 @@ struct Rig {
     core: Core,
     rx: mpsc::UnboundedReceiver<Input>,
     repo: Arc<FakeRepo>,
+    backend: Arc<FakeBackend>,
     logs: Logs,
     _dirs: Vec<TempDir>,
 }
@@ -44,9 +45,10 @@ async fn rig() -> Rig {
     ];
     let (tx, rx) = mpsc::unbounded_channel();
     let logs = Logs::default();
+    let backend = Arc::new(FakeBackend::default());
     let mut core = Core::new(
         repo.clone(),
-        Arc::new(FakeBackend::default()),
+        backend.clone(),
         stderr_capture::handle(),
         logs.clone(),
         tx,
@@ -56,6 +58,7 @@ async fn rig() -> Rig {
         core,
         rx,
         repo,
+        backend,
         logs,
         _dirs: dirs,
     }
@@ -78,6 +81,18 @@ impl Rig {
                 .expect("pass hangs")
                 .expect("channel closed");
             self.core.handle(input).await;
+        }
+    }
+
+    /// Handle inputs until a shared file's upload reports back.
+    async fn next_upload(&mut self) {
+        loop {
+            let input = tokio::time::timeout(Duration::from_secs(10), self.rx.recv()).await.expect("upload hangs").expect("channel closed");
+            let uploaded = matches!(input, Input::Uploaded { .. });
+            self.core.handle(input).await;
+            if uploaded {
+                return;
+            }
         }
     }
 
@@ -524,4 +539,76 @@ async fn logs_keep_the_newest_lines() {
         rig.snap().pass_lines[&D1],
         format!("line {}", super::MAX_LOG_LINES + 4)
     );
+}
+
+/// Shared files queued for `remote` into `folder`, as the share screen leaves them.
+fn queued_upload(data: &TempDir, remote: RemoteId, folder: &str, names: &[&str]) -> std::path::PathBuf {
+    for name in names {
+        data.write_file(&format!("share/{name}"), name.as_bytes());
+    }
+    crate::services::share::queue_upload(&data.path, &data.path.join("share"), remote, folder).unwrap()
+}
+
+#[tokio::test]
+async fn shared_files_go_up_one_by_one_under_free_names_and_show_on_the_remote() {
+    let mut rig = rig().await;
+    let data = TempDir::new("engine-upload");
+    let dir = queued_upload(&data, R1, "a/Inbox", &["x.txt", "y.txt"]);
+    rig.backend.set_list("a/Inbox", Ok(vec![crate::test_support::remote_item("x.txt", false, 0)]));
+    // Paused or not, what the user shared goes up.
+    rig.set_enabled(R1, false);
+    rig.send(Command::Reload).await;
+    rig.send(Command::Upload(dir.clone())).await;
+    assert_eq!(rig.snap().uploads[&R1], super::UploadStatus { files: 2, active: false, error: None });
+
+    rig.core.start_due(Instant::now());
+    assert!(rig.snap().uploads[&R1].active);
+    rig.next_upload().await;
+    assert_eq!(rig.snap().uploads[&R1].files, 1);
+    rig.core.start_due(Instant::now());
+    rig.next_upload().await;
+
+    let copies: Vec<String> = rig.backend.copy_to_remote_calls.lock().unwrap().iter().map(|(_, to)| to.clone()).collect();
+    assert_eq!(copies, ["a/Inbox/x (1).txt", "a/Inbox/y.txt"]);
+    assert!(rig.snap().uploads.is_empty());
+    assert!(!dir.exists());
+}
+
+#[tokio::test]
+async fn a_failing_shared_file_is_tried_again_later_and_then_given_up() {
+    let mut rig = rig().await;
+    let data = TempDir::new("engine-upload");
+    let dir = queued_upload(&data, R2, "", &["z.txt"]);
+    rig.backend.set_copy_to_remote(Err("quota exceeded".to_owned()));
+    rig.send(Command::Upload(dir.clone())).await;
+    let start = Instant::now();
+    for tries in 1..=super::core::UPLOAD_TRIES {
+        rig.core.start_due(start + Duration::from_secs(1000 * u64::from(tries)));
+        rig.next_upload().await;
+        if tries < super::core::UPLOAD_TRIES {
+            let status = rig.snap().uploads[&R2].clone();
+            assert_eq!((status.active, status.error.as_deref()), (false, Some("quota exceeded")));
+            // Not again right away.
+            rig.core.start_due(Instant::now());
+            assert!(!rig.snap().uploads[&R2].active);
+        }
+    }
+    assert_eq!(rig.backend.copy_to_remote_calls.lock().unwrap().len(), super::core::UPLOAD_TRIES as usize);
+    assert!(rig.snap().uploads.is_empty());
+    assert!(!dir.exists());
+}
+
+#[tokio::test]
+async fn shared_files_wait_for_the_connection() {
+    let mut rig = rig().await;
+    let data = TempDir::new("engine-upload");
+    let dir = queued_upload(&data, R1, "", &["z.txt"]);
+    rig.send(Command::Online(false)).await;
+    rig.send(Command::Upload(dir)).await;
+    rig.core.start_due(Instant::now());
+    assert!(!rig.snap().uploads[&R1].active);
+    rig.send(Command::Online(true)).await;
+    rig.core.start_due(Instant::now());
+    rig.next_upload().await;
+    assert!(rig.snap().uploads.is_empty());
 }
