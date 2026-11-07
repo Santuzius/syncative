@@ -509,7 +509,7 @@ fn usage_bar<'a, M: 'a>(fraction: f32, height: f32) -> Element<'a, M> {
                 accent: tones.accent,
                 warning: tones.warning,
                 danger: tones.danger_fill,
-                track: tones.surface_hover,
+                track: tones.track,
             }
         })
         .into()

@@ -65,6 +65,8 @@ pub struct Tones {
     pub danger_fill: Color,
     pub danger_fill_hover: Color,
     pub selection: Color,
+    /// The unfilled part of the storage bar, which has to stand out from `background`.
+    pub track: Color,
 }
 
 const LIGHT: Tones = Tones {
@@ -86,6 +88,7 @@ const LIGHT: Tones = Tones {
     danger_fill: rgb(0xc4372f),
     danger_fill_hover: rgb(0xa92e27),
     selection: rgb(0xdde7f4),
+    track: rgb(0xc9cbd0),
 };
 
 const DARK: Tones = Tones {
@@ -107,6 +110,7 @@ const DARK: Tones = Tones {
     danger_fill: rgb(0xc0392f),
     danger_fill_hover: rgb(0xd24a40),
     selection: rgb(0x2c3b4f),
+    track: rgb(0x323337),
 };
 
 const fn rgb(hex: u32) -> Color {
