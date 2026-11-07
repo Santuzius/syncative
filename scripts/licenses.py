@@ -35,10 +35,11 @@ BUNDLED = [
 SKIP = {("webpki", "Pixar")}
 # Crates for which cargo-about took a source file for the license: the file that really holds it.
 LICENSE_TEXT = {("webpki", "ISC"): "LICENSE"}
-# Packages for which ScanCode's finds are wrong, as they name other projects or miss a line without a year; their copyright as the package states it. None: go on to the authors.
+# Packages for which ScanCode's finds are wrong, as they name other projects, miss a line without a year or a package's metadata lacks its repository; their copyright as the package states it. None: go on to the authors.
 NOTICES = {
     "cesu8": ["Copyright 2012-2014 The Rust Project Developers and Eric Kidd"],
     "self_cell": None,
+    "zune-core": ["Copyright (c) 2023", "Source: https://github.com/etemesi254/zune-image"],
     "go.opentelemetry.io/auto/sdk": ["Copyright The OpenTelemetry Authors"],
     "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp": ["Copyright The OpenTelemetry Authors"],
 }
@@ -52,6 +53,7 @@ TITLE = re.compile(r"^\s*(the\s+)?[\w.\- ]{0,30}\blicen[cs]e\b[\w.\-() ]{0,20}$"
 # The marks of a source comment around a line.
 COMMENT_START = re.compile(r"^\s*(//[/!]?|/\*+|\*+/?|#+)[ \t]?")
 COMMENT_END = re.compile(r"\s*(\*+/?|//)\s*$")
+NAMELESS = re.compile(r"^(copyright|\(c\)|©|[\d\s,.\-–])+$", re.I)
 NOTICE_START = re.compile(r"^(copyright\b|\(c\)|©)", re.I)
 LICENSE_FILE = re.compile(r"(LICEN[CS]E|COPYING|COPYRIGHT|NOTICE|MIT|APACHE)", re.I)
 
@@ -282,6 +284,14 @@ for entry in entries:
 groups = {}
 
 
+def credit(entry):
+    """Who a package's metadata names, for when its files don't."""
+    names = [re.sub(r"\s*<.*?>", "", author).strip() for author in entry["authors"]]
+    if names:
+        return ["Authors: " + ", ".join(names)]
+    return ["Source: " + entry["repository"]] if entry["repository"] else []
+
+
 def notices_of(entry):
     if (entry["name"], entry["kind"]) in PARTS:
         return PARTS[(entry["name"], entry["kind"])][1]
@@ -294,14 +304,14 @@ def notices_of(entry):
             found, _ = notice_lines(pieces.get(path, ""), file_finds.get(path, []))
             if found:
                 return found
-    names = [re.sub(r"\s*<.*?>", "", author).strip() for author in entry["authors"]]
-    if names:
-        return ["Authors: " + ", ".join(names)]
-    return ["Source: " + entry["repository"]] if entry["repository"] else []
+    return credit(entry)
 
 
 for entry in entries:
     notices = notices_of(entry)
+    # A license file that only gives the year, such as either's "Copyright (c) 2015".
+    if notices and all(NAMELESS.match(notice) for notice in notices):
+        notices = [*notices, *credit(entry)]
     # The name alone doesn't say which package it is.
     if "display" in entry:
         notices = ["Source: " + go_source(entry["name"]), *notices]
