@@ -13,7 +13,7 @@ use crate::{
     util::open_in_browser,
 };
 
-use super::super::{Message, SyncativeApp, map_domain_provider_to_add_remote};
+use super::super::{Message, SyncativeApp};
 
 impl SyncativeApp {
     /// Handle [`Message::RemotesLoaded`] — refresh the in-memory list.
@@ -31,12 +31,10 @@ impl SyncativeApp {
                 r.provider_kind = ProviderKind::from_rclone_type(&t);
             }
             // The type alone can't tell the WebDAV vendors apart; the config's `vendor` can.
-            if r.provider_kind == Some(ProviderKind::WebDav) {
-                match self.rclone.config(&r.name).as_ref().and_then(|c| c.get("vendor")).and_then(|v| v.as_str()) {
-                    Some("nextcloud") => r.provider_kind = Some(ProviderKind::Nextcloud),
-                    Some("owncloud") => r.provider_kind = Some(ProviderKind::Owncloud),
-                    _ => {}
-                }
+            if r.provider_kind == Some(ProviderKind::WebDav)
+                && let Some(vendor) = self.rclone.config(&r.name).as_ref().and_then(|c| c.get("vendor")).and_then(|v| v.as_str())
+            {
+                r.provider_kind = Some(ProviderKind::from_webdav_vendor(vendor));
             }
         }
         self.remotes = remotes;
@@ -561,8 +559,7 @@ impl SyncativeApp {
             .remotes
             .iter()
             .find(|r| r.id == id)
-            .and_then(|r| r.provider_kind)
-            .and_then(map_domain_provider_to_add_remote);
+            .and_then(|r| r.provider_kind);
         let mut draft = add_remote::Draft {
             provider,
             ..Default::default()
@@ -580,11 +577,7 @@ impl SyncativeApp {
                     .unwrap_or_default()
                     .to_owned()
             };
-            let kind = match field("vendor").as_str() {
-                "nextcloud" => add_remote::ProviderKind::Nextcloud,
-                "owncloud" => add_remote::ProviderKind::Owncloud,
-                _ => add_remote::ProviderKind::WebDav,
-            };
+            let kind = ProviderKind::from_webdav_vendor(&field("vendor"));
             draft.user = field("user");
             if let Some(vendor) = kind.webdav_vendor() {
                 draft.url =

@@ -50,22 +50,10 @@ pub const GDRIVE_CLIENT_ID_GUIDE: &str = "https://rclone.org/drive/#making-your-
 /// Syncative's privacy policy, usable as privacy policy link in the Google consent screen's branding.
 pub const PRIVACY_POLICY: &str = "https://github.com/Santuzius/syncative/blob/main/PRIVACY.md";
 
-/// The backends the auth code can set up. The picker offers Proton and Google, which the sync algorithm has been exercised against, and Nextcloud as a beta feature (see [`provider_options`]). WebDAV / Owncloud / Dropbox / pCloud stay out of it: the snapshot algorithm is backend-agnostic so they should work, but none of them have been tested; their variants stay so the auth / RPC code paths keep compiling.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProviderKind {
-    #[allow(dead_code)]
-    WebDav,
-    Nextcloud,
-    #[allow(dead_code)]
-    Owncloud,
-    ProtonDrive,
-    #[allow(dead_code)]
-    Dropbox,
-    GDrive,
-    #[allow(dead_code)]
-    PCloud,
-}
+/// The backends the auth code can set up, the same kinds a remote has. The picker offers Proton and Google, which the sync algorithm has been exercised against, and Nextcloud as a beta feature (see [`OFFERED`]). WebDAV / Owncloud / Dropbox / pCloud stay out of it: the snapshot algorithm is backend-agnostic so they should work, but none of them have been tested; the auth / RPC code paths for them stay.
+pub use crate::domain::remote::ProviderKind;
 
+/// What the add-remote dialog needs to know about a provider.
 impl ProviderKind {
     pub fn webdav_vendor(self) -> Option<WebDavVendor> {
         match self {
@@ -101,24 +89,6 @@ impl ProviderKind {
 
     pub fn is_proton_drive(self) -> bool {
         matches!(self, ProviderKind::ProtonDrive)
-    }
-
-    /// Offered only with the beta features on (see `services::beta`); decided by the domain kind, so the picker and the remote names follow one list.
-    pub fn is_beta(self) -> bool {
-        self.domain().is_beta()
-    }
-
-    fn domain(self) -> crate::domain::remote::ProviderKind {
-        use crate::domain::remote::ProviderKind as D;
-        match self {
-            ProviderKind::WebDav => D::WebDav,
-            ProviderKind::Nextcloud => D::Nextcloud,
-            ProviderKind::Owncloud => D::Owncloud,
-            ProviderKind::ProtonDrive => D::ProtonDrive,
-            ProviderKind::Dropbox => D::Dropbox,
-            ProviderKind::GDrive => D::GDrive,
-            ProviderKind::PCloud => D::PCloud,
-        }
     }
 
     /// The name in the window, with the beta mark where it applies.

@@ -37,6 +37,15 @@ impl ProviderKind {
         }
     }
 
+    /// A WebDAV remote's kind from the `vendor` of its rclone section, which tells the WebDAV vendors apart where the backend type can't.
+    pub fn from_webdav_vendor(vendor: &str) -> Self {
+        match vendor {
+            "nextcloud" => Self::Nextcloud,
+            "owncloud" => Self::Owncloud,
+            _ => Self::WebDav,
+        }
+    }
+
     /// Interval a fresh remote of this kind should be created with.
     pub fn default_interval(self) -> Interval {
         Interval::FifteenSeconds

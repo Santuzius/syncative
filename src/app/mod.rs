@@ -19,7 +19,7 @@ use tokio::sync::mpsc;
 use crate::{
     domain::{
         ports::Repository,
-        remote::{ProviderKind, Remote, RemoteId},
+        remote::{Remote, RemoteId},
         run_state::RunState,
         sync::{Conflict, SyncDir, SyncDirExclusion, SyncDirId},
     },
@@ -1520,24 +1520,6 @@ fn remote_page_auto_excluded<'a>(sd: &SyncDir, all: &'a [SyncDir]) -> Vec<&'a Sy
 /// sync_dirs stay on disjoint subtrees.
 pub(crate) fn local_paths_overlap(a: &str, b: &str) -> bool {
     a == b || b.starts_with(&format!("{a}/")) || a.starts_with(&format!("{b}/"))
-}
-
-/// Bridge the domain `ProviderKind` (persisted on `Remote`) to the
-/// add-remote screen's own enum. Returns `None` for providers the
-/// add-remote UI doesn't currently expose, so reauth falls back to
-/// the picker rather than locking onto a wrong backend.
-pub(crate) fn map_domain_provider_to_add_remote(
-    p: ProviderKind,
-) -> Option<add_remote::ProviderKind> {
-    match p {
-        ProviderKind::ProtonDrive => Some(add_remote::ProviderKind::ProtonDrive),
-        ProviderKind::GDrive => Some(add_remote::ProviderKind::GDrive),
-        ProviderKind::Dropbox => Some(add_remote::ProviderKind::Dropbox),
-        ProviderKind::PCloud => Some(add_remote::ProviderKind::PCloud),
-        ProviderKind::WebDav => Some(add_remote::ProviderKind::WebDav),
-        ProviderKind::Nextcloud => Some(add_remote::ProviderKind::Nextcloud),
-        ProviderKind::Owncloud => Some(add_remote::ProviderKind::Owncloud),
-    }
 }
 
 /// Launch the Iced daemon. Blocks until `Message::Quit` calls
