@@ -487,11 +487,19 @@ fn inspect_link(local_path: &str, remote_path: &str, remote: &Remote, client: &d
     };
     let local_stamp = meta.modified().ok().and_then(timestamp).unwrap_or(0) as i64;
     let (remote_details, remote_is_dir, remote_stamp) = match client.stat(&remote.name, remote_path, cancel) {
-        Ok(Some(item)) if item.is_dir => (Some(FileDetails { size: None, mod_time: item.mod_time, sha1: None }), true, item.mod_time.unix_timestamp()),
-        Ok(Some(item)) => match client.details(&remote.name, remote_path, cancel) {
-            Ok(details) => (details.or(Some(FileDetails { size: None, mod_time: item.mod_time, sha1: None })), false, item.mod_time.unix_timestamp()),
-            Err(err) => return Inspected::Failed(err),
-        },
+        Ok(Some(item)) => {
+            // A folder has no details beyond its time; a file's size comes from the details where the backend has them.
+            let bare = FileDetails { size: None, mod_time: item.mod_time, sha1: None };
+            let details = if item.is_dir {
+                bare
+            } else {
+                match client.details(&remote.name, remote_path, cancel) {
+                    Ok(details) => details.unwrap_or(bare),
+                    Err(err) => return Inspected::Failed(err),
+                }
+            };
+            (Some(details), item.is_dir, item.mod_time.unix_timestamp())
+        }
         Ok(None) => (None, false, 0),
         Err(err) => return Inspected::Failed(err),
     };
