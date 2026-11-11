@@ -18,7 +18,7 @@ import (
 // finally returns ENETUNREACH. The HTTP/2 pings (see nethealth) close
 // a connection that went silent, also while a request runs on it.
 func NewTransport() *http.Transport {
-	t := http.DefaultTransport.(*http.Transport).Clone()
+	t := nethealth.NewTransport()
 	dialer := &net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 15 * time.Second,
@@ -32,7 +32,6 @@ func NewTransport() *http.Transport {
 	}
 	t.IdleConnTimeout = 30 * time.Second
 	t.ResponseHeaderTimeout = 30 * time.Second
-	t.HTTP2 = nethealth.Pings
 	return t
 }
 

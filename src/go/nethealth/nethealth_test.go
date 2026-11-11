@@ -18,9 +18,8 @@ import (
 // rcloneClient is an rclone HTTP client that trusts the test server's certificate.
 func rcloneClient(server *httptest.Server) *http.Client {
 	return &http.Client{Transport: fshttp.NewTransportCustom(context.Background(), func(t *http.Transport) {
-		t.TLSClientConfig = server.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
-		t.TLSClientConfig.NextProtos = []string{"h2"}
-		if t.HTTP2 != nethealth.Pings {
+		t.TLSClientConfig.RootCAs = server.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
+		if t.HTTP2 == nil || t.HTTP2.SendPingTimeout != nethealth.Pings.SendPingTimeout || t.HTTP2.PingTimeout != nethealth.Pings.PingTimeout {
 			panic("rclone's transport has no pings")
 		}
 	})}
@@ -89,6 +88,32 @@ func (f *freezer) freeze() {
 	f.mu.Lock()
 	f.frozen = true
 	f.mu.Unlock()
+}
+
+func TestRcloneSpeaksHTTP2AfterTheDefaultTransportsWereUsed(t *testing.T) {
+	server := h2Server(func(w http.ResponseWriter, r *http.Request) {})
+	defer server.Close()
+	pool := server.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
+	for _, tr := range []*http.Transport{http.DefaultClient.Transport.(*http.Transport), http.DefaultTransport.(*http.Transport)} {
+		tr.TLSClientConfig.RootCAs = pool
+		defer func() { tr.TLSClientConfig.RootCAs = nil }()
+	}
+	http.DefaultTransport.(*http.Transport).CloseIdleConnections() // as httptest.Server.Close does
+	for _, client := range []*http.Client{http.DefaultClient, {Transport: nethealth.NewTransport()}, {Transport: http.DefaultTransport}} {
+		resp, err := client.Get(server.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+	resp, err := rcloneClient(server).Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.ProtoMajor != 2 {
+		t.Fatalf("rclone spoke %s", resp.Proto)
+	}
 }
 
 func TestASilentConnectionFailsWithinHalfAMinute(t *testing.T) {
