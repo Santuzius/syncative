@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"syncative/go/nethealth"
 )
 
 // NewTransport returns the http.Transport for every request to Proton: this package's own and, via WithTransport, those of the upstream proton.Manager. Defaults from
@@ -13,9 +15,8 @@ import (
 // the kernel's TCP keepalive (~5–12 min) to notice a dead peer, which
 // surfaces as a multi-minute Syncative "Listing remote…" hang after
 // suspend/resume — TCP is still alive from our side until the OS
-// finally returns ENETUNREACH. The HTTP/2 ping pair forces the
-// transport to actively probe an idle conn so a dead one is recycled
-// before the next listing batch fans out across it.
+// finally returns ENETUNREACH. The HTTP/2 pings (see nethealth) close
+// a connection that went silent, also while a request runs on it.
 func NewTransport() *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	dialer := &net.Dialer{
@@ -31,10 +32,7 @@ func NewTransport() *http.Transport {
 	}
 	t.IdleConnTimeout = 30 * time.Second
 	t.ResponseHeaderTimeout = 30 * time.Second
-	t.HTTP2 = &http.HTTP2Config{
-		SendPingTimeout: 15 * time.Second,
-		PingTimeout:     15 * time.Second,
-	}
+	t.HTTP2 = nethealth.Pings
 	return t
 }
 

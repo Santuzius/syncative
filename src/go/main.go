@@ -7,5 +7,8 @@
 // One Go runtime, both feature sets: two independent Go archives can't coexist in the Syncative binary.
 package main
 
+// Turns on the HTTP/2 pings for rclone's transports.
+import _ "syncative/go/nethealth"
+
 // main is required by cgo for c-archive builds; body intentionally empty.
 func main() {}
