@@ -22,6 +22,7 @@ fn main() {
     println!("cargo:rerun-if-changed=go.sum");
     println!("cargo:rerun-if-changed=proton");
     println!("cargo:rerun-if-changed=rclone");
+    println!("cargo:rerun-if-changed=nethealth");
     for entry in std::fs::read_dir(&manifest_dir).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().is_some_and(|e| e == "go") {
