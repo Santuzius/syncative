@@ -27,10 +27,12 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
      1. (recommended) install/use [Obtainium](https://wiki.obtainium.imranr.dev), which will keep Syncative up to date
      2. install the APK pasting the link `https://github.com/Santuzius/syncative` in Obtainium or manually from the [latest release](https://github.com/Santuzius/syncative/releases/latest)
      3. ([note on Android's future](#android))
-2. **Start Syncative.** On Linux it lives in the system tray (on GNOME with the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/)), and closing the window keeps it syncing in the background. On Android it syncs in the background with a silent notification. (You can switch this off in Preferences.)
+2. **Start Syncative.** On Linux it lives in the system tray (on GNOME with the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/)), and closing the window keeps it syncing in the background. On Android it syncs in the background with a silent notification. (You can switch this off in *Preferences*.)
 3. **Add a remote:** click *Add remote* and choose the provider.
-   - **Proton Drive:** sign in with your Proton username and password.
+   - **Proton Drive:** just sign in normally.
    - **Google Drive:** needs your own OAuth client ID, which takes a few minutes in the Google Cloud console ([rclone's guide](https://rclone.org/drive/#making-your-own-client-id)). In the consent screen's **Branding** settings, enter [`https://github.com/Santuzius/syncative/blob/main/PRIVACY.md`](./PRIVACY.md) as **Application privacy policy link** and your own website or social media profile as **Application home page**, e.g. `https://t.me/YourTelegramName`. Then paste client ID and secret into Syncative, click *Connect* and grant access in your browser.
+   - Some providers are also available as beta features 🧪. Check *Preferences* -> *Beta features* to enable them. Currently available as beta:
+     - **Nextcloud** 🧪
 4. **Add a folder:** pick a local folder and the path on the remote it should mirror. Missing folders are created on both sides, and Syncative keeps them in sync at the interval set in the remote's settings.
 
 ## Use Cases
