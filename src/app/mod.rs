@@ -163,6 +163,8 @@ pub struct SyncativeApp {
     sync_dir_exclusions: HashMap<SyncDirId, Vec<SyncDirExclusion>>,
     /// Synced files still on this computer under an excluded path, by sync_dir and path relative to it; only non-zero counts.
     exclusion_leftovers: HashMap<SyncDirId, HashMap<String, leftovers::Found>>,
+    /// An exclusion just added: once its reload is in, the clean-up is offered if copies are left behind.
+    offer_clean_up: Option<(SyncDirId, String)>,
     /// Draft remote sub-path for the "add exclusion" form per sync_dir.
     draft_exclusion: HashMap<SyncDirId, String>,
     /// In-progress (local_path, remote_path) inputs for the Add sync_dir form
@@ -272,6 +274,7 @@ impl SyncativeApp {
             exclusion_panel: None,
             sync_dir_exclusions: HashMap::new(),
             exclusion_leftovers: HashMap::new(),
+            offer_clean_up: None,
             draft_exclusion: HashMap::new(),
             sync_dir_drafts: HashMap::new(),
             settings_open: false,

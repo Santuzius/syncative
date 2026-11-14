@@ -273,9 +273,14 @@ impl SyncativeApp {
         excls: Vec<SyncDirExclusion>,
         leftovers: HashMap<String, leftovers::Found>,
     ) -> Task<Message> {
+        // Just excluded and copies left behind: offer the clean-up straight away. Waits for the reload that already holds the new exclusion.
+        let offer = self.offer_clean_up.take_if(|(id, path)| *id == sd_id && excls.iter().any(|e| &e.remote_path == path));
         self.exclusion_leftovers.insert(sd_id, leftovers);
         self.sync_dir_exclusions.insert(sd_id, excls);
-        Task::none()
+        match offer {
+            Some((_, path)) if self.pending_delete.is_none() => self.handle_request_clean_leftovers(sd_id, path),
+            _ => Task::none(),
+        }
     }
 
     /// Run `change` against the repository, then reload the sync_dir's exclusions and count the local leftovers under each, including sub-folders now synced as their own folder.
@@ -323,6 +328,7 @@ impl SyncativeApp {
             sync_dir: sd_id,
             root: format!("{}/{}", sd.local_path, relative),
             relative,
+            excluded_from: format!("{remote_name}:/{}", sd.remote_path),
             remote_name,
             count,
         });
@@ -380,6 +386,7 @@ impl SyncativeApp {
             return Task::none();
         }
         self.draft_exclusion.insert(sd_id, String::new());
+        self.offer_clean_up = Some((sd_id, path.clone()));
         self.reload_exclusions(sd_id, move |repo| async move {
             let _ = repo.insert_exclusion(sd_id, path).await;
         })

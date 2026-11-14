@@ -99,12 +99,13 @@ pub enum PendingDelete {
         remote: String,
         remote_label: String,
     },
-    /// Synced files still on this computer under an excluded path. `root` is the absolute local path, `relative` the exclusion as the user typed it.
+    /// Synced files still on this computer under an excluded path. `root` is the absolute local path, `relative` the exclusion as the user typed it, `excluded_from` the sync folder's remote side (`Name:/path`).
     Leftovers {
         sync_dir: SyncDirId,
         root: String,
         relative: String,
         remote_name: String,
+        excluded_from: String,
         count: crate::services::leftovers::Found,
     },
 }
@@ -1096,14 +1097,16 @@ pub fn confirm_delete_overlay<'a>(pending: &'a PendingDelete) -> Element<'a, Msg
         root,
         relative,
         remote_name,
+        excluded_from,
         count,
         ..
     } = pending
     {
-        return confirm_card(
+        let held = if count.files > 0 { format!("{} ({})", count.describe(), count.size()) } else { count.describe() };
+        return leftovers_card(
             format!("Delete the leftovers of '{relative}'?"),
             column![
-                text(format!("'{relative}' is no longer synced here, but {} still holds {} from when it was.", fmt_home(root), count.describe())).size(TEXT),
+                text(format!("'{relative}' is excluded from {excluded_from}, but {} still holds {held} from when it was synced.", fmt_home(root))).size(TEXT),
                 bullet(format!("Only these copies are deleted; {remote_name} keeps its own.")),
                 bullet("Files added or changed there since the exclusion are kept."),
                 bullet("Folders left empty are removed."),
@@ -1139,6 +1142,31 @@ pub fn confirm_delete_overlay<'a>(pending: &'a PendingDelete) -> Element<'a, Msg
     };
 
     confirm_card(title, text(body).size(TEXT).into(), confirm.to_owned())
+}
+
+/// The leftovers' card: Keep, or delete with the broom.
+fn leftovers_card<'a>(title: String, body: Element<'a, Msg>, confirm: String) -> Element<'a, Msg> {
+    let card = container(
+        column![
+            text(title).size(HEADING + 2.0),
+            body,
+            row![
+                Space::new().width(Length::Fill),
+                button(text("Keep").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::CancelDelete),
+                button(row![on_fill_icon(icondata::MdiBroom, 16.0), text(confirm).size(TEXT)].spacing(6).align_y(Alignment::Center))
+                    .padding([6, 14])
+                    .style(theme::button_warning)
+                    .on_press(Msg::ConfirmDelete),
+            ]
+            .spacing(ROW_SPACING),
+        ]
+        .spacing(16),
+    )
+    .padding(22)
+    .max_width(460)
+    .style(theme::dialog);
+
+    modal(card.into(), Some(Msg::CancelDelete))
 }
 
 fn confirm_card<'a>(title: String, body: Element<'a, Msg>, confirm: String) -> Element<'a, Msg> {

@@ -14,11 +14,18 @@ use crate::domain::{
 pub struct Found {
     pub files: usize,
     pub folders: usize,
+    /// Size of the files together.
+    pub bytes: u64,
 }
 
 impl Found {
     pub fn is_empty(self) -> bool {
         self.files == 0 && self.folders == 0
+    }
+
+    /// "12.3 MiB" — the files' size together.
+    pub fn size(self) -> String {
+        crate::util::fmt_size(self.bytes)
     }
 
     /// "3 files", "1 folder", "1 folder and 3 files".
@@ -90,6 +97,7 @@ pub fn count(items: &[SyncItem], root: &str) -> Found {
     for (path, item) in &tracked {
         if is_stale_copy(item) {
             found.files += 1;
+            found.bytes += fs::symlink_metadata(path).map_or(0, |m| m.len());
         } else if is_removable_dir(&tracked, path) {
             found.folders += 1;
         }
@@ -108,9 +116,10 @@ pub async fn clean(repo: &dyn Repository, sync_dir: SyncDirId, root: &str) -> Re
                 dirs.push(item);
                 continue;
             }
-            Ok(_) if is_stale_copy(item) => {
+            Ok(meta) if is_stale_copy(item) => {
                 fs::remove_file(&item.local_path).map_err(|e| format!("{}: {e}", item.local_path))?;
                 deleted.files += 1;
+                deleted.bytes += meta.len();
             }
             // Changed since the last sync: keep the file and its row.
             Ok(_) => continue,
@@ -170,10 +179,10 @@ mod tests {
         repo.insert_item(SyncDirId(1), outside.to_str().unwrap(), "Rawer/keep.mov", 1_700_000_000, 1_700_000_000);
 
         let items = crate::util::await_future(repo.list_sync_items(SyncDirId(1))).unwrap();
-        assert_eq!(count(&items, &root), Found { files: 1, folders: 1 });
+        assert_eq!(count(&items, &root), Found { files: 1, folders: 1, bytes: 1 });
 
         let cleaned = crate::util::await_future(clean(&repo, SyncDirId(1), &root)).unwrap();
-        assert_eq!(cleaned, Cleaned { deleted: Found { files: 1, folders: 1 }, kept: 2 });
+        assert_eq!(cleaned, Cleaned { deleted: Found { files: 1, folders: 1, bytes: 1 }, kept: 2 });
         assert!(!synced.exists() && !tmp.path.join("Raw/sub").exists());
         assert!(edited.exists() && local_only.exists() && outside.exists());
         assert!(!repo.has_item(synced.to_str().unwrap(), "Raw/sub/old.mov"));
@@ -191,7 +200,7 @@ mod tests {
         repo.insert_item(SyncDirId(1), synced.to_str().unwrap(), "Raw/a.txt", 1_700_000_000, 1_700_000_000);
 
         let cleaned = crate::util::await_future(clean(&repo, SyncDirId(1), &root)).unwrap();
-        assert_eq!(cleaned, Cleaned { deleted: Found { files: 1, folders: 0 }, kept: 0 });
+        assert_eq!(cleaned, Cleaned { deleted: Found { files: 1, folders: 0, bytes: 1 }, kept: 0 });
         assert!(!Path::new(&root).exists());
     }
 
@@ -209,10 +218,10 @@ mod tests {
         repo.insert_item(SyncDirId(1), &format!("{root}/c"), "Raw/c", 1_700_000_000, 1_700_000_000);
 
         let items = crate::util::await_future(repo.list_sync_items(SyncDirId(1))).unwrap();
-        assert_eq!(count(&items, &root), Found { files: 0, folders: 2 });
+        assert_eq!(count(&items, &root), Found { files: 0, folders: 2, bytes: 0 });
 
         let cleaned = crate::util::await_future(clean(&repo, SyncDirId(1), &root)).unwrap();
-        assert_eq!(cleaned.deleted, Found { files: 0, folders: 2 });
+        assert_eq!(cleaned.deleted, Found { files: 0, folders: 2, bytes: 0 });
         assert!(!tmp.path.join("Raw/a").exists());
         assert!(tmp.path.join("Raw/c/new").exists());
     }
