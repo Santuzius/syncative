@@ -80,11 +80,8 @@ impl Picker {
         }
         // Folders carry no size.
         browser.hide_column(BuiltInColumn::Size);
-        let preselected: Vec<String> = preselected
-            .iter()
-            .map(|path| crate::util::strip_slashes(path.trim()))
-            .filter(|path| !path.is_empty())
-            .collect();
+        // `""` is the root: a hidden sync folder itself, ticked like any other.
+        let preselected: Vec<String> = preselected.iter().map(|path| crate::util::strip_slashes(path.trim())).collect();
         browser.select_paths(&preselected);
         let base = match source {
             Source::Remote(_) => crate::util::strip_slashes(base),
@@ -178,7 +175,17 @@ pub fn view(picker: &Picker, full_screen: bool) -> Element<'_, Msg> {
 
 #[cfg(test)]
 mod tests {
-    use super::folder_name_problem;
+    use super::{Picker, Source, Target, folder_name_problem};
+    use crate::domain::sync::SyncDirId;
+
+    /// A hidden sync folder itself is stored as `""` and comes back ticked; it covers the folders below it.
+    #[test]
+    fn a_hidden_sync_folder_itself_stays_ticked() {
+        let picker = Picker::new(Target::Hidden(SyncDirId(1)), 1, Source::Local, "/sdcard/Pictures", vec!["".to_owned(), "Raw".to_owned()]);
+        assert_eq!(picker.browser.selected_paths(), [""]);
+        let picker = Picker::new(Target::Hidden(SyncDirId(1)), 1, Source::Local, "/sdcard/Pictures", vec!["Raw".to_owned()]);
+        assert_eq!(picker.browser.selected_paths(), ["Raw"]);
+    }
 
     #[test]
     fn folder_names_stay_inside_the_open_folder() {
