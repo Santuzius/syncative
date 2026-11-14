@@ -1,10 +1,10 @@
-//! Saving files shared from another app: full screen, first the account (skipped when there is only one), then the folder in the cloud (the folder picker, drawn by the app over this screen's body). The engine uploads the files in the background afterwards.
+//! Saving files shared from another app: full screen on the phone, a dialog on the desktop; first the account (skipped when there is only one), then the folder in the cloud (the folder picker, drawn by the app over this screen's body). The engine uploads the files in the background afterwards.
 
 use std::path::{Path, PathBuf};
 
 use iced::{
     Alignment, Element, Length,
-    widget::{Space, button, center, column, container, row, scrollable},
+    widget::{Column, Space, button, center, column, container, row, scrollable},
 };
 
 use crate::{
@@ -19,8 +19,6 @@ use crate::{
 
 /// Width the body stops growing at.
 const MAX_WIDTH: f32 = 520.0;
-/// Height of the dialog on the desktop.
-const DIALOG_HEIGHT: f32 = 360.0;
 
 /// A share being saved.
 pub struct Share {
@@ -110,49 +108,59 @@ pub fn body<'a>(share: &'a Share, accounts: Vec<Account>) -> Element<'a, Msg> {
         .into()
 }
 
-/// The bar and the body in a dialog, for the desktop; the folder picker is a dialog of its own.
+/// The desktop dialog, laid out like the app's other dialogs: title, what is being saved, the step's content, and the button that leaves; the folder picker is a dialog of its own.
 pub fn dialog<'a>(share: &'a Share, accounts: Vec<Account>) -> Element<'a, Msg> {
-    container(column![
-        header(share),
-        iced::widget::rule::horizontal(1).style(theme::separator),
-        container(content(share, accounts)).padding(16).height(Length::Fixed(DIALOG_HEIGHT)),
-    ])
-    .width(Length::Fill)
-    .max_width(MAX_WIDTH)
-    .style(theme::dialog)
-    .into()
+    let finished = matches!(share.step, Step::Failed(_)) || (share.step == Step::Account && accounts.is_empty());
+    let step: Element<'a, Msg> = match &share.step {
+        Step::Account if !accounts.is_empty() => column![text("Choose an account:").size(TEXT), account_list(accounts)].spacing(8).into(),
+        _ => container(step_message(share, accounts.is_empty(), false)).padding([12, 0]).center_x(Length::Fill).into(),
+    };
+    let content = column![
+        column![
+            text("Save in the cloud").size(HEADING + 2.0),
+            text(share.what()).size(TEXT).style(theme::muted).wrapping(iced::widget::text::Wrapping::WordOrGlyph),
+        ]
+        .spacing(4),
+        step,
+        row![
+            Space::new().width(Length::Fill),
+            button(text(if finished { "Close" } else { "Cancel" }).size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::Close),
+        ],
+    ]
+    .spacing(16);
+    container(content).padding(22).width(Length::Fill).max_width(MAX_WIDTH).style(theme::dialog).into()
 }
 
+/// The step's content on the phone's screen.
 fn content<'a>(share: &'a Share, accounts: Vec<Account>) -> Element<'a, Msg> {
     match &share.step {
-        Step::Preparing | Step::Folder => message(
-            muted_icon(icondata::TbFileImportOutline, 48.0).into(),
+        Step::Account if !accounts.is_empty() => column![
+            text("Choose an account").size(HEADING),
+            scrollable(account_list(accounts)).direction(theme::slim_scrollbar()).style(theme::scrollbar),
+        ]
+        .spacing(ROW_SPACING + 4.0)
+        .into(),
+        _ => center(step_message(share, accounts.is_empty(), true)).into(),
+    }
+}
+
+fn account_list(accounts: Vec<Account>) -> Column<'static, Msg> {
+    accounts.into_iter().fold(column![].spacing(4), |list, account| list.push(account_row(account)))
+}
+
+/// The icon and lines of a step without an account list: getting the files, no accounts, or the failure; `with_button` adds the button that leaves.
+fn step_message<'a>(share: &'a Share, no_accounts: bool, with_button: bool) -> Element<'a, Msg> {
+    let (glyph, line, detail) = match &share.step {
+        Step::Failed(error) => (icondata::TbAlertTriangleOutline, "Not saved".to_owned(), Some(error.clone())),
+        Step::Account if no_accounts => (icondata::TbCloudOutline, "No accounts yet".to_owned(), Some("Add an account in Syncative first, then try again.".to_owned())),
+        _ => (
+            icondata::TbFileImportOutline,
             if share.count == 1 { "Getting the file…".to_owned() } else { format!("Getting {} files…", share.count) },
             None,
-            None,
         ),
-        Step::Account if accounts.is_empty() => message(
-            muted_icon(icondata::TbCloudOutline, 48.0).into(),
-            "No accounts yet".to_owned(),
-            Some("Add an account in Syncative first, then try again.".to_owned()),
-            Some(("Close", Msg::Close)),
-        ),
-        Step::Account => {
-            let list = accounts.into_iter().fold(column![].spacing(4), |list, account| list.push(account_row(account)));
-            column![
-                text("Choose an account").size(HEADING),
-                scrollable(list).direction(theme::slim_scrollbar()).style(theme::scrollbar),
-            ]
-            .spacing(ROW_SPACING + 4.0)
-            .into()
-        }
-        Step::Failed(error) => message(
-            muted_icon(icondata::TbAlertTriangleOutline, 48.0).into(),
-            "Not saved".to_owned(),
-            Some(error.clone()),
-            Some(("Close", Msg::Close)),
-        ),
-    }
+    };
+    let action = (with_button && detail.is_some()).then_some(("Close", Msg::Close));
+    message(muted_icon(glyph, 48.0).into(), line, detail, action)
 }
 
 fn account_row(account: Account) -> Element<'static, Msg> {
@@ -169,7 +177,7 @@ fn account_row(account: Account) -> Element<'static, Msg> {
         .into()
 }
 
-/// A centred icon, line and explanation, with a button below.
+/// An icon, line and explanation, centred on each other, with a button below.
 fn message<'a>(glyph: Element<'a, Msg>, line: String, detail: Option<String>, action: Option<(&'a str, Msg)>) -> Element<'a, Msg> {
     let mut content = column![glyph, text(line).size(HEADING).align_x(Alignment::Center)].spacing(ROW_SPACING).align_x(Alignment::Center);
     if let Some(detail) = detail {
@@ -178,5 +186,5 @@ fn message<'a>(glyph: Element<'a, Msg>, line: String, detail: Option<String>, ac
     if let Some((label, msg)) = action {
         content = content.push(Space::new().height(Length::Fixed(4.0))).push(button(text(label).size(TEXT)).padding([8, 18]).style(theme::button_primary).on_press(msg));
     }
-    center(content).into()
+    content.into()
 }
