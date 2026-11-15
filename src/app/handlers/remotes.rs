@@ -148,6 +148,7 @@ impl SyncativeApp {
             add_remote::Msg::UserChanged(s) => draft.user = s,
             add_remote::Msg::PassChanged(s) => draft.pass = s,
             add_remote::Msg::TotpChanged(s) => draft.totp = s,
+            add_remote::Msg::MailboxPassChanged(s) => draft.mailbox_pass = s,
             add_remote::Msg::ClientIdChanged(s) => draft.client_id = s,
             add_remote::Msg::ClientSecretChanged(s) => draft.client_secret = s,
             add_remote::Msg::OpenVerification => {
@@ -244,6 +245,7 @@ impl SyncativeApp {
                     }
                     let user = draft.user.clone();
                     let pass = draft.pass.clone();
+                    let mailbox_pass = draft.mailbox_pass.clone();
                     let totp = draft.totp.clone();
                     let hv = draft.hv.clone();
                     let router = self.rclone.clone();
@@ -265,6 +267,7 @@ impl SyncativeApp {
                                         &name,
                                         &user,
                                         &pass,
+                                        &mailbox_pass,
                                         &totp,
                                         hv.as_ref(),
                                         &router_inner,
@@ -290,6 +293,7 @@ impl SyncativeApp {
                                     &name,
                                     &user,
                                     &pass,
+                                    &mailbox_pass,
                                     &totp,
                                     hv.as_ref(),
                                     &*repo,

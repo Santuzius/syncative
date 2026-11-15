@@ -1,7 +1,7 @@
 //! Add-remote flow for every provider Syncative supports:
 //!
 //! - WebDAV / Nextcloud / Owncloud — raw username + password
-//! - Proton Drive — username + password + optional TOTP
+//! - Proton Drive — username + password + optional mailbox password and TOTP
 //! - Dropbox / Google Drive / pCloud — OAuth2 via `rclone authorize`
 //!   (launches the default browser; the user confirms, rclone prints
 //!   the token, we pass it to config/create)
@@ -29,6 +29,7 @@ pub enum Msg {
     UserChanged(String),
     PassChanged(String),
     TotpChanged(String),
+    MailboxPassChanged(String),
     ClientIdChanged(String),
     ClientSecretChanged(String),
     Submit,
@@ -148,6 +149,8 @@ pub struct Draft {
     pub pass: String,
     // Proton Drive:
     pub totp: String,
+    /// The second password of a Proton account in two-password mode.
+    pub mailbox_pass: String,
     // OAuth:
     pub client_id: String,
     pub client_secret: String,
@@ -251,6 +254,7 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
             body = body.push(third_party_notice("Proton"));
             body = body.push(field("E-mail", input("example@proton.me", &draft.user, Msg::UserChanged)));
             body = body.push(field("Password", input("password", &draft.pass, Msg::PassChanged).secure(true)));
+            body = body.push(field("Mailbox password", input("only if the account uses two passwords", &draft.mailbox_pass, Msg::MailboxPassChanged).secure(true)));
             body = body.push(field("2FA code", input("only if two-factor authentication is on", &draft.totp, Msg::TotpChanged)));
             body = body.push(hint(
                 "With 2FA enabled, Proton eventually expires the session and Syncative can't renew it on its own (the code is single-use). You'll then be asked to sign in again.",

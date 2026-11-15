@@ -25,12 +25,14 @@ pub const KEYRING_SESSION_MARKER: &str = "keyring";
 fn login_params(
     username: &str,
     password: &str,
+    mailbox_password: &str,
     totp: &str,
     hv: Option<&HumanVerification>,
 ) -> syncative_go::proton::LoginParams {
     syncative_go::proton::LoginParams {
         username: username.to_owned(),
         password: password.to_owned(),
+        mailbox_password: mailbox_password.to_owned(),
         two_fa: totp.to_owned(),
         hv_token: hv.map(|h| h.token.clone()).unwrap_or_default(),
         hv_methods: hv.map(|h| h.methods.clone()).unwrap_or_default(),
@@ -38,7 +40,7 @@ fn login_params(
     }
 }
 
-/// Proton Drive: username + password + optional TOTP. Proton may answer
+/// Proton Drive: username + password + optional mailbox password (two-password mode) + optional TOTP. Proton may answer
 /// with a human-verification request (CAPTCHA) instead; the error then
 /// parses as a [`HumanVerification`], and the caller retries with it
 /// once the user has solved it in the browser.
@@ -53,12 +55,13 @@ pub fn add_proton_drive_remote(
     name: &str,
     username: &str,
     password: &str,
+    mailbox_password: &str,
     totp: &str,
     hv: Option<&HumanVerification>,
     repo: &dyn Repository,
     router: &ClientRouter,
 ) -> Result<RemoteId, String> {
-    let params = login_params(username, password, totp, hv);
+    let params = login_params(username, password, mailbox_password, totp, hv);
     let cred = syncative_go::proton::login(&params)?;
 
     persist_session_to_keyring(name, &cred.uid)?;
@@ -95,11 +98,12 @@ pub fn reauth_proton_drive_remote(
     name: &str,
     username: &str,
     password: &str,
+    mailbox_password: &str,
     totp: &str,
     hv: Option<&HumanVerification>,
     router: &ClientRouter,
 ) -> Result<(), String> {
-    let params = login_params(username, password, totp, hv);
+    let params = login_params(username, password, mailbox_password, totp, hv);
     let cred = syncative_go::proton::login(&params)?;
 
     persist_session_to_keyring(name, &cred.uid)?;
