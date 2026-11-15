@@ -49,8 +49,8 @@ The branch flow:
   - `apksigner verify --print-certs` shows the release certificate, with SHA-256 `6dd390bb5a6ffc6abb6a71620688550927d9f5b883ca076414388e3aa52f8743`.
   - `aapt2 dump badging` shows the new versionCode.
 - **AppImage:** It runs `--help` in `ubuntu:24.04`, `debian:12` and `fedora:42` containers (with `--appimage-extract-and-run` and the distribution's dbus library). It needs nothing but glibc 2.35 and `libdbus-1`.
+  - Pipe the file into the container (`docker run -i … sh -c 'cat > a'`) instead of mounting it, and blank its bytes 8–10 there (`printf '\0\0\0' | dd of=a bs=1 seek=8 conv=notrunc`): on a NixOS host with `programs.appimage.binfmt`, the kernel otherwise hands the file to `appimage-run`, which the container lacks, and the start fails with "not found".
 - **Nix:** `nix build github:Santuzius/syncative/vX.Y.Z` downloads the AppImage without compiling anything, and `result/bin/syncative --help` runs. This only works once the release is published, because the flake fetches the AppImage from it.
-- **Downloads:** The release assets downloaded with `gh release download` match `SHA256SUMS`.
 
 ## The Android forks
 
