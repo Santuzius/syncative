@@ -660,17 +660,25 @@ func (s *Session) uploadBlocks(
 		if len(uploadLinks) != len(pending) {
 			return errors.New("block upload: server returned wrong number of upload links")
 		}
+		// One failed block fails the file: stop the batch's other blocks and wait for them, so they don't keep sending megabytes into a revision the caller deletes next (Proton answers those with 2501 "upload continued after file was saved").
+		batchCtx, cancelBatch := context.WithCancel(ctx)
+		defer cancelBatch()
 		errCh := make(chan error, len(uploadLinks))
 		for i := range uploadLinks {
 			go func(i int) {
 				stream := resty.NewByteMultipartStream(pending[i].data)
-				errCh <- s.c.UploadBlock(ctx, uploadLinks[i].BareURL, uploadLinks[i].Token, stream)
+				errCh <- s.c.UploadBlock(batchCtx, uploadLinks[i].BareURL, uploadLinks[i].Token, stream)
 			}(i)
 		}
+		var firstErr error
 		for range uploadLinks {
-			if err := <-errCh; err != nil {
-				return err
+			if err := <-errCh; err != nil && firstErr == nil {
+				firstErr = err
+				cancelBatch()
 			}
+		}
+		if firstErr != nil {
+			return firstErr
 		}
 		pending = pending[:0]
 		return nil
