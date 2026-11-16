@@ -2,7 +2,7 @@
 //!
 //! `RunState` is the single enum for all levels. The sync engine only ever reports per-dir `Syncing` / `Synced` / `Warning` / `Error`; `Paused` and `AuthNeeded` are remote-level conditions (policy disabled, session dead) that are layered on top when a state is *displayed*, so they can't be clobbered by a late engine event and never need restoring afterwards.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::{remote::RemoteId, sync::SyncDirId};
 
@@ -90,6 +90,8 @@ pub struct RemoteState {
     pub consecutive_degraded: u32,
     /// Scheduler cycles remaining to skip before the next pass attempt.
     pub syncs_to_skip: u32,
+    /// Dirs whose running pass hit a problem (a failed file, a conflict). They keep showing `Syncing` until the pass ends, then `Warning`: a triangle mid-pass looked like a finished pass that never came back.
+    problems_in_pass: HashSet<SyncDirId>,
 }
 
 impl RemoteState {
@@ -100,6 +102,7 @@ impl RemoteState {
             auth_needed: false,
             consecutive_degraded: 0,
             syncs_to_skip: 0,
+            problems_in_pass: HashSet::new(),
         }
     }
 
@@ -114,13 +117,14 @@ impl RemoteState {
         }
     }
 
-    /// Aggregate child dir states into a single `RunState` for this remote.
+    /// Aggregate child dir states into a single `RunState` for this remote: a running pass shows as such, otherwise the most severe dir state.
     pub fn roll_up(&self) -> RunState {
         self.override_state().unwrap_or_else(|| {
-            self.dirs
-                .values()
-                .copied()
-                .max_by_key(|s| s.severity())
+            let states = self.dirs.values().copied();
+            states
+                .clone()
+                .find(|s| matches!(s, RunState::Syncing(_)))
+                .or_else(|| states.max_by_key(|s| s.severity()))
                 .unwrap_or(RunState::Waiting)
         })
     }
@@ -131,29 +135,51 @@ impl RemoteState {
             .unwrap_or_else(|| self.dirs.get(&id).copied().unwrap_or(RunState::Waiting))
     }
 
-    /// Transition dir `id` to `next`, respecting the stickiness rule.
-    pub fn transition_dir(&mut self, id: SyncDirId, next: RunState) {
+    /// Transition dir `id` to `next`, respecting the stickiness rule. A problem noted during the pass turns its final `Synced` into `Warning`.
+    pub fn transition_dir(&mut self, id: SyncDirId, mut next: RunState) {
+        match next {
+            RunState::Syncing(SyncActivity::Listing) => {
+                self.problems_in_pass.remove(&id);
+            }
+            RunState::Syncing(_) => {}
+            _ => {
+                if self.problems_in_pass.remove(&id) && next == RunState::Synced {
+                    next = RunState::Warning;
+                }
+            }
+        }
         let entry = self.dirs.entry(id).or_insert(RunState::Waiting);
         if !entry.is_sticky_over(next) {
             *entry = next;
         }
     }
 
+    /// A file of dir `id` failed or conflicts: `Warning`, deferred to the end of a running pass.
+    pub fn problem(&mut self, id: SyncDirId) {
+        if matches!(self.dirs.get(&id), Some(RunState::Syncing(_))) {
+            self.problems_in_pass.insert(id);
+        } else {
+            self.transition_dir(id, RunState::Warning);
+        }
+    }
+
     /// Keep only the given dirs (drops state of deleted sync dirs so it can't haunt the roll-up) and add missing ones as `Waiting`.
     pub fn set_dirs(&mut self, ids: &[SyncDirId]) {
         self.dirs.retain(|id, _| ids.contains(id));
+        self.problems_in_pass.retain(|id| ids.contains(id));
         for id in ids {
             self.dirs.entry(*id).or_insert(RunState::Waiting);
         }
     }
 
-    /// A pass ended (cleanly, cancelled, or crashed). Any dir still marked `Syncing` never got its final state — don't leave it spinning.
+    /// A pass ended (cleanly, cancelled, or crashed). Any dir still marked `Syncing` never got its final state — don't leave it spinning, but show the problems it met.
     pub fn finish_pass(&mut self) {
-        for state in self.dirs.values_mut() {
+        for (id, state) in &mut self.dirs {
             if matches!(state, RunState::Syncing(_)) {
-                *state = RunState::Waiting;
+                *state = if self.problems_in_pass.contains(id) { RunState::Warning } else { RunState::Waiting };
             }
         }
+        self.problems_in_pass.clear();
     }
 
     /// The device lost its network: idle folders show it until the next pass, which starts once the network is back.
@@ -244,6 +270,11 @@ impl AppState {
     /// Transition `dir_id` inside `remote_id` to `next`, respecting the stickiness rule.
     pub fn transition_dir(&mut self, remote_id: RemoteId, dir_id: SyncDirId, next: RunState) {
         self.remote_mut(remote_id).transition_dir(dir_id, next);
+    }
+
+    /// A file of `dir_id` failed or conflicts (see [`RemoteState::problem`]).
+    pub fn problem(&mut self, remote_id: RemoteId, dir_id: SyncDirId) {
+        self.remote_mut(remote_id).problem(dir_id);
     }
 
     /// The device lost its network (see [`RemoteState::went_offline`]).
@@ -459,6 +490,48 @@ mod tests {
         rs.finish_pass();
         assert_eq!(rs.dirs[&dir(1)], RunState::Waiting);
         assert_eq!(rs.dirs[&dir(2)], RunState::Warning);
+    }
+
+    #[test]
+    fn a_problem_mid_pass_shows_once_the_pass_ends() {
+        let mut rs = RemoteState::new(true);
+        rs.transition_dir(dir(1), RunState::Syncing(SyncActivity::Listing));
+        rs.transition_dir(dir(1), RunState::Syncing(SyncActivity::Uploading));
+        rs.problem(dir(1));
+        assert_eq!(rs.dirs[&dir(1)], RunState::Syncing(SyncActivity::Uploading));
+        rs.transition_dir(dir(1), RunState::Syncing(SyncActivity::Downloading));
+        assert_eq!(rs.roll_up(), RunState::Syncing(SyncActivity::Downloading));
+        rs.transition_dir(dir(1), RunState::Synced);
+        assert_eq!(rs.dirs[&dir(1)], RunState::Warning);
+        // The next pass starts afresh.
+        rs.transition_dir(dir(1), RunState::Syncing(SyncActivity::Listing));
+        rs.transition_dir(dir(1), RunState::Synced);
+        assert_eq!(rs.dirs[&dir(1)], RunState::Synced);
+    }
+
+    #[test]
+    fn a_stopped_pass_keeps_its_problem() {
+        let mut rs = RemoteState::new(true);
+        rs.transition_dir(dir(1), RunState::Syncing(SyncActivity::Uploading));
+        rs.problem(dir(1));
+        rs.finish_pass();
+        assert_eq!(rs.dirs[&dir(1)], RunState::Warning);
+    }
+
+    #[test]
+    fn a_problem_outside_a_pass_shows_at_once() {
+        let mut rs = RemoteState::new(true);
+        rs.transition_dir(dir(1), RunState::Synced);
+        rs.problem(dir(1));
+        assert_eq!(rs.dirs[&dir(1)], RunState::Warning);
+    }
+
+    #[test]
+    fn a_running_pass_rolls_up_over_older_problems() {
+        let mut rs = RemoteState::new(true);
+        rs.transition_dir(dir(1), RunState::Warning);
+        rs.transition_dir(dir(2), RunState::Syncing(SyncActivity::Uploading));
+        assert_eq!(rs.roll_up(), RunState::Syncing(SyncActivity::Uploading));
     }
 
     #[test]

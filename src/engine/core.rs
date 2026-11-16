@@ -611,8 +611,7 @@ impl Core {
                     self.refresh_requested_after.remove(&remote_id);
                 } else {
                     // Per-file errors show as Warning even if the pass ends Synced.
-                    self.state
-                        .transition_dir(remote_id, sync_dir_id, RunState::Warning);
+                    self.state.problem(remote_id, sync_dir_id);
                 }
             }
             SyncEvent::SyncDirStateChanged {
@@ -670,8 +669,7 @@ impl Core {
             }
         }
         if !conflicts.is_empty() {
-            self.state
-                .transition_dir(remote_id, sync_dir_id, RunState::Warning);
+            self.state.problem(remote_id, sync_dir_id);
             self.conflicts.insert(sync_dir_id, conflicts);
         }
         self.conflicts_version += 1;
