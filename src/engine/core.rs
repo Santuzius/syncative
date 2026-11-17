@@ -223,7 +223,12 @@ impl Core {
                 }
             }
             Command::SyncSoon(id) => {
-                self.last_sync_at.remove(&id);
+                // A running pass has its folders fixed; a folder added meanwhile gets the next one, right after it.
+                if self.syncing.contains(&id) {
+                    self.refresh_requested_after.insert(id);
+                } else {
+                    self.last_sync_at.remove(&id);
+                }
             }
             Command::Usage(id) => {
                 if !self.usage.contains_key(&id) {
@@ -354,6 +359,21 @@ impl Core {
             .map(|d| d.id)
             .filter(|id| !sync_dirs.iter().any(|d| d.id == *id))
             .collect();
+        // A running pass would go on syncing a removed folder to its end; stop it and sync the remote's other folders right after.
+        let interrupted: HashSet<RemoteId> = self
+            .sync_dirs
+            .iter()
+            .filter(|d| gone.contains(&d.id) && self.syncing.contains(&d.remote_id))
+            .map(|d| d.remote_id)
+            .collect();
+        for id in interrupted {
+            if let Some(flag) = self.cancel_flags.get(&id) {
+                flag.store(true, Ordering::Release);
+            }
+            if remotes.iter().any(|r| r.id == id && r.policy.enabled) {
+                self.refresh_requested_after.insert(id);
+            }
+        }
         if !gone.is_empty() {
             let mut logs = self.logs.lock().unwrap();
             for id in &gone {

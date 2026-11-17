@@ -371,6 +371,20 @@ async fn sync_now_while_syncing_queues_one_more_pass() {
 }
 
 #[tokio::test]
+async fn removing_a_folder_stops_the_running_pass_and_a_folder_added_meanwhile_syncs_right_after() {
+    let mut rig = rig().await;
+    rig.send(Command::SyncNow(R1)).await;
+    rig.repo.sync_dirs.lock().unwrap().retain(|d| d.id != D1);
+    rig.send(Command::Reload).await;
+    let dir = TempDir::new("engine-3");
+    rig.repo.sync_dirs.lock().unwrap().push(sync_dir(3, 1, dir.as_str(), "c"));
+    rig.send(Command::Reload).await;
+    rig.send(Command::SyncSoon(R1)).await;
+    rig.settle().await;
+    assert_eq!(rig.snap().passes_finished, 2);
+}
+
+#[tokio::test]
 async fn disabling_cancels_and_unschedules() {
     let mut rig = rig().await;
     rig.send(Command::SyncNow(R1)).await;
