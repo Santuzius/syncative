@@ -223,6 +223,7 @@ func Login(ctx context.Context, p LoginParams) (*Session, error) {
 		sess.Close()
 		return nil, err
 	}
+	sess.loadListings()
 	return sess, nil
 }
 
@@ -271,6 +272,7 @@ func Resume(ctx context.Context, cred ReusableCredential) (*Session, error) {
 		sess.Close()
 		return nil, err
 	}
+	sess.loadListings()
 	return sess, nil
 }
 
@@ -442,6 +444,7 @@ func LoadCredential(path string) (ReusableCredential, error) {
 // Close tears down the session's clients and wipes unlocked keyrings
 // from memory. Safe to call multiple times.
 func (s *Session) Close() {
+	s.stopSavingListings(false)
 	if s.userKR != nil {
 		s.userKR.ClearPrivateParams()
 		s.userKR = nil
@@ -478,6 +481,7 @@ func (s *Session) Logout(ctx context.Context) error {
 		return nil
 	}
 	err := s.c.AuthDelete(ctx)
+	s.stopSavingListings(true)
 	s.Close()
 	return err
 }

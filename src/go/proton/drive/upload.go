@@ -81,11 +81,9 @@ func (s *Session) UploadFile(ctx context.Context, parentLinkID, name, srcPath st
 	modTime := stat.ModTime()
 
 	linkID, revisionID, sessionKey, nodeKR, err := s.createFileDraft(ctx, parentLinkID, name, srcPath)
-	if err != nil || revisionID != "" {
-		// The tree changes from here on (or may have, on error); only the hash-match short-circuit leaves it untouched.
-		defer s.invalidateListings()
-	}
 	if err != nil {
+		// The tree may have changed on the way (a ghost link removed, a draft created).
+		s.invalidateListings()
 		return "", err
 	}
 	if revisionID == "" {
@@ -100,13 +98,24 @@ func (s *Session) UploadFile(ctx context.Context, parentLinkID, name, srcPath st
 		// CreateRevision path will retry the user's next upload and
 		// the stale draft will be collected server-side eventually.
 		_ = extras.DeleteRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, linkID, revisionID)
+		// Only a draft came and went, which listings don't show.
 		return "", err
 	}
 
 	if err := s.commitRevision(ctx, nodeKR, linkID, revisionID, manifest, fileSize, blockSizes, sha1Hex, modTime); err != nil {
 		_ = extras.DeleteRevision(ctx, s.protonextAuth(), s.mainShare.ShareID, linkID, revisionID)
+		// A commit that failed on the way back may still have landed.
+		s.invalidateListings()
 		return "", err
 	}
+	// After the cleanup below, which only touches old revisions that listings don't show.
+	defer func() {
+		entry, err := s.Stat(ctx, linkID)
+		if err != nil {
+			entry = nil
+		}
+		s.listingsChangedByUs(parentLinkID, linkID, entry, false)
+	}()
 	// Best-effort: drop any non-active revisions left behind by prior
 	// uploads of this file. Proton retains the previous active revision
 	// as "Obsolete" on every commit, so without this every re-upload

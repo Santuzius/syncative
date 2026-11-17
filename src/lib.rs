@@ -145,6 +145,8 @@ fn set_up() -> Option<Services> {
     // Proton's naming scheme for third-party Drive clients.
     syncative_go::proton::set_app_version(concat!("external-drive-syncative@", env!("CARGO_PKG_VERSION"), "-stable"))
         .expect("failed to set the Proton app version");
+    // The Proton listings, so a start doesn't walk every remote tree again.
+    syncative_go::proton::set_cache_dir(&data_dir.join("cache")).expect("failed to set the Proton cache folder");
     syncative_go::rpc(
         "config/setpath",
         json!({ "path": rclone_config }).to_string(),

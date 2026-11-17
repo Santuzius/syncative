@@ -370,7 +370,11 @@ func (s *Session) listRecursive(ctx context.Context, rootLinkID string) ([]*Entr
 			continue
 		}
 
-		folderLink := s.linkCache[item.linkID]
+		// The walk's own start folder is not among the fetched children; with folder listings from the cache on disk, its link may not have been fetched at all.
+		folderLink, err := s.getLink(ctx, item.linkID)
+		if err != nil {
+			return nil, err
+		}
 		folderKR, err := s.linkKR(ctx, &folderLink)
 		if err != nil {
 			return nil, err

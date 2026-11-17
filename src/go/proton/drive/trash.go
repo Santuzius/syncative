@@ -35,7 +35,6 @@ func (s *Session) TrashLink(ctx context.Context, linkID string) error {
 	if linkID == "" {
 		return errors.New("link ID is empty")
 	}
-	defer s.invalidateListings()
 	link, err := s.c.GetLink(ctx, s.mainShare.ShareID, linkID)
 	if err != nil {
 		return err
@@ -50,7 +49,12 @@ func (s *Session) TrashLink(ctx context.Context, linkID string) error {
 	if link.State != proton.LinkStateActive {
 		return errors.New("link is not active")
 	}
-	return s.c.TrashChildren(ctx, s.mainShare.ShareID, link.ParentLinkID, linkID)
+	if err := s.c.TrashChildren(ctx, s.mainShare.ShareID, link.ParentLinkID, linkID); err != nil {
+		s.invalidateListings()
+		return err
+	}
+	s.listingsChangedByUs(link.ParentLinkID, linkID, nil, true)
+	return nil
 }
 
 // PermanentDeleteLink removes a trashed link outright. Syncative's
@@ -62,7 +66,6 @@ func (s *Session) PermanentDeleteLink(ctx context.Context, linkID string) error 
 	if linkID == "" {
 		return errors.New("link ID is empty")
 	}
-	defer s.invalidateListings()
 	link, err := s.c.GetLink(ctx, s.mainShare.ShareID, linkID)
 	if err != nil {
 		return err
@@ -70,5 +73,10 @@ func (s *Session) PermanentDeleteLink(ctx context.Context, linkID string) error 
 	if link.ParentLinkID == "" {
 		return ErrLinkHasNoParent
 	}
-	return s.c.DeleteChildren(ctx, s.mainShare.ShareID, link.ParentLinkID, linkID)
+	if err := s.c.DeleteChildren(ctx, s.mainShare.ShareID, link.ParentLinkID, linkID); err != nil {
+		s.invalidateListings()
+		return err
+	}
+	s.listingsChangedByUs(link.ParentLinkID, linkID, nil, true)
+	return nil
 }

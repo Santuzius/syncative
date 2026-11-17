@@ -218,6 +218,15 @@ pub mod proton {
         Ok(())
     }
 
+    /// Set the folder where Proton sessions keep their listing cache between runs. Call once at startup, before any login or resume.
+    pub fn set_cache_dir(dir: &Path) -> Result<(), String> {
+        invoke_raw(
+            |payload| unsafe { ffi::ProtonDrive_SetCacheDir(payload) },
+            &serde_json::json!({ "dir": dir.to_string_lossy() }),
+        )?;
+        Ok(())
+    }
+
     /// Close every connection to Proton after a network change: requests cut off by it fail at once instead of waiting for data that never comes, and their retries dial over the new network.
     pub fn reset_connections() {
         unsafe { ffi::ProtonDrive_ResetConnections() };

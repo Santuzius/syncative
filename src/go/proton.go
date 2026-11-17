@@ -95,6 +95,20 @@ func ProtonDrive_SetAppVersion(paramsJSON *C.char) *C.char {
 	return okResult(nil)
 }
 
+// ProtonDrive_SetCacheDir sets the folder where sessions keep their listing cache between runs. Input `{"dir":"..."}`; call once at startup, before any login or resume.
+//
+//export ProtonDrive_SetCacheDir
+func ProtonDrive_SetCacheDir(paramsJSON *C.char) *C.char {
+	var p struct {
+		Dir string `json:"dir"`
+	}
+	if err := json.Unmarshal([]byte(C.GoString(paramsJSON)), &p); err != nil {
+		return errResult(err)
+	}
+	drive.CacheDir = p.Dir
+	return okResult(nil)
+}
+
 // ProtonDrive_ResetConnections closes every connection to Proton after a network change, so cut-off requests fail at once and retry over the new network.
 //
 //export ProtonDrive_ResetConnections
