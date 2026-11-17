@@ -4986,7 +4986,7 @@ dependencies = [
 
 [[package]]
 name = "syncative"
-version = "0.26.2"
+version = "0.26.3"
 dependencies = [
  "android_logger",
  "clap",
@@ -5019,7 +5019,7 @@ dependencies = [
 
 [[package]]
 name = "syncative-go"
-version = "0.26.2"
+version = "0.26.3"
 dependencies = [
  "bindgen",
  "serde",
