@@ -120,8 +120,14 @@ where
                     }
                 } else {
                     if snapshot.db.contains_key(&remote_path) && same_content(&local_path, &remote_path, remote, client, cancel).is_some() {
-                        eprintln!("sync: '{remote_path}' only changed its time here; the content is the same on both sides — recording it as synced.");
-                        record_upsert(repo, sync_dir, &local_path, &remote_path, client, &remote.name, cancel);
+                        let recorded = snapshot.db.get(&remote_path).map_or(0, |row| row.last_local_timestamp);
+                        let local_ts = local_timestamp(Path::new(&local_path));
+                        eprintln!("sync: '{remote_path}' only changed its time here (recorded {recorded}, now {}); the content is the same on both sides — recording it as synced.", local_ts.unwrap_or(0));
+                        // The listing's time, as for a change on the remote (see Download).
+                        match (snapshot.remote.get(&remote_path), local_ts) {
+                            (Some(item), Some(local_ts)) => save_row(repo, sync_dir, &local_path, &remote_path, local_ts as i64, item.mod_time.unix_timestamp()),
+                            _ => record_upsert(repo, sync_dir, &local_path, &remote_path, client, &remote.name, cancel),
+                        }
                         break 'action;
                     }
                     emit_status(tr::tr!(
@@ -175,11 +181,17 @@ where
                     if snapshot.db.contains_key(&remote_path)
                         && let Some(details) = same_content(&local_path, &remote_path, remote, client, cancel)
                     {
-                        eprintln!("sync: '{remote_path}' only changed its time on the remote; the content is the same on both sides — taking over its time.");
+                        let recorded = snapshot.db.get(&remote_path).map_or(0, |row| row.last_remote_timestamp);
+                        let listed = snapshot.remote.get(&remote_path).map(|item| item.mod_time.unix_timestamp());
+                        eprintln!("sync: '{remote_path}' only changed its time on the remote (recorded {recorded}, listed {}); the content is the same on both sides — taking over its time.", listed.unwrap_or(0));
                         if let Err(err) = set_mtime(&local_path, details.mod_time.unix_timestamp()) {
                             eprintln!("sync: could not give '{local_path}' the remote's modification time: {err}");
                         }
-                        record_upsert(repo, sync_dir, &local_path, &remote_path, client, &remote.name, cancel);
+                        // The row gets the listing's time, the one the next pass compares against: a time asked for separately could differ from it and plan the same check again on every pass.
+                        match (listed, local_timestamp(Path::new(&local_path))) {
+                            (Some(listed), Some(local_ts)) => save_row(repo, sync_dir, &local_path, &remote_path, local_ts as i64, listed),
+                            _ => record_upsert(repo, sync_dir, &local_path, &remote_path, client, &remote.name, cancel),
+                        }
                         break 'action;
                     }
                     if let Some(parent) = Path::new(&local_path).parent() {
