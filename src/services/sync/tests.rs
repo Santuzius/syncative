@@ -1258,3 +1258,68 @@ fn editor_swap_files_are_not_seen() {
     // No upload for the swap file.
     assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
 }
+
+/// One pass of a sync folder synced with the remote folder "Photos", whose only file sits alone in a subfolder: the case an empty listing would delete, as no sibling proves the listing wrong.
+fn run_in_photos(name: &str, synced_before: bool, client: &FakeBackend) -> (Outcome, Vec<SyncEvent>, PathBuf, FakeRepo, TempDir) {
+    let tmp = TempDir::new(name);
+    let local = tmp.write_file("sub/x.jpg", b"photo");
+    touch_mtime(&local, 1_700_000_000);
+    let repo = FakeRepo::new();
+    if synced_before {
+        repo.insert_item(SyncDirId(1), local.to_str().unwrap(), "Photos/sub/x.jpg", 1_700_000_000, 1_700_000_000);
+    }
+    let r = remote(1, "TestRemote");
+    let sd = sync_dir(1, 1, tmp.as_str(), "Photos");
+    let captured: Mutex<Vec<SyncEvent>> = Mutex::new(Vec::new());
+    let outcome = run(&r, &sd, &repo, client, &[], &[], |e| captured.lock().unwrap().push(e), &cancel_never(), |_| false);
+    let events = captured.lock().unwrap().clone();
+    (outcome, events, local, repo, tmp)
+}
+
+fn stops_with_remote_folder_not_found(outcome: Outcome, events: &[SyncEvent], local: &Path, repo: &FakeRepo, client: &FakeBackend) {
+    assert_eq!(outcome, Outcome::Aborted);
+    assert!(matches!(errors(events).as_slice(), [SyncError::General(path, msg)] if path == "Photos" && msg == "Remote folder not found"), "{:?}", errors(events));
+    assert!(local.exists());
+    assert_eq!(repo.item_count(), 1);
+    assert!(client.mkdir_calls.lock().unwrap().is_empty());
+    assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
+}
+
+/// The native Proton client lists a folder that is gone (renamed, moved or deleted on the remote) as empty.
+#[test]
+fn a_synced_folder_listed_empty_and_gone_stops_without_deleting() {
+    let client = FakeBackend::default();
+    client.set_list("Photos", Ok(Vec::new()));
+    let (outcome, events, local, repo, _tmp) = run_in_photos("sync_root_gone_empty", true, &client);
+    stops_with_remote_folder_not_found(outcome, &events, &local, &repo, &client);
+}
+
+/// rclone reports a folder that is gone as an error.
+#[test]
+fn a_synced_folder_reported_missing_stops_without_deleting() {
+    let client = FakeBackend::default();
+    client.set_list("Photos", Err("directory not found".to_owned()));
+    let (outcome, events, local, repo, _tmp) = run_in_photos("sync_root_gone_error", true, &client);
+    stops_with_remote_folder_not_found(outcome, &events, &local, &repo, &client);
+}
+
+/// A folder that was never synced has nothing to lose: the remote folder is created and the files go up.
+#[test]
+fn a_missing_folder_is_created_for_the_first_sync() {
+    let client = FakeBackend::default();
+    client.set_list("Photos", Err("directory not found".to_owned()));
+    let (outcome, events, _local, _repo, _tmp) = run_in_photos("sync_root_first", false, &client);
+    assert_eq!(outcome, Outcome::Synced, "{:?}", errors(&events));
+    assert_eq!(client.mkdir_calls.lock().unwrap().first().map(String::as_str), Some("Photos"));
+    assert_eq!(client.copy_to_remote_calls.lock().unwrap().len(), 1);
+}
+
+/// An existing folder emptied on the remote is no missing folder.
+#[test]
+fn an_emptied_folder_is_not_reported_missing() {
+    let client = FakeBackend::default();
+    client.set_list("Photos", Ok(Vec::new()));
+    client.set_stat("Photos", Ok(Some(remote_item("Photos", true, 1_700_000_000))));
+    let (_outcome, events, _local, _repo, _tmp) = run_in_photos("sync_root_emptied", true, &client);
+    assert!(!errors(&events).iter().any(|e| matches!(e, SyncError::General(_, msg) if msg == "Remote folder not found")));
+}

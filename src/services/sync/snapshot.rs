@@ -122,13 +122,7 @@ impl Snapshot {
             .map(|r| (r.remote_path.clone(), r))
             .collect();
 
-        // 2. Remote listing — single authoritative call. When the
-        //    sync_dir's root doesn't exist on the remote (user or a
-        //    prior incident trashed it), treat the listing as empty
-        //    and mkdir the root so the upload phase can recreate the
-        //    tree. Without this, the sync aborts every cycle and the
-        //    user has to delete + re-add the sync_dir just to force
-        //    a fresh mkdir.
+        // 2. Remote listing — single authoritative call. A missing root folder is created for a first sync and stops a synced folder with an error (see `missing_root`).
         let remote_items = match client.list(
             &remote.name,
             &sync_dir.remote_path,
@@ -136,17 +130,12 @@ impl Snapshot {
             ListFilter::All,
             cancel,
         ) {
-            Ok(items) => items,
-            Err(err) if is_directory_missing_error(&err) => {
-                eprintln!(
-                    "sync: remote dir '{}' missing for remote='{}' ({err}); recreating and proceeding with empty listing.",
-                    sync_dir.remote_path, remote.name,
-                );
-                if !sync_dir.remote_path.is_empty() {
-                    let _ = client.mkdir(&remote.name, &sync_dir.remote_path, cancel);
-                }
-                Vec::new()
+            // The native Proton client lists a missing folder as empty; asking for the folder itself tells the two apart.
+            Ok(items) if items.is_empty() && !sync_dir.remote_path.is_empty() && matches!(client.stat(&remote.name, &sync_dir.remote_path, cancel), Ok(None)) => {
+                missing_root(remote, sync_dir, client, &db, "not found", cancel)?
             }
+            Ok(items) => items,
+            Err(err) if is_directory_missing_error(&err) => missing_root(remote, sync_dir, client, &db, &err, cancel)?,
             Err(err) => return Err(err),
         };
 
@@ -176,6 +165,25 @@ impl Snapshot {
 /// returns our own `resolve_path` miss, WebDAV can reply with a 404
 /// body. Match broadly — a false positive here costs us one speculative
 /// mkdir, a miss costs the user a broken sync cycle.
+/// The sync folder's own folder is missing on the remote. Never synced: create it, the local files go up into it. Synced before: the user renamed, moved or deleted it there, and an empty listing would read as every file deleted (a file alone in its subfolder has no sibling to prove otherwise), so the folder stops with an error and nothing changes on either side.
+fn missing_root(remote: &Remote, sync_dir: &SyncDir, client: &dyn BackendClient, db: &HashMap<String, SyncItem>, err: &str, cancel: &Cancel) -> Result<Vec<RemoteItem>, String> {
+    if !db.is_empty() {
+        eprintln!(
+            "sync: STOP for remote='{}' dir='{}' — the remote folder is gone ({err}), but {} item(s) were synced with it; nothing is changed until it is back.",
+            remote.name, sync_dir.remote_path, db.len(),
+        );
+        return Err(tr::tr!("Remote folder not found"));
+    }
+    eprintln!(
+        "sync: remote dir '{}' missing for remote='{}' ({err}); creating it for the first sync.",
+        sync_dir.remote_path, remote.name,
+    );
+    if !sync_dir.remote_path.is_empty() {
+        let _ = client.mkdir(&remote.name, &sync_dir.remote_path, cancel);
+    }
+    Ok(Vec::new())
+}
+
 fn is_directory_missing_error(err: &str) -> bool {
     let lower = err.to_ascii_lowercase();
     lower.contains("directory not found")
