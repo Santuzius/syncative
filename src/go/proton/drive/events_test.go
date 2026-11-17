@@ -117,29 +117,50 @@ func TestOnlyChangesNearCachedListingsConcernIt(t *testing.T) {
 }
 
 func TestTheCacheSurvivesARestart(t *testing.T) {
-	old := CacheDir
-	CacheDir = t.TempDir()
-	defer func() { CacheDir = old }()
+	path := filepath.Join(t.TempDir(), "proton-listings-remote-7.json")
 
 	s := &Session{volumeID: "vol"}
+	s.SetListingsFile(path)
 	c := treeCache()
-	s.listings.cursor, s.listings.dirs, s.listings.trees = c.cursor, c.dirs, c.trees
 	s.listings.mu.Lock()
+	s.listings.cursor, s.listings.dirs, s.listings.trees = c.cursor, c.dirs, c.trees
 	s.listings.dirty = true
 	s.writeListings()
 	s.listings.mu.Unlock()
-	if info, err := os.Stat(filepath.Join(CacheDir, "proton-listings-vol.json")); err != nil || info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("file: %v %v", info, err)
 	}
 
 	again := &Session{volumeID: "vol"}
-	again.loadListings()
+	again.SetListingsFile(path)
 	if again.listings.cursor != "c1" || len(again.listings.trees["root"]) != 4 {
 		t.Fatalf("loaded cursor %q, %d entries", again.listings.cursor, len(again.listings.trees["root"]))
 	}
 	other := &Session{volumeID: "other"}
-	other.loadListings()
+	other.SetListingsFile(path)
 	if other.listings.cached() {
-		t.Fatal("another volume's cache was loaded")
+		t.Fatal("another account's cache was loaded")
+	}
+}
+
+func TestARemovedRemoteLeavesNoCacheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "proton-listings-remote-7.json")
+	s := &Session{volumeID: "vol"}
+	s.SetListingsFile(path)
+	c := treeCache()
+	s.listings.mu.Lock()
+	s.listings.cursor, s.listings.trees = c.cursor, c.trees
+	s.writeListings()
+	s.markListingsDirty() // a save still pending when the remote goes
+	s.listings.mu.Unlock()
+
+	ForgetListingsFile(path)
+	s.listings.mu.Lock()
+	s.listings.dirty = true
+	s.writeListings()
+	pending := s.listings.saveTimer != nil
+	s.listings.mu.Unlock()
+	if _, err := os.Stat(path); !os.IsNotExist(err) || pending {
+		t.Fatalf("file still there (%v) or a save still pending (%v)", err, pending)
 	}
 }

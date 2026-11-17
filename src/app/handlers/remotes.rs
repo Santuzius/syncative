@@ -270,6 +270,7 @@ impl SyncativeApp {
                                         &mailbox_pass,
                                         &totp,
                                         hv.as_ref(),
+                                        existing_id,
                                         &router_inner,
                                     )
                                 })

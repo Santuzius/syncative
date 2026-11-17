@@ -30,9 +30,21 @@ use syncative_go::proton as proton_ffi;
 
 use crate::domain::{
     ports::{BackendClient, Cancel, is_cancelled},
-    remote::RemoteUsage,
+    remote::{RemoteId, RemoteUsage},
     sync::{FileDetails, ListFilter, RemoteItem},
 };
+
+/// The file keeping the Proton listing cache of remote `id` between runs. Named by the ID, which stays when the remote is renamed.
+pub fn listings_file(id: RemoteId) -> std::path::PathBuf {
+    crate::util::get_data_dir().join("cache").join(format!("proton-listings-{}.json", id.0))
+}
+
+/// Deletes the listing cache of a removed remote: it holds decrypted file and folder names.
+pub fn forget_listings(id: RemoteId) {
+    if let Err(err) = proton_ffi::forget_listings_file(&listings_file(id)) {
+        eprintln!("syncative: could not remove the Proton listing cache: {err}");
+    }
+}
 
 /// Native ProtonDrive adapter. Owns the session UID the syncative-go
 /// layer returns from `ProtonDrive_Login` / `ProtonDrive_ResumeSession`.
@@ -46,6 +58,14 @@ impl NativeProtonClient {
     /// call. The session must be registered on the Go side.
     pub fn new(uid: String) -> Self {
         Self { uid }
+    }
+
+    /// Like [`Self::new`], and the session keeps its listing cache in the file of remote `id` between runs.
+    pub fn for_remote(id: RemoteId, uid: String) -> Self {
+        if let Err(err) = proton_ffi::set_listings_file(&uid, &listings_file(id)) {
+            eprintln!("syncative: the Proton listing cache stays in memory only: {err}");
+        }
+        Self::new(uid)
     }
 
     pub fn uid(&self) -> &str {
@@ -341,6 +361,7 @@ impl BackendClient for NativeProtonClient {
 /// [`NativeProtonClient`] the moment it succeeds. A genuine auth
 /// failure discovered on retry latches into the reauth message instead.
 pub struct PendingProtonClient {
+    remote_id: RemoteId,
     remote_name: String,
     state: std::sync::Mutex<PendingState>,
 }
@@ -363,8 +384,9 @@ enum PendingState {
 impl PendingProtonClient {
     /// `reason` is the initial startup failure, surfaced to callers
     /// until the first retry is due.
-    pub fn new(remote_name: String, reason: String) -> Self {
+    pub fn new(remote_id: RemoteId, remote_name: String, reason: String) -> Self {
         Self {
+            remote_id,
             remote_name,
             state: std::sync::Mutex::new(PendingState::Waiting {
                 last_attempt: None,
@@ -406,7 +428,7 @@ impl PendingProtonClient {
                     "syncative: native-proton session for '{}' resumed on retry.",
                     self.remote_name,
                 );
-                let client = NativeProtonClient::new(cred.uid);
+                let client = NativeProtonClient::for_remote(self.remote_id, cred.uid);
                 *state = PendingState::Live(client.clone());
                 Ok(client)
             }

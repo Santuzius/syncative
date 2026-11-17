@@ -223,7 +223,6 @@ func Login(ctx context.Context, p LoginParams) (*Session, error) {
 		sess.Close()
 		return nil, err
 	}
-	sess.loadListings()
 	return sess, nil
 }
 
@@ -272,7 +271,6 @@ func Resume(ctx context.Context, cred ReusableCredential) (*Session, error) {
 		sess.Close()
 		return nil, err
 	}
-	sess.loadListings()
 	return sess, nil
 }
 

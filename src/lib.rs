@@ -145,8 +145,6 @@ fn set_up() -> Option<Services> {
     // Proton's naming scheme for third-party Drive clients.
     syncative_go::proton::set_app_version(concat!("external-drive-syncative@", env!("CARGO_PKG_VERSION"), "-stable"))
         .expect("failed to set the Proton app version");
-    // The Proton listings, so a start doesn't walk every remote tree again.
-    syncative_go::proton::set_cache_dir(&data_dir.join("cache")).expect("failed to set the Proton cache folder");
     syncative_go::rpc(
         "config/setpath",
         json!({ "path": rclone_config }).to_string(),
@@ -341,14 +339,14 @@ fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
         if !services::network::online() {
             let reason = format!("Proton Drive session for '{}' not resumed yet (network is unreachable). Retrying automatically — no action needed.", remote.name);
             eprintln!("syncative: {reason}");
-            router.register(remote.name.clone(), Arc::new(PendingProtonClient::new(remote.name.clone(), reason)));
+            router.register(remote.name.clone(), Arc::new(PendingProtonClient::new(remote.id, remote.name.clone(), reason)));
             continue;
         }
         match crate::services::auth::resume_proton_session(&remote.name) {
             Ok(Some(cred)) => {
                 router.register(
                     remote.name.clone(),
-                    Arc::new(NativeProtonClient::new(cred.uid)),
+                    Arc::new(NativeProtonClient::for_remote(remote.id, cred.uid)),
                 );
                 eprintln!(
                     "syncative: native-proton session resumed for '{}'.",
@@ -395,7 +393,7 @@ fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
                 eprintln!("syncative: {reason}");
                 router.register(
                     remote.name.clone(),
-                    Arc::new(PendingProtonClient::new(remote.name.clone(), reason)),
+                    Arc::new(PendingProtonClient::new(remote.id, remote.name.clone(), reason)),
                 );
             }
         }

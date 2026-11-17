@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -18,8 +19,11 @@ const (
 	listingSaveDelay = 10 * time.Second
 )
 
-// CacheDir is the folder for the listing caches of all sessions; empty keeps them in memory only. Set it once at startup, before any login or resume.
-var CacheDir string
+// listingFiles maps each cache file to the sessions using it, so removing a remote can stop their saves.
+var (
+	listingFilesMu sync.Mutex
+	listingFiles   = make(map[string]map[*Session]struct{})
+)
 
 type storedListings struct {
 	Version  int                 `json:"version"`
@@ -29,17 +33,44 @@ type storedListings struct {
 	Trees    map[string][]*Entry `json:"trees"`
 }
 
-// listingsPath is the session's cache file, "" when there is none.
+// listingsPath is the session's cache file, "" while it has none (kept in memory only). Caller holds mu.
 func (s *Session) listingsPath() string {
-	if CacheDir == "" || s.volumeID == "" {
-		return ""
-	}
-	return filepath.Join(CacheDir, "proton-listings-"+s.volumeID+".json")
+	return s.listings.file
 }
 
-// loadListings fills the cache from disk. Called once the drive is bootstrapped (the volume ID names the file).
+// SetListingsFile gives the session its cache file, named by the caller after the remote it belongs to, and fills the cache from it. The file records the volume, so another account's cache is never loaded.
+func (s *Session) SetListingsFile(path string) {
+	s.listings.mu.Lock()
+	s.listings.file = path
+	s.listings.mu.Unlock()
+	listingFilesMu.Lock()
+	if listingFiles[path] == nil {
+		listingFiles[path] = make(map[*Session]struct{})
+	}
+	listingFiles[path][s] = struct{}{}
+	listingFilesMu.Unlock()
+	s.loadListings()
+}
+
+// ForgetListingsFile deletes a cache file after its remote was removed, first stopping the sessions that still save to it.
+func ForgetListingsFile(path string) {
+	listingFilesMu.Lock()
+	sessions := listingFiles[path]
+	delete(listingFiles, path)
+	listingFilesMu.Unlock()
+	for s := range sessions {
+		s.stopSavingListings(true)
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		logf("drive: could not remove the cached listing: %v", err)
+	}
+}
+
+// loadListings fills the cache from the session's file.
 func (s *Session) loadListings() {
+	s.listings.mu.Lock()
 	path := s.listingsPath()
+	s.listings.mu.Unlock()
 	if path == "" {
 		return
 	}
@@ -58,6 +89,10 @@ func (s *Session) loadListings() {
 	l := &s.listings
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.cursor != "" {
+		// Already following the event log; what is in memory is newer.
+		return
+	}
 	l.cursor = stored.Cursor
 	l.dirs = stored.Dirs
 	l.trees = stored.Trees
@@ -126,7 +161,11 @@ func (s *Session) stopSavingListings(forget bool) {
 		s.writeListings()
 	}
 	l.closed = true
-	if path := s.listingsPath(); forget && path != "" {
+	path := s.listingsPath()
+	if forget && path != "" {
 		_ = os.Remove(path)
 	}
+	listingFilesMu.Lock()
+	delete(listingFiles[path], s)
+	listingFilesMu.Unlock()
 }

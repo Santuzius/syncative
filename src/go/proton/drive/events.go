@@ -33,6 +33,7 @@ type listingCache struct {
 	trees    map[string][]*Entry // root link ID → recursive listing
 
 	// Saving to disk (listing_store.go).
+	file      string
 	dirty     bool
 	saveTimer *time.Timer
 	closed    bool

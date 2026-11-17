@@ -95,17 +95,36 @@ func ProtonDrive_SetAppVersion(paramsJSON *C.char) *C.char {
 	return okResult(nil)
 }
 
-// ProtonDrive_SetCacheDir sets the folder where sessions keep their listing cache between runs. Input `{"dir":"..."}`; call once at startup, before any login or resume.
+// ProtonDrive_SetListingsFile gives a session the file that keeps its listing cache between runs and loads it. Input `{"uid":"...","path":"..."}`; call right after login or resume, before the first listing.
 //
-//export ProtonDrive_SetCacheDir
-func ProtonDrive_SetCacheDir(paramsJSON *C.char) *C.char {
+//export ProtonDrive_SetListingsFile
+func ProtonDrive_SetListingsFile(paramsJSON *C.char) *C.char {
 	var p struct {
-		Dir string `json:"dir"`
+		UID  string `json:"uid"`
+		Path string `json:"path"`
 	}
 	if err := json.Unmarshal([]byte(C.GoString(paramsJSON)), &p); err != nil {
 		return errResult(err)
 	}
-	drive.CacheDir = p.Dir
+	sess, err := drive.Lookup(p.UID)
+	if err != nil {
+		return errResult(err)
+	}
+	sess.SetListingsFile(p.Path)
+	return okResult(nil)
+}
+
+// ProtonDrive_ForgetListingsFile deletes a listing cache file after its remote was removed, stopping any session that still saves to it. Input `{"path":"..."}`.
+//
+//export ProtonDrive_ForgetListingsFile
+func ProtonDrive_ForgetListingsFile(paramsJSON *C.char) *C.char {
+	var p struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(C.GoString(paramsJSON)), &p); err != nil {
+		return errResult(err)
+	}
+	drive.ForgetListingsFile(p.Path)
 	return okResult(nil)
 }
 

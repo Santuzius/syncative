@@ -83,7 +83,7 @@ pub fn add_proton_drive_remote(
 
     router.register(
         name.to_owned(),
-        Arc::new(NativeProtonClient::new(cred.uid)),
+        Arc::new(NativeProtonClient::for_remote(id, cred.uid)),
     );
     Ok(id)
 }
@@ -94,6 +94,7 @@ pub fn add_proton_drive_remote(
 /// router's disabled stub for a live [`NativeProtonClient`]. Leaves
 /// the DB row untouched — same name, same sync_dirs, same exclusions —
 /// so the user's configuration survives the reauth unchanged.
+#[allow(clippy::too_many_arguments)]
 pub fn reauth_proton_drive_remote(
     name: &str,
     username: &str,
@@ -101,6 +102,7 @@ pub fn reauth_proton_drive_remote(
     mailbox_password: &str,
     totp: &str,
     hv: Option<&HumanVerification>,
+    id: Option<RemoteId>,
     router: &ClientRouter,
 ) -> Result<(), String> {
     let params = login_params(username, password, mailbox_password, totp, hv);
@@ -108,10 +110,11 @@ pub fn reauth_proton_drive_remote(
 
     persist_session_to_keyring(name, &cred.uid)?;
 
-    router.register(
-        name.to_owned(),
-        Arc::new(NativeProtonClient::new(cred.uid)),
-    );
+    let client = match id {
+        Some(id) => NativeProtonClient::for_remote(id, cred.uid),
+        None => NativeProtonClient::new(cred.uid),
+    };
+    router.register(name.to_owned(), Arc::new(client));
     Ok(())
 }
 
