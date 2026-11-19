@@ -237,14 +237,6 @@ pub trait BackendClient: Send + Sync {
     /// when the remote name isn't in rclone's config.
     fn remote_type(&self, remote: &str) -> Result<Option<String>, String>;
 
-    /// Persist any session state that mutated during a sync pass (e.g.
-    /// a rotated auth token) so it survives a restart. Called by the
-    /// sync engine at the end of each pass. Default is a no-op —
-    /// rclone-backed remotes keep their credentials in `rclone.conf`
-    /// and have nothing per-pass to checkpoint; the native Proton
-    /// client overrides this to re-persist rotated refresh tokens.
-    fn checkpoint_session(&self, _remote: &str) {}
-
     /// `true` when this client is a placeholder for a session that
     /// can't be used until the user reauthenticates.
     fn needs_reauth(&self, _remote: &str) -> bool {
