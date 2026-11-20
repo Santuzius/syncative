@@ -48,6 +48,52 @@ pub struct SyncItem {
     pub remote_path: String,
     pub last_local_timestamp: i64,
     pub last_remote_timestamp: i64,
+    /// What the row knows about the remote item besides its time; see [`RemoteMeta`].
+    pub remote: RemoteMeta,
+}
+
+/// What a row records about the remote item besides its time, so the database can stand in for the remote listing.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RemoteMeta {
+    /// `None` for rows written before this was recorded.
+    pub is_dir: Option<bool>,
+    /// The provider's ID where the sync uses one ([`RemoteItem::id`]).
+    pub id: Option<String>,
+    /// A folder's change tag ([`RemoteItem::tag`]), only ever as of a pass whose listing matched the database: a newer tag would hide changes below the folder that the rows don't have yet.
+    pub tag: Option<String>,
+}
+
+/// Where a sync folder's remote stood at the last pass whose listing matched the database.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteCursor {
+    /// The backend's change cursor, opaque to everything but the backend.
+    pub cursor: String,
+    /// UNIX time of the full listing this cursor goes back to.
+    pub listed_at: i64,
+    /// Which parts of the folder were left out of the listing then; another set of exclusions makes the database incomplete.
+    pub filter: String,
+}
+
+/// What changed on the remote below a sync folder since a [`RemoteCursor`], as [`crate::domain::ports::BackendClient::changes`] reports it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Changes {
+    /// Nothing changed.
+    None,
+    /// These changed; `cursor` is where the backend stands now. `root_id` is the provider's ID of the sync folder itself, for changes that name their folder by ID.
+    Some { cursor: String, root_id: Option<String>, changes: Vec<RemoteChange> },
+    /// The backend can't tell: list the folder in full. `cursor`, taken before that listing, is where the next pass starts if the listing matches the database.
+    Unknown { cursor: Option<String> },
+}
+
+/// One change in [`Changes::Some`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RemoteChange {
+    /// List this folder again, and every subfolder that is new or whose [`RemoteItem::tag`] changed.
+    Folder(String),
+    /// The item with this ID as it is now, in the folder with ID `parent_id`.
+    Item { id: String, parent_id: String, name: String, is_dir: bool, mod_time: OffsetDateTime },
+    /// The item with this ID is gone, with everything below it.
+    Gone(String),
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +112,10 @@ pub struct RemoteItem {
     pub path: String,
     pub name: String,
     pub mod_time: OffsetDateTime,
+    /// The provider's ID of the item where the sync uses one (Proton's link ID), else `None`.
+    pub id: Option<String>,
+    /// For a folder, a tag that changes with anything below it (Nextcloud's ETag), else `None`.
+    pub tag: Option<String>,
 }
 
 /// One side of a file as the conflict dialog shows it. `size` and `sha1` are `None` where the backend doesn't report them; `mod_time` is the time the file was last modified (for Proton the time recorded by the uploading app).

@@ -30,10 +30,13 @@ use crate::domain::{
 mod applier;
 pub mod local_names;
 mod planner;
+mod remote_view;
 mod snapshot;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod remote_view_tests;
 
 /// Outcome of a single [`run`] call.
 ///

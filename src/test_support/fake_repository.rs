@@ -4,12 +4,12 @@
 #![cfg(test)]
 #![allow(dead_code)]
 
-use std::sync::Mutex;
+use std::{collections::HashMap, sync::Mutex};
 
 use crate::domain::{
     ports::{BoxFuture, Repository, RepositoryError},
     remote::{Remote, RemoteId, SyncPolicy},
-    sync::{SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId},
+    sync::{RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId},
 };
 
 #[derive(Default)]
@@ -21,6 +21,7 @@ pub struct FakeRepo {
     pub sync_dirs: Mutex<Vec<SyncDir>>,
     /// Hidden folders, the same for every sync_dir.
     pub hidden: Mutex<Vec<String>>,
+    pub cursors: Mutex<HashMap<SyncDirId, RemoteCursor>>,
 }
 
 impl FakeRepo {
@@ -32,6 +33,7 @@ impl FakeRepo {
             remotes: Mutex::new(vec![]),
             sync_dirs: Mutex::new(vec![]),
             hidden: Mutex::new(vec![]),
+            cursors: Mutex::new(HashMap::new()),
         }
     }
 
@@ -53,8 +55,18 @@ impl FakeRepo {
             remote_path: remote_path.to_owned(),
             last_local_timestamp: local_ts,
             last_remote_timestamp: remote_ts,
+            remote: RemoteMeta::default(),
         });
         id
+    }
+
+    /// The row of `remote_path`, for assertions.
+    pub fn item(&self, remote_path: &str) -> Option<SyncItem> {
+        self.items.lock().unwrap().iter().find(|it| it.remote_path == remote_path).cloned()
+    }
+
+    pub fn cursor(&self, sync_dir: SyncDirId) -> Option<RemoteCursor> {
+        self.cursors.lock().unwrap().get(&sync_dir).cloned()
     }
 
     pub fn item_count(&self) -> usize {
@@ -215,8 +227,14 @@ impl Repository for FakeRepo {
         remote: String,
         lt: i64,
         rt: i64,
+        is_dir: bool,
+        remote_id: Option<String>,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
-        self.insert_item(sd, &local, &remote, lt, rt);
+        let id = self.insert_item(sd, &local, &remote, lt, rt);
+        if let Some(item) = self.items.lock().unwrap().iter_mut().find(|it| it.id == id) {
+            item.remote.is_dir = Some(is_dir);
+            item.remote.id = remote_id;
+        }
         Box::pin(async { Ok(()) })
     }
     fn update_sync_item_timestamps(
@@ -224,12 +242,37 @@ impl Repository for FakeRepo {
         id: SyncItemId,
         lt: i64,
         rt: i64,
+        is_dir: bool,
+        remote_id: Option<String>,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         let mut items = self.items.lock().unwrap();
         if let Some(item) = items.iter_mut().find(|it| it.id == id) {
             item.last_local_timestamp = lt;
             item.last_remote_timestamp = rt;
+            item.remote.is_dir = Some(is_dir);
+            item.remote.id = remote_id;
         }
+        Box::pin(async { Ok(()) })
+    }
+    fn set_remote_meta(&self, rows: Vec<(SyncItemId, RemoteMeta)>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        let mut items = self.items.lock().unwrap();
+        for (id, meta) in rows {
+            if let Some(item) = items.iter_mut().find(|it| it.id == id) {
+                item.remote = meta;
+            }
+        }
+        Box::pin(async { Ok(()) })
+    }
+    fn remote_cursor(&self, sd: SyncDirId) -> BoxFuture<'_, Result<Option<RemoteCursor>, RepositoryError>> {
+        let cursor = self.cursor(sd);
+        Box::pin(async move { Ok(cursor) })
+    }
+    fn set_remote_cursor(&self, sd: SyncDirId, cursor: Option<RemoteCursor>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        let mut cursors = self.cursors.lock().unwrap();
+        match cursor {
+            Some(c) => cursors.insert(sd, c),
+            None => cursors.remove(&sd),
+        };
         Box::pin(async { Ok(()) })
     }
     fn delete_sync_item(

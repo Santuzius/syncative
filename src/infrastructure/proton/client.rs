@@ -146,6 +146,8 @@ fn entry_to_remote_item(entry: proton_ffi::Entry, path_prefix: &str) -> RemoteIt
         name: entry.name,
         mod_time: OffsetDateTime::from_unix_timestamp(entry.mod_time_unix)
             .unwrap_or(OffsetDateTime::UNIX_EPOCH),
+        id: Some(entry.link_id),
+        tag: None,
     }
 }
 
@@ -180,6 +182,8 @@ impl BackendClient for NativeProtonClient {
                 name,
                 mod_time: OffsetDateTime::from_unix_timestamp(entry.mod_time_unix)
                     .unwrap_or(OffsetDateTime::UNIX_EPOCH),
+                id: Some(entry.link_id),
+                tag: None,
             }))
         })();
         self.checkpoint_session(remote);
@@ -231,6 +235,8 @@ impl BackendClient for NativeProtonClient {
                             name: basename,
                             mod_time: OffsetDateTime::from_unix_timestamp(e.mod_time_unix)
                                 .unwrap_or(OffsetDateTime::UNIX_EPOCH),
+                            id: Some(e.link_id),
+                            tag: None,
                         }
                     })
                     .collect();

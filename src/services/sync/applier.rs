@@ -12,7 +12,7 @@ use crate::{
         ports::{BackendClient, Cancel, Repository, is_cancelled as cancel_check},
         remote::Remote,
         run_state::{RunState, SyncActivity},
-        sync::{Conflict, ConflictChoice, FileDetails, Link, LinkTarget, Resolution, SyncDir, SyncError, SyncItem},
+        sync::{Conflict, ConflictChoice, FileDetails, Link, LinkTarget, RemoteItem, Resolution, SyncDir, SyncError, SyncItem},
     },
     util,
 };
@@ -123,7 +123,7 @@ where
                         eprintln!("sync: '{remote_path}' only changed its time here (recorded {recorded}, now {}); the content is the same on both sides — recording it as synced.", local_ts.unwrap_or(0));
                         // The listing's time, as for a change on the remote (see Download).
                         match (snapshot.remote.get(&remote_path), local_ts) {
-                            (Some(item), Some(local_ts)) => save_row(repo, sync_dir, &local_path, &remote_path, local_ts as i64, item.mod_time.unix_timestamp()),
+                            (Some(item), Some(local_ts)) => save_row(repo, sync_dir, &local_path, &remote_path, local_ts as i64, item),
                             _ => record_upsert(repo, sync_dir, &local_path, &remote_path, client, &remote.name, cancel),
                         }
                         break 'action;
@@ -180,8 +180,8 @@ where
                         && let Some(details) = same_content(&local_path, &remote_path, remote, client, cancel)
                     {
                         let recorded = snapshot.db.get(&remote_path).map_or(0, |row| row.last_remote_timestamp);
-                        let listed = snapshot.remote.get(&remote_path).map(|item| item.mod_time.unix_timestamp());
-                        eprintln!("sync: '{remote_path}' only changed its time on the remote (recorded {recorded}, listed {}); the content is the same on both sides — taking over its time.", listed.unwrap_or(0));
+                        let listed = snapshot.remote.get(&remote_path);
+                        eprintln!("sync: '{remote_path}' only changed its time on the remote (recorded {recorded}, listed {}); the content is the same on both sides — taking over its time.", listed.map_or(0, |item| item.mod_time.unix_timestamp()));
                         if let Err(err) = set_mtime(&local_path, details.mod_time.unix_timestamp()) {
                             eprintln!("sync: could not give '{local_path}' the remote's modification time: {err}");
                         }
@@ -293,10 +293,13 @@ where
                 local_path,
                 remote_path,
                 local_mtime,
-                remote_mtime,
+                remote_mtime: _,
             } => {
                 eprintln!("sync: RECORD '{remote_path}' — present on both sides but untracked; tracking it from now on.");
-                save_row(repo, sync_dir, &local_path, &remote_path, local_mtime, remote_mtime);
+                match snapshot.remote.get(&remote_path) {
+                    Some(item) => save_row(repo, sync_dir, &local_path, &remote_path, local_mtime, item),
+                    None => eprintln!("sync: could not record '{remote_path}': it is missing from the listing."),
+                }
             }
             Action::Conflict {
                 local_path,
@@ -704,7 +707,7 @@ fn record_uploaded(
             return;
         }
     };
-    save_row(repo, sync_dir, local_path, remote_path, local_ts as i64, rstat.mod_time.unix_timestamp());
+    save_row(repo, sync_dir, local_path, remote_path, local_ts as i64, &rstat);
 }
 
 /// After a download: give the local copy the remote's modification time, then record both. Syncative's own Proton client writes the file with the time of the download, which made the copy look newer than the original: after a fresh start without a database, a first pass then uploaded it again.
@@ -738,14 +741,15 @@ fn record_download(
         eprintln!("sync: could not record '{remote_path}': no modification time for {local_path}.");
         return;
     };
-    save_row(repo, sync_dir, local_path, remote_path, local_ts as i64, remote_ts);
+    save_row(repo, sync_dir, local_path, remote_path, local_ts as i64, &rstat);
 }
 
-/// Inserts or updates the item's row; a failure is logged, as the next pass would plan the same again.
-fn save_row(repo: &dyn Repository, sync_dir: &SyncDir, local_path: &str, remote_path: &str, local_ts: i64, remote_ts: i64) {
+/// Inserts or updates the item's row with the remote item `rstat` as it is now; a failure is logged, as the next pass would plan the same again.
+fn save_row(repo: &dyn Repository, sync_dir: &SyncDir, local_path: &str, remote_path: &str, local_ts: i64, rstat: &RemoteItem) {
+    let remote_ts = rstat.mod_time.unix_timestamp();
     let saved = match util::await_future(repo.find_sync_item_by_paths(sync_dir.id, local_path, remote_path)) {
-        Ok(Some(existing)) => util::await_future(repo.update_sync_item_timestamps(existing.id, local_ts, remote_ts)).map(|_| ()),
-        Ok(None) => util::await_future(repo.insert_sync_item(sync_dir.id, local_path.to_owned(), remote_path.to_owned(), local_ts, remote_ts)).map(|_| ()),
+        Ok(Some(existing)) => util::await_future(repo.update_sync_item_timestamps(existing.id, local_ts, remote_ts, rstat.is_dir, rstat.id.clone())).map(|_| ()),
+        Ok(None) => util::await_future(repo.insert_sync_item(sync_dir.id, local_path.to_owned(), remote_path.to_owned(), local_ts, remote_ts, rstat.is_dir, rstat.id.clone())).map(|_| ()),
         Err(err) => Err(err),
     };
     if let Err(err) = saved {

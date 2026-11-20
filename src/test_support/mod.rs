@@ -102,6 +102,8 @@ pub fn remote_item(path: &str, is_dir: bool, unix_ts: i64) -> RemoteItem {
         path: path.to_owned(),
         name: name.to_owned(),
         mod_time: OffsetDateTime::from_unix_timestamp(unix_ts).unwrap(),
+        id: None,
+        tag: None,
     }
 }
 

@@ -2,11 +2,12 @@
 
 use sea_orm::{
     ActiveValue, ColumnTrait, Condition, DatabaseConnection, EntityTrait, ModelTrait, QueryFilter,
+    TransactionTrait,
 };
 
 use crate::domain::{
     ports::{BoxFuture, RepositoryError},
-    sync::{SyncDirId, SyncItem, SyncItemId},
+    sync::{RemoteMeta, SyncDirId, SyncItem, SyncItemId},
 };
 
 use super::super::models::{SyncItemsActiveModel, SyncItemsColumn, SyncItemsEntity};
@@ -76,6 +77,7 @@ pub(super) fn find_sync_item_by_remote(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn insert_sync_item(
     db: &DatabaseConnection,
     sync_dir: SyncDirId,
@@ -83,10 +85,14 @@ pub(super) fn insert_sync_item(
     remote_path: String,
     last_local_timestamp: i64,
     last_remote_timestamp: i64,
+    is_dir: bool,
+    remote_id: Option<String>,
 ) -> BoxFuture<'_, Result<(), RepositoryError>> {
     Box::pin(async move {
         let active = SyncItemsActiveModel {
             sync_dir_id: ActiveValue::Set(sync_dir.0),
+            is_dir: ActiveValue::Set(Some(is_dir)),
+            remote_id: ActiveValue::Set(remote_id),
             local_path: ActiveValue::Set(local_path),
             remote_path: ActiveValue::Set(remote_path),
             last_local_timestamp: ActiveValue::Set(
@@ -110,10 +116,14 @@ pub(super) fn update_sync_item_timestamps(
     id: SyncItemId,
     last_local_timestamp: i64,
     last_remote_timestamp: i64,
+    is_dir: bool,
+    remote_id: Option<String>,
 ) -> BoxFuture<'_, Result<(), RepositoryError>> {
     Box::pin(async move {
         let active = SyncItemsActiveModel {
             id: ActiveValue::Unchanged(id.0),
+            is_dir: ActiveValue::Set(Some(is_dir)),
+            remote_id: ActiveValue::Set(remote_id),
             last_local_timestamp: ActiveValue::Set(
                 last_local_timestamp.try_into().unwrap_or(i32::MAX),
             ),
@@ -127,6 +137,26 @@ pub(super) fn update_sync_item_timestamps(
             .await
             .map_err(map_err)?;
         Ok(())
+    })
+}
+
+pub(super) fn set_remote_meta(
+    db: &DatabaseConnection,
+    rows: Vec<(SyncItemId, RemoteMeta)>,
+) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    Box::pin(async move {
+        let txn = db.begin().await.map_err(map_err)?;
+        for (id, meta) in rows {
+            let active = SyncItemsActiveModel {
+                id: ActiveValue::Unchanged(id.0),
+                is_dir: ActiveValue::Set(meta.is_dir),
+                remote_id: ActiveValue::Set(meta.id),
+                remote_tag: ActiveValue::Set(meta.tag),
+                ..Default::default()
+            };
+            SyncItemsEntity::update(active).exec(&txn).await.map_err(map_err)?;
+        }
+        txn.commit().await.map_err(map_err)
     })
 }
 

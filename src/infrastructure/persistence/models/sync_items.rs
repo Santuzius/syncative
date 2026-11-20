@@ -17,6 +17,12 @@ pub struct Model {
     pub last_local_timestamp: i32,
     /// The remote UNIX timestamp of the item when last synced.
     pub last_remote_timestamp: i32,
+    /// Whether the remote item is a folder; `None` for rows written before it was recorded.
+    pub is_dir: Option<bool>,
+    /// The provider's ID of the remote item where the sync uses one (Proton's link ID).
+    pub remote_id: Option<String>,
+    /// A folder's change tag (Nextcloud's ETag) as of the last pass whose listing matched the database.
+    pub remote_tag: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

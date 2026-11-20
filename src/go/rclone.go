@@ -11,6 +11,7 @@ struct RcloneRPCResult {
 import "C"
 
 import (
+	"encoding/json"
 	"time"
 	"unsafe"
 
@@ -68,16 +69,29 @@ func RcloneRPCCancellable(method *C.char, input *C.char, cancelled *C.uchar) (re
 	return result
 }
 
-// RcloneRemoteChanged reports (1/0) whether the rclone remote `remote` (name without colon) may have changed since the previous call; see rclone.Changed.
+// RcloneChangeCursor names where the change log of the rclone remote `remote` (name without colon) stands, "" if it can't tell; see rclone.Cursor. Free the result with RcloneFreeString.
 //
-//export RcloneRemoteChanged
-func RcloneRemoteChanged(remote *C.char, cancelled *C.uchar) C.int {
+//export RcloneChangeCursor
+func RcloneChangeCursor(remote *C.char, cancelled *C.uchar) *C.char {
 	ctx, stop := rclone.CancelledBy((*uint8)(unsafe.Pointer(cancelled)))
 	defer stop()
-	if rclone.Changed(ctx, C.GoString(remote)) {
-		return 1
+	return C.CString(rclone.Cursor(ctx, C.GoString(remote)))
+}
+
+// RcloneFolderTags reads the change tags (ETags) of folder `path` and, with `depth` 1, of its subfolders on the WebDAV remote `remote`; see rclone.FolderTags. Returns JSON, `{"tag":…,"children":{path:tag}}` or `{"error":…}`. Free the result with RcloneFreeString.
+//
+//export RcloneFolderTags
+func RcloneFolderTags(remote *C.char, path *C.char, depth C.int, cancelled *C.uchar) *C.char {
+	ctx, stop := rclone.CancelledBy((*uint8)(unsafe.Pointer(cancelled)))
+	defer stop()
+	tag, children, err := rclone.FolderTags(ctx, C.GoString(remote), C.GoString(path), int(depth))
+	var out []byte
+	if err != nil {
+		out, _ = json.Marshal(map[string]string{"error": err.Error()})
+	} else {
+		out, _ = json.Marshal(map[string]any{"tag": tag, "children": children})
 	}
-	return 0
+	return C.CString(string(out))
 }
 
 // RcloneForgetRemote stops change tracking for `remote`.

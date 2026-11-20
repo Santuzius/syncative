@@ -7,12 +7,13 @@
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
+    time::Duration,
 };
 
 use crate::domain::{
     ports::{BackendClient, Cancel},
     remote::RemoteUsage,
-    sync::{FileDetails, ListFilter, RemoteItem},
+    sync::{Changes, FileDetails, ListFilter, RemoteItem},
 };
 
 pub struct ClientRouter {
@@ -136,5 +137,11 @@ impl BackendClient for ClientRouter {
     }
     fn usage(&self, remote: &str, cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {
         self.pick(remote).usage(remote, cancel)
+    }
+    fn changes(&self, remote: &str, path: &str, cursor: Option<&str>, cancel: &Cancel) -> Result<Changes, String> {
+        self.pick(remote).changes(remote, path, cursor, cancel)
+    }
+    fn full_listing_every(&self, remote: &str) -> Option<Duration> {
+        self.pick(remote).full_listing_every(remote)
     }
 }

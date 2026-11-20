@@ -21,7 +21,7 @@ use std::{
 use crate::domain::{
     ports::{BackendClient, Cancel},
     remote::RemoteUsage,
-    sync::{FileDetails, ListFilter, RemoteItem},
+    sync::{Changes, FileDetails, ListFilter, RemoteItem},
 };
 use crate::services::secrets;
 
@@ -30,30 +30,12 @@ use super::rpc::{self, BackendListFilter, BackendRemoteItem};
 #[derive(Clone)]
 pub struct LibrcloneClient {
     rclone_config_path: PathBuf,
-    listings: Arc<Mutex<HashMap<String, Listings>>>,
+    /// When each remote last answered, see [`REACHED_WITHIN`].
+    reached: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
-/// Forces a fresh listing now and then, in case a change notification was missed.
-const LISTING_MAX_AGE: Duration = Duration::from_secs(60 * 60);
-/// A cached listing is handed out only if the provider answered within this time. Offline, the change log can't report anything, and an old listing would read as "up to date".
+/// "Nothing changed" from a change log that the backend polls in the background counts only if the provider answered within this time. Offline, the change log can't report anything, and the database would stand in for a remote nobody reached.
 const REACHED_WITHIN: Duration = Duration::from_secs(60);
-
-/// Listings of one remote, reused while the provider's change log (polled by the Go side, see `src/go/rclone/watch.go`) reports no change. Saves the full tree walk on every sync pass; backends without change notification never hit this cache.
-#[derive(Default)]
-struct Listings {
-    filled_at: Option<Instant>,
-    /// When the provider last answered, see [`REACHED_WITHIN`].
-    reached_at: Option<Instant>,
-    entries: HashMap<(String, bool, u8), Vec<RemoteItem>>,
-}
-
-fn filter_key(filter: ListFilter) -> u8 {
-    match filter {
-        ListFilter::All => 0,
-        ListFilter::Dirs => 1,
-        ListFilter::Files => 2,
-    }
-}
 
 impl LibrcloneClient {
     /// `rclone_config_path` is the path librclone writes its config
@@ -62,14 +44,28 @@ impl LibrcloneClient {
     pub fn new(rclone_config_path: PathBuf) -> Self {
         Self {
             rclone_config_path,
-            listings: Arc::default(),
+            reached: Arc::default(),
         }
     }
 
-    /// Drop the cached listings of `remote` after Syncative changed it itself, so the rest of the pass sees the change right away.
-    fn invalidate(&self, remote: &str) {
-        if let Ok(mut listings) = self.listings.lock() {
-            listings.remove(remote);
+    fn mark_reached(&self, remote: &str) {
+        if let Ok(mut reached) = self.reached.lock() {
+            reached.insert(remote.to_owned(), Instant::now());
+        }
+    }
+
+    /// Fails while the provider can't be reached; one small request unless it answered within [`REACHED_WITHIN`]. A backend without `about` counts as reached.
+    fn check_reachable(&self, remote: &str, cancel: &Cancel) -> Result<(), String> {
+        let recent = self.reached.lock().ok().and_then(|reached| reached.get(remote).copied()).is_some_and(|at| at.elapsed() < REACHED_WITHIN);
+        if recent {
+            return Ok(());
+        }
+        match rpc::sync::about(remote, cancel) {
+            Err(err) if crate::infrastructure::translators::is_offline(&err.error) => Err(err.error),
+            _ => {
+                self.mark_reached(remote);
+                Ok(())
+            }
         }
     }
 
@@ -100,6 +96,8 @@ fn map_item(item: BackendRemoteItem) -> RemoteItem {
         path: item.path,
         name: item.name,
         mod_time: item.mod_time,
+        id: None,
+        tag: None,
     }
 }
 
@@ -131,53 +129,11 @@ impl BackendClient for LibrcloneClient {
         filter: ListFilter,
         cancel: &Cancel,
     ) -> Result<Vec<RemoteItem>, String> {
-        let key = (path.to_owned(), recursive, filter_key(filter));
-        let changed = syncative_go::remote_changed(remote, cancel);
-        if let Ok(mut listings) = self.listings.lock() {
-            let cached = listings.entry(remote.to_owned()).or_default();
-            if changed
-                || cached
-                    .filled_at
-                    .is_some_and(|at| at.elapsed() > LISTING_MAX_AGE)
-            {
-                *cached = Listings::default();
-            }
-            if let Some(items) = cached.entries.get(&key) {
-                if cached
-                    .reached_at
-                    .is_some_and(|at| at.elapsed() < REACHED_WITHIN)
-                {
-                    return Ok(items.clone());
-                }
-                let items = items.clone();
-                drop(listings);
-                // One small request instead of the whole tree. Only a missing connection counts; a backend without `about` keeps the cache.
-                match rpc::sync::about(remote, cancel) {
-                    Err(err) if crate::infrastructure::translators::is_offline(&err.error) => {
-                        return Err(err.error);
-                    }
-                    _ => {
-                        if let Ok(mut listings) = self.listings.lock() {
-                            listings.entry(remote.to_owned()).or_default().reached_at =
-                                Some(Instant::now());
-                        }
-                        return Ok(items);
-                    }
-                }
-            }
-        }
-
         let items: Vec<RemoteItem> =
             rpc::sync::list(remote, path, recursive, map_filter(filter), cancel)
                 .map(|items| items.into_iter().map(map_item).collect())
                 .map_err(|err| err.error)?;
-        // A change landing during the listing raises the change flag again, so the next call drops this entry.
-        if let Ok(mut listings) = self.listings.lock() {
-            let cached = listings.entry(remote.to_owned()).or_default();
-            cached.filled_at.get_or_insert_with(Instant::now);
-            cached.reached_at = Some(Instant::now());
-            cached.entries.insert(key, items.clone());
-        }
+        self.mark_reached(remote);
         Ok(items)
     }
 
@@ -200,21 +156,15 @@ impl BackendClient for LibrcloneClient {
     }
 
     fn mkdir(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {
-        let result = rpc::sync::mkdir(remote, path, cancel).map_err(|err| err.error);
-        self.invalidate(remote);
-        result
+        rpc::sync::mkdir(remote, path, cancel).map_err(|err| err.error)
     }
 
     fn delete_file(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {
-        let result = rpc::sync::delete(remote, path, cancel).map_err(|err| err.error);
-        self.invalidate(remote);
-        result
+        rpc::sync::delete(remote, path, cancel).map_err(|err| err.error)
     }
 
     fn purge(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {
-        let result = rpc::sync::purge(remote, path, cancel).map_err(|err| err.error);
-        self.invalidate(remote);
-        result
+        rpc::sync::purge(remote, path, cancel).map_err(|err| err.error)
     }
 
     fn copy_to_remote(
@@ -224,10 +174,8 @@ impl BackendClient for LibrcloneClient {
         remote_path: &str,
         cancel: &Cancel,
     ) -> Result<(), String> {
-        let result = rpc::sync::copy_to_remote(local_path, remote, remote_path, cancel)
-            .map_err(|err| err.error);
-        self.invalidate(remote);
-        result
+        rpc::sync::copy_to_remote(local_path, remote, remote_path, cancel)
+            .map_err(|err| err.error)
     }
 
     fn copy_to_local(
@@ -242,7 +190,6 @@ impl BackendClient for LibrcloneClient {
 
     fn delete_config(&self, remote: &str) -> Result<(), String> {
         let result = rpc::sync::delete_config(remote).map_err(|err| err.error);
-        self.invalidate(remote);
         syncative_go::forget_remote(remote);
         if result.is_ok() {
             self.sync_to_keyring();
@@ -256,7 +203,6 @@ impl BackendClient for LibrcloneClient {
             .ok()
             .and_then(|v| v.get("name")?.as_str().map(str::to_owned))
         {
-            self.invalidate(&name);
             syncative_go::forget_remote(&name);
         }
         let result = syncative_go::rpc("config/create", payload_json).map(|_| ());
@@ -321,6 +267,34 @@ impl BackendClient for LibrcloneClient {
         serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&body)
             .ok()
             .filter(|m| !m.is_empty())
+    }
+
+    fn changes(&self, remote: &str, path: &str, cursor: Option<&str>, cancel: &Cancel) -> Result<Changes, String> {
+        // Nextcloud and ownCloud: the folder's ETag changes with everything below it.
+        match syncative_go::folder_tags(remote, path, 0, cancel) {
+            Ok(Some(tags)) => {
+                self.mark_reached(remote);
+                return Ok(match cursor {
+                    Some(before) if before == tags.tag => Changes::None,
+                    _ => Changes::Unknown { cursor: Some(tags.tag) },
+                });
+            }
+            Ok(None) => {}
+            // A missing folder: the listing tells what that means.
+            Err(err) if crate::infrastructure::translators::is_offline(&err) => return Err(err),
+            Err(err) => {
+                eprintln!("sync: no change tag for '{path}' on {remote}: {err}");
+                return Ok(Changes::Unknown { cursor: None });
+            }
+        }
+        // Backends with a change log (Google Drive, Dropbox): polled in the background, so the provider's answer may be old.
+        match (syncative_go::change_cursor(remote, cancel), cursor) {
+            (Some(now), Some(before)) if now == before => {
+                self.check_reachable(remote, cancel)?;
+                Ok(Changes::None)
+            }
+            (now, _) => Ok(Changes::Unknown { cursor: now }),
+        }
     }
 
     fn usage(&self, remote: &str, cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {

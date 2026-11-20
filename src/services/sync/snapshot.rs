@@ -122,28 +122,19 @@ impl Snapshot {
             .map(|r| (r.remote_path.clone(), r))
             .collect();
 
-        // 2. Remote listing — single authoritative call. A missing root folder is created for a first sync and stops a synced folder with an error (see `missing_root`).
-        let remote_items = match client.list(
-            &remote.name,
-            &sync_dir.remote_path,
-            true,
-            ListFilter::All,
-            cancel,
-        ) {
-            // The native Proton client lists a missing folder as empty; asking for the folder itself tells the two apart.
-            Ok(items) if items.is_empty() && !sync_dir.remote_path.is_empty() && matches!(client.stat(&remote.name, &sync_dir.remote_path, cancel), Ok(None)) => {
-                missing_root(remote, sync_dir, client, &db, "not found", cancel)?
+        // 2. The remote side: from the database plus what changed, or one full listing (see `remote_view`). A missing root folder is created for a first sync and stops a synced folder with an error (see `missing_root`).
+        let list = || -> Result<Vec<RemoteItem>, String> {
+            match client.list(&remote.name, &sync_dir.remote_path, true, ListFilter::All, cancel) {
+                // The native Proton client lists a missing folder as empty; asking for the folder itself tells the two apart.
+                Ok(items) if items.is_empty() && !sync_dir.remote_path.is_empty() && matches!(client.stat(&remote.name, &sync_dir.remote_path, cancel), Ok(None)) => {
+                    missing_root(remote, sync_dir, client, &db, "not found", cancel)
+                }
+                Ok(items) => Ok(items),
+                Err(err) if is_directory_missing_error(&err) => missing_root(remote, sync_dir, client, &db, &err, cancel),
+                Err(err) => Err(err),
             }
-            Ok(items) => items,
-            Err(err) if is_directory_missing_error(&err) => missing_root(remote, sync_dir, client, &db, &err, cancel)?,
-            Err(err) => return Err(err),
         };
-
-        let remote: HashMap<String, RemoteItem> = remote_items
-            .into_iter()
-            .filter(|i| !path_is_excluded(&i.path, &excluded_remote_prefixes))
-            .map(|i| (i.path.clone(), i))
-            .collect();
+        let remote = super::remote_view::build(remote, sync_dir, repo, client, &db, &excluded_remote_prefixes, list, cancel)?;
 
         // 3. Local walk — skip subtrees managed by descendant sync_dirs.
         let (local, walk_unreliable, walk_denied, local_links) = walk_local(sync_dir, &excluded_local_prefixes);
@@ -184,7 +175,7 @@ fn missing_root(remote: &Remote, sync_dir: &SyncDir, client: &dyn BackendClient,
     Ok(Vec::new())
 }
 
-fn is_directory_missing_error(err: &str) -> bool {
+pub(super) fn is_directory_missing_error(err: &str) -> bool {
     let lower = err.to_ascii_lowercase();
     lower.contains("directory not found")
         || lower.contains("not found on remote")
@@ -235,7 +226,7 @@ fn forget_vanished_excluded_rows(repo: &dyn Repository, sync_dir: &SyncDir, rows
 
 /// Returns true when `path` equals one of `excluded_prefixes` or starts
 /// with one of them followed by `/`.
-fn path_is_excluded(path: &str, excluded_prefixes: &[String]) -> bool {
+pub(super) fn path_is_excluded(path: &str, excluded_prefixes: &[String]) -> bool {
     excluded_prefixes
         .iter()
         .any(|ex| path == ex || path.starts_with(&format!("{ex}/")))

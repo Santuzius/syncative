@@ -240,6 +240,8 @@ mod tests {
             _r: String,
             _lt: i64,
             _rt: i64,
+            _is_dir: bool,
+            _remote_id: Option<String>,
         ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
@@ -248,7 +250,18 @@ mod tests {
             _id: SyncItemId,
             _lt: i64,
             _rt: i64,
+            _is_dir: bool,
+            _remote_id: Option<String>,
         ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn set_remote_meta(&self, _rows: Vec<(SyncItemId, crate::domain::sync::RemoteMeta)>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn remote_cursor(&self, _sd: SyncDirId) -> BoxFuture<'_, Result<Option<crate::domain::sync::RemoteCursor>, RepositoryError>> {
+            Box::pin(async { Ok(None) })
+        }
+        fn set_remote_cursor(&self, _sd: SyncDirId, _cursor: Option<crate::domain::sync::RemoteCursor>) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
         fn delete_sync_item(

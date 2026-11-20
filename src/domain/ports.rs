@@ -10,6 +10,7 @@
 use std::{
     future::Future,
     pin::Pin,
+    time::Duration,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -19,8 +20,8 @@ use std::{
 use super::{
     remote::{Remote, RemoteId, RemoteUsage, SyncPolicy},
     sync::{
-        FileDetails, ListFilter, RemoteItem, SyncDir, SyncDirExclusion, SyncDirExclusionId,
-        SyncDirId, SyncItem, SyncItemId,
+        Changes, FileDetails, ListFilter, RemoteCursor, RemoteItem, RemoteMeta, SyncDir,
+        SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId,
     },
 };
 
@@ -135,6 +136,8 @@ pub trait Repository: Send + Sync {
         remote_path: &str,
     ) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>>;
     fn delete_sync_item(&self, id: SyncItemId) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    /// Record a synced item. `is_dir` and `remote_id` describe the remote item as it is now; its change tag stays empty ([`RemoteMeta::tag`]).
+    #[allow(clippy::too_many_arguments)]
     fn insert_sync_item(
         &self,
         sync_dir: SyncDirId,
@@ -142,13 +145,24 @@ pub trait Repository: Send + Sync {
         remote_path: String,
         last_local_timestamp: i64,
         last_remote_timestamp: i64,
+        is_dir: bool,
+        remote_id: Option<String>,
     ) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    /// Record new times for an item, as [`Self::insert_sync_item`] does; the change tag stays as it was.
     fn update_sync_item_timestamps(
         &self,
         id: SyncItemId,
         last_local_timestamp: i64,
         last_remote_timestamp: i64,
+        is_dir: bool,
+        remote_id: Option<String>,
     ) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    /// Replace what rows record about their remote items, all in one transaction.
+    fn set_remote_meta(&self, rows: Vec<(SyncItemId, RemoteMeta)>) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    /// Where the sync folder's remote stood at the last pass whose listing matched the database.
+    fn remote_cursor(&self, sync_dir: SyncDirId) -> BoxFuture<'_, Result<Option<RemoteCursor>, RepositoryError>>;
+    /// Replace [`Self::remote_cursor`]; `None` makes the next pass list the folder.
+    fn set_remote_cursor(&self, sync_dir: SyncDirId, cursor: Option<RemoteCursor>) -> BoxFuture<'_, Result<(), RepositoryError>>;
     fn delete_sync_item_by_paths(
         &self,
         sync_dir: SyncDirId,
@@ -257,5 +271,15 @@ pub trait BackendClient: Send + Sync {
     /// Space used at the provider, for the per-remote storage line. `Ok(None)` when the backend doesn't report a quota (plain WebDAV servers answer `about` with an error, signed-out sessions have nothing to ask).
     fn usage(&self, _remote: &str, _cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {
         Ok(None)
+    }
+
+    /// What changed below the folder `path` since `cursor`, a cursor from an earlier answer; without one, where the backend stands now. The default can't tell, so every pass lists in full.
+    fn changes(&self, _remote: &str, _path: &str, _cursor: Option<&str>, _cancel: &Cancel) -> Result<Changes, String> {
+        Ok(Changes::Unknown { cursor: None })
+    }
+
+    /// How long the database may stand in for the remote listing before a full listing checks it, in case the change source missed something; `None` for a change source that misses nothing.
+    fn full_listing_every(&self, _remote: &str) -> Option<Duration> {
+        Some(Duration::from_secs(60 * 60))
     }
 }

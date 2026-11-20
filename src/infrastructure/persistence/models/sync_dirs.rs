@@ -14,6 +14,12 @@ pub struct Model {
     /// The remote path being synced, as an absolute path (though it won't start
     /// with `/`).
     pub remote_path: String,
+    /// The provider's change cursor as of the last pass whose remote listing matched `sync_items`; `None` when the next pass has to list.
+    pub remote_cursor: Option<String>,
+    /// UNIX time of the last full remote listing behind `remote_cursor`.
+    pub remote_listed_at: Option<i64>,
+    /// Which parts of the remote folder were left out when `remote_cursor` was stored (exclusions, nested sync folders, hidden folders).
+    pub remote_filter: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

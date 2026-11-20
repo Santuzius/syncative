@@ -8,7 +8,7 @@ use sea_orm::DatabaseConnection;
 use crate::domain::{
     ports::{BoxFuture, Repository, RepositoryError},
     remote::{Backend, Interval, Remote, RemoteId, SyncPolicy},
-    sync::{SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId},
+    sync::{RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId},
 };
 
 use super::models::{RemotesModel, SyncDirsModel, SyncItemsModel};
@@ -62,6 +62,7 @@ fn map_sync_item(m: SyncItemsModel) -> SyncItem {
         remote_path: m.remote_path,
         last_local_timestamp: m.last_local_timestamp as i64,
         last_remote_timestamp: m.last_remote_timestamp as i64,
+        remote: RemoteMeta { is_dir: m.is_dir, id: m.remote_id, tag: m.remote_tag },
     }
 }
 
@@ -206,6 +207,8 @@ impl Repository for SeaOrmRepository {
         remote_path: String,
         last_local_timestamp: i64,
         last_remote_timestamp: i64,
+        is_dir: bool,
+        remote_id: Option<String>,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         sync_items::insert_sync_item(
             &self.db,
@@ -214,6 +217,8 @@ impl Repository for SeaOrmRepository {
             remote_path,
             last_local_timestamp,
             last_remote_timestamp,
+            is_dir,
+            remote_id,
         )
     }
 
@@ -222,13 +227,29 @@ impl Repository for SeaOrmRepository {
         id: SyncItemId,
         last_local_timestamp: i64,
         last_remote_timestamp: i64,
+        is_dir: bool,
+        remote_id: Option<String>,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         sync_items::update_sync_item_timestamps(
             &self.db,
             id,
             last_local_timestamp,
             last_remote_timestamp,
+            is_dir,
+            remote_id,
         )
+    }
+
+    fn set_remote_meta(&self, rows: Vec<(SyncItemId, RemoteMeta)>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        sync_items::set_remote_meta(&self.db, rows)
+    }
+
+    fn remote_cursor(&self, sync_dir: SyncDirId) -> BoxFuture<'_, Result<Option<RemoteCursor>, RepositoryError>> {
+        sync_dirs::remote_cursor(&self.db, sync_dir)
+    }
+
+    fn set_remote_cursor(&self, sync_dir: SyncDirId, cursor: Option<RemoteCursor>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        sync_dirs::set_remote_cursor(&self.db, sync_dir, cursor)
     }
 
     fn delete_sync_item_by_paths(

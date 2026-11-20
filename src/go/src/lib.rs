@@ -179,15 +179,41 @@ pub fn set_change_poll_interval(interval: Option<std::time::Duration>) {
     unsafe { ffi::RcloneSetChangePollSeconds(seconds) };
 }
 
-/// Whether the rclone remote `remote` (name without colon) may have changed on the provider's side since the previous call. Cheap: no network, the backend polls its change log in the background. Always `true` for backends without change notification.
+/// Where the change log of the rclone remote `remote` (name without colon) stands: the same cursor later means nothing changed in between. `None` for backends without change notification and for a while after watching started. Cheap: no network, the backend polls its change log in the background.
 /// The first call creates the backend, which may go over the network; setting `cancel` makes that give up.
-pub fn remote_changed(remote: &str, cancel: &std::sync::atomic::AtomicBool) -> bool {
-    let Ok(c_remote) = CString::new(remote) else {
-        return true;
-    };
+pub fn change_cursor(remote: &str, cancel: &std::sync::atomic::AtomicBool) -> Option<String> {
+    let c_remote = CString::new(remote).ok()?;
     let flag = cancel.as_ptr() as *mut std::os::raw::c_uchar;
-    unsafe { ffi::RcloneRemoteChanged(c_remote.as_ptr() as *mut c_char, flag) != 0 }
+    let cursor = unsafe { take_string(ffi::RcloneChangeCursor(c_remote.as_ptr() as *mut c_char, flag)) };
+    (!cursor.is_empty()).then_some(cursor)
 }
+
+/// The change tags (ETags) of a Nextcloud or ownCloud folder, see [`folder_tags`].
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct FolderTags {
+    /// The folder's own.
+    pub tag: String,
+    /// Those of the folders directly in it, by path; empty for depth 0.
+    #[serde(default)]
+    pub children: std::collections::HashMap<String, String>,
+}
+
+/// The ETag of folder `path` on the WebDAV remote `remote` and, with `depth` 1, those of its subfolders. `Ok(None)` when the remote isn't a Nextcloud or ownCloud remote, whose folders get a new ETag with every change below them.
+pub fn folder_tags(remote: &str, path: &str, depth: u8, cancel: &std::sync::atomic::AtomicBool) -> Result<Option<FolderTags>, String> {
+    let c_remote = CString::new(remote).map_err(|e| e.to_string())?;
+    let c_path = CString::new(path).map_err(|e| e.to_string())?;
+    let flag = cancel.as_ptr() as *mut std::os::raw::c_uchar;
+    let json = unsafe { take_string(ffi::RcloneFolderTags(c_remote.as_ptr() as *mut c_char, c_path.as_ptr() as *mut c_char, i32::from(depth), flag)) };
+    let reply: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("folder tags: {e}: {json}"))?;
+    match reply.get("error").and_then(|e| e.as_str()) {
+        Some(NO_FOLDER_TAGS) => Ok(None),
+        Some(err) => Err(err.to_owned()),
+        None => serde_json::from_value(reply).map(Some).map_err(|e| format!("folder tags: {e}")),
+    }
+}
+
+/// `rclone.ErrNoFolderTags` in src/go/rclone/davtags.go.
+const NO_FOLDER_TAGS: &str = "the remote keeps no folder change tags";
 
 /// Stop change tracking for `remote`, e.g. after its config was replaced or deleted.
 pub fn forget_remote(remote: &str) {

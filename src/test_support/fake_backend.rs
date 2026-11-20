@@ -9,7 +9,7 @@ use std::{collections::HashMap, sync::Mutex};
 
 use crate::domain::{
     ports::{BackendClient, Cancel},
-    sync::{FileDetails, ListFilter, RemoteItem},
+    sync::{Changes, FileDetails, ListFilter, RemoteItem},
 };
 
 /// See [`FakeBackend::during_copy_to_remote`].
@@ -34,8 +34,17 @@ pub struct FakeBackend {
     /// Runs inside `copy_to_remote` with the local path, e.g. to change the file during its upload.
     pub during_copy_to_remote: Mutex<Option<DuringCopy>>,
 
+    /// Answers of `changes`, one per call; once used up, `Changes::Unknown` without a cursor.
+    pub changes_answers: Mutex<Vec<Changes>>,
+    /// The cursor each `changes` call got.
+    pub changes_calls: Mutex<Vec<Option<String>>>,
+    /// What `full_listing_every` reports.
+    pub full_listing_every: Mutex<Option<std::time::Duration>>,
+
     pub stat_calls: Mutex<Vec<String>>,
     pub list_calls: Mutex<Vec<String>>,
+    /// Whether each `list` call was recursive, in the order of `list_calls`.
+    pub list_recursive: Mutex<Vec<bool>>,
     pub copy_to_remote_calls: Mutex<Vec<(String, String)>>,
     pub copy_to_local_calls: Mutex<Vec<(String, String)>>,
     pub delete_file_calls: Mutex<Vec<String>>,
@@ -57,8 +66,12 @@ impl Default for FakeBackend {
             purge_result: Mutex::new(Ok(())),
             mkdir_result: Mutex::new(Ok(())),
             during_copy_to_remote: Mutex::new(None),
+            changes_answers: Mutex::new(Vec::new()),
+            changes_calls: Mutex::new(Vec::new()),
+            full_listing_every: Mutex::new(None),
             stat_calls: Mutex::new(Vec::new()),
             list_calls: Mutex::new(Vec::new()),
+            list_recursive: Mutex::new(Vec::new()),
             copy_to_remote_calls: Mutex::new(Vec::new()),
             copy_to_local_calls: Mutex::new(Vec::new()),
             delete_file_calls: Mutex::new(Vec::new()),
@@ -91,6 +104,10 @@ impl FakeBackend {
     }
     pub fn set_list(&self, path: &str, resp: Result<Vec<RemoteItem>, String>) {
         self.list_map.lock().unwrap().insert(path.to_owned(), resp);
+    }
+    /// Queue the answers of the next `changes` calls.
+    pub fn set_changes(&self, answers: Vec<Changes>) {
+        *self.changes_answers.lock().unwrap() = answers;
     }
     pub fn set_copy_to_remote(&self, resp: Result<(), String>) {
         *self.copy_to_remote_result.lock().unwrap() = resp;
@@ -129,11 +146,12 @@ impl BackendClient for FakeBackend {
         &self,
         _remote: &str,
         path: &str,
-        _recursive: bool,
+        recursive: bool,
         _filter: ListFilter,
         _cancel: &Cancel,
     ) -> Result<Vec<RemoteItem>, String> {
         self.list_calls.lock().unwrap().push(path.to_owned());
+        self.list_recursive.lock().unwrap().push(recursive);
         match self.list_map.lock().unwrap().get(path) {
             Some(r) => r.clone(),
             None => Ok(vec![]),
@@ -202,5 +220,13 @@ impl BackendClient for FakeBackend {
     }
     fn remote_type(&self, _remote: &str) -> Result<Option<String>, String> {
         Ok(None)
+    }
+    fn changes(&self, _remote: &str, _path: &str, cursor: Option<&str>, _cancel: &Cancel) -> Result<Changes, String> {
+        self.changes_calls.lock().unwrap().push(cursor.map(str::to_owned));
+        let mut answers = self.changes_answers.lock().unwrap();
+        Ok(if answers.is_empty() { Changes::Unknown { cursor: None } } else { answers.remove(0) })
+    }
+    fn full_listing_every(&self, _remote: &str) -> Option<std::time::Duration> {
+        *self.full_listing_every.lock().unwrap()
     }
 }

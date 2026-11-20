@@ -7,7 +7,7 @@ use sea_orm::{
 use crate::domain::{
     ports::{BoxFuture, RepositoryError},
     remote::RemoteId,
-    sync::SyncDir,
+    sync::{RemoteCursor, SyncDir, SyncDirId},
 };
 
 use super::super::models::{
@@ -26,6 +26,40 @@ pub(super) fn list_sync_dirs(
             .await
             .map_err(map_err)?;
         Ok(rows.into_iter().map(map_sync_dir).collect())
+    })
+}
+
+pub(super) fn remote_cursor(
+    db: &DatabaseConnection,
+    sync_dir: SyncDirId,
+) -> BoxFuture<'_, Result<Option<RemoteCursor>, RepositoryError>> {
+    Box::pin(async move {
+        let row = SyncDirsEntity::find_by_id(sync_dir.0).one(db).await.map_err(map_err)?;
+        Ok(row.and_then(|row| {
+            Some(RemoteCursor { cursor: row.remote_cursor?, listed_at: row.remote_listed_at?, filter: row.remote_filter.unwrap_or_default() })
+        }))
+    })
+}
+
+pub(super) fn set_remote_cursor(
+    db: &DatabaseConnection,
+    sync_dir: SyncDirId,
+    cursor: Option<RemoteCursor>,
+) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    Box::pin(async move {
+        let (cursor, listed_at, filter) = match cursor {
+            Some(c) => (Some(c.cursor), Some(c.listed_at), Some(c.filter)),
+            None => (None, None, None),
+        };
+        let active = SyncDirsActiveModel {
+            id: ActiveValue::Unchanged(sync_dir.0),
+            remote_cursor: ActiveValue::Set(cursor),
+            remote_listed_at: ActiveValue::Set(listed_at),
+            remote_filter: ActiveValue::Set(filter),
+            ..Default::default()
+        };
+        SyncDirsEntity::update(active).exec(db).await.map_err(map_err)?;
+        Ok(())
     })
 }
 
