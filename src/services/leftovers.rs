@@ -57,10 +57,9 @@ pub struct Cleaned {
 }
 
 fn under<'a>(items: &'a [SyncItem], root: &str) -> impl Iterator<Item = &'a SyncItem> {
-    let prefix = format!("{root}/");
     items
         .iter()
-        .filter(move |i| i.local_path == root || i.local_path.starts_with(&prefix))
+        .filter(move |i| crate::util::is_under(&i.local_path, root))
 }
 
 fn mtime_secs(meta: &fs::Metadata) -> Option<i64> {

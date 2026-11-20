@@ -374,11 +374,10 @@ impl Repository for FakeRepo {
         prefix: &str,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         let prefix = prefix.to_owned();
-        let child_prefix = format!("{prefix}/");
-        self.items.lock().unwrap().retain(|it| {
-            !(it.sync_dir_id == sd
-                && (it.local_path == prefix || it.local_path.starts_with(&child_prefix)))
-        });
+        self.items
+            .lock()
+            .unwrap()
+            .retain(|it| !(it.sync_dir_id == sd && crate::util::is_under(&it.local_path, &prefix)));
         Box::pin(async { Ok(()) })
     }
 }

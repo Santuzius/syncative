@@ -150,6 +150,17 @@ pub fn get_runtime_dir() -> Option<PathBuf> {
     }
 }
 
+/// Whether `path` is `root` or lies below it: `a/b` is under `a`, `ab` is not.
+pub fn is_under(path: &str, root: &str) -> bool {
+    path.strip_prefix(root)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// The folder holding `path`; `""` for a path without a folder.
+pub fn parent_of(path: &str) -> &str {
+    path.rfind('/').map_or("", |i| &path[..i])
+}
+
 /// Trim at most one leading and one trailing slash.
 pub fn strip_slashes(string: &str) -> String {
     let stripped_prefix = string.strip_prefix('/').unwrap_or(string);
@@ -165,5 +176,25 @@ pub fn release_freed_memory() {
     // SAFETY: malloc_trim only walks the allocator's own free lists.
     unsafe {
         libc::malloc_trim(0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_under, parent_of};
+
+    #[test]
+    fn a_path_is_under_itself_and_its_folders_only() {
+        assert!(is_under("a", "a"));
+        assert!(is_under("a/b/c", "a/b"));
+        assert!(!is_under("ab", "a"));
+        assert!(!is_under("a", "a/b"));
+        assert!(is_under("/home/x", "/home"));
+    }
+
+    #[test]
+    fn the_parent_of_a_top_level_path_is_the_root() {
+        assert_eq!(parent_of("a/b/c"), "a/b");
+        assert_eq!(parent_of("a"), "");
     }
 }

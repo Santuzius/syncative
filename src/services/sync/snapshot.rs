@@ -289,7 +289,7 @@ fn forget_vanished_excluded_rows(repo: &dyn Repository, sync_dir: &SyncDir, rows
 pub(super) fn path_is_excluded(path: &str, excluded_prefixes: &[String]) -> bool {
     excluded_prefixes
         .iter()
-        .any(|ex| path == ex || path.starts_with(&format!("{ex}/")))
+        .any(|ex| crate::util::is_under(path, ex))
 }
 
 fn walk_local(

@@ -18,7 +18,7 @@ use crate::{
             SyncItem,
         },
     },
-    util,
+    util::{self, is_under, parent_of},
 };
 
 /// More folders to fetch again than this, and a full listing is cheaper than walking to each of them.
@@ -542,8 +542,7 @@ impl Walk<'_> {
 }
 
 fn remove_subtree(items: &mut HashMap<String, RemoteItem>, path: &str) {
-    let prefix = format!("{path}/");
-    items.retain(|p, _| p != path && !p.starts_with(&prefix));
+    items.retain(|p, _| !is_under(p, path));
 }
 
 /// [`remove_subtree`], also forgetting the IDs.
@@ -552,9 +551,8 @@ fn remove_below(
     paths: &mut HashMap<String, String>,
     path: &str,
 ) {
-    let prefix = format!("{path}/");
     items.retain(|p, item| {
-        let gone = p == path || p.starts_with(&prefix);
+        let gone = is_under(p, path);
         if gone && let Some(id) = &item.id {
             paths.remove(id);
         }
@@ -569,10 +567,9 @@ fn move_below(
     from: &str,
     to: &str,
 ) {
-    let prefix = format!("{from}/");
     let moved: Vec<String> = items
         .keys()
-        .filter(|p| *p == from || p.starts_with(&prefix))
+        .filter(|p| is_under(p, from))
         .cloned()
         .collect();
     for old in moved {
@@ -587,16 +584,9 @@ fn move_below(
     }
 }
 
+/// [`is_under`], with every path within the remote's root `""`.
 fn is_within(path: &str, root: &str) -> bool {
-    root.is_empty()
-        || path == root
-        || path
-            .strip_prefix(root)
-            .is_some_and(|rest| rest.starts_with('/'))
-}
-
-fn parent_of(path: &str) -> &str {
-    path.rfind('/').map_or("", |i| &path[..i])
+    root.is_empty() || is_under(path, root)
 }
 
 fn base_name(path: &str) -> &str {

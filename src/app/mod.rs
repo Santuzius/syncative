@@ -1357,7 +1357,7 @@ fn remote_page_auto_excluded<'a>(sd: &SyncDir, all: &'a [SyncDir]) -> Vec<&'a Sy
 /// descendant of the other. Used to reject AddSyncDir requests so all
 /// sync_dirs stay on disjoint subtrees.
 pub(crate) fn local_paths_overlap(a: &str, b: &str) -> bool {
-    a == b || b.starts_with(&format!("{a}/")) || a.starts_with(&format!("{b}/"))
+    crate::util::is_under(a, b) || crate::util::is_under(b, a)
 }
 
 /// Launch the Iced daemon. Blocks until `Message::Quit` calls

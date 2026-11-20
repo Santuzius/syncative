@@ -953,9 +953,7 @@ impl Core {
         // Into a synced folder, the files come down to this device right away instead of at the next scheduled pass.
         let synced = self.sync_dirs.iter().any(|d| {
             d.remote_id == remote_id
-                && (d.remote_path.is_empty()
-                    || folder == d.remote_path
-                    || folder.starts_with(&format!("{}/", d.remote_path)))
+                && (d.remote_path.is_empty() || crate::util::is_under(&folder, &d.remote_path))
         });
         if synced && self.is_schedulable(remote_id) {
             self.sync_now(remote_id);

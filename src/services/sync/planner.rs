@@ -11,6 +11,7 @@ use crate::domain::{
 
 use super::local_names;
 use super::snapshot::{LocalEntry, Snapshot};
+use crate::util::parent_of;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Action {
@@ -87,10 +88,6 @@ pub(super) fn plan(snapshot: &Snapshot, sync_dir: &SyncDir) -> Vec<Action> {
     // group, shorter paths first so parents precede children.
     out.sort_by_key(|a| (phase(a), a_path(a).len(), a_path(a).to_owned()));
     out
-}
-
-fn parent_of(path: &str) -> &str {
-    path.rfind('/').map_or("", |i| &path[..i])
 }
 
 fn group_db_keys_by_parent(db: &HashMap<String, SyncItem>) -> HashMap<&str, Vec<&str>> {
