@@ -102,4 +102,4 @@ replace github.com/ProtonMail/go-proton-api => ./proton/api
 replace github.com/go-resty/resty/v2 => github.com/ProtonMail/resty/v2 v2.0.0-20250929142426-e3dc6308c80b
 
 // Syncative's fork exports the one-off change-log query of drive and dropbox (rclone/changes.go); see doc/packaging/release.md.
-replace github.com/rclone/rclone => github.com/Santuzius/rclone v1.69.0-syncative.1
+replace github.com/rclone/rclone => github.com/Santuzius/rclone v1.69.0-syncative.2
