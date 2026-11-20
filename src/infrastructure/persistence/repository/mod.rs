@@ -367,6 +367,29 @@ mod tests {
     }
 
     #[test]
+    fn folders_nested_before_the_update_stay_excluded() {
+        let db = await_future(Database::connect("sqlite::memory:")).unwrap();
+        // Up to the migration before the nested filters.
+        await_future(Migrator::up(&db, Some(4))).unwrap();
+        let repo = SeaOrmRepository::new(db);
+        let one = await_future(repo.insert_remote("One".to_owned())).unwrap();
+        let other = await_future(repo.insert_remote("Other".to_owned())).unwrap();
+        for (remote, local, path) in [(one, "/all", ""), (one, "/docs", "Docs"), (one, "/notes", "Docs/Notes"), (one, "/docsx", "Docsx"), (other, "/other", "Docs/Notes")] {
+            await_future(repo.insert_sync_dir(remote, local.to_owned(), path.to_owned())).unwrap();
+        }
+        await_future(Migrator::up(&repo.db, None)).unwrap();
+
+        let dirs = await_future(repo.list_all_sync_dirs()).unwrap();
+        let id_of = |local: &str| dirs.iter().find(|d| d.local_path == local).unwrap().id;
+        let excluded = |ids: &[&str]| ids.iter().map(|l| (id_of(l), NestedFilter::Exclude)).collect::<HashMap<_, _>>();
+        assert_eq!(await_future(repo.list_nested_filters(id_of("/all"))).unwrap(), excluded(&["/docs", "/notes", "/docsx"]));
+        // "Docsx" isn't inside "Docs", and another remote's folder is never nested.
+        assert_eq!(await_future(repo.list_nested_filters(id_of("/docs"))).unwrap(), excluded(&["/notes"]));
+        assert!(await_future(repo.list_nested_filters(id_of("/notes"))).unwrap().is_empty());
+        assert!(await_future(repo.list_nested_filters(id_of("/other"))).unwrap().is_empty());
+    }
+
+    #[test]
     fn hidden_folders_are_replaced_as_a_set() {
         let db = await_future(Database::connect("sqlite::memory:")).unwrap();
         await_future(Migrator::up(&db, None)).unwrap();

@@ -74,6 +74,13 @@ impl SyncDir {
         }
         remote_path.strip_prefix(self.remote_path.as_str()).and_then(|rest| rest.strip_prefix('/')).unwrap_or(remote_path)
     }
+
+    /// `other` is another folder of the same remote whose remote folder lies inside this one's.
+    pub fn contains(&self, other: &SyncDir) -> bool {
+        other.id != self.id
+            && other.remote_id == self.remote_id
+            && if self.remote_path.is_empty() { !other.remote_path.is_empty() } else { other.remote_path.strip_prefix(self.remote_path.as_str()).is_some_and(|rest| rest.starts_with('/')) }
+    }
 }
 
 #[derive(Clone, Debug)]

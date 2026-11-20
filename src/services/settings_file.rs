@@ -1,4 +1,6 @@
-//! Export and import of Syncative's setup as a JSON file: remotes with their interval, folders with their exclusions and hidden folders, and the preferences. Sign-ins stay out: imported remotes wait for the user to sign in again, and the database's record of synced files starts afresh (the first pass compares both sides).
+//! Export and import of Syncative's setup as a JSON file: remotes with their interval, folders with their exclusions, hidden folders and what they do with the folders inside them, and the preferences. Sign-ins stay out: imported remotes wait for the user to sign in again, and the database's record of synced files starts afresh (the first pass compares both sides).
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -7,6 +9,7 @@ use crate::{
     domain::{
         ports::{BackendClient, Repository},
         remote::{Backend, Interval, SyncPolicy},
+        sync::{NestedFilter, SyncDir},
     },
     infrastructure::{client_router::ClientRouter, proton::client::DisabledProtonClient},
     services::{appearance::Appearance, autostart, power},
@@ -55,6 +58,9 @@ struct FolderEntry {
     /// Sub-folders relative to `local_path` that get a `.nomedia` file on Android.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     hidden: Vec<String>,
+    /// What the folder does with each folder inside it that is also synced on its own, by that folder's remote path relative to `remote_path`: `exclude`, `symlink` or `both`. One the file doesn't name is excluded, as before these choices existed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    nested: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -118,10 +124,15 @@ fn remote_entries(repo: &dyn Repository, client: &dyn BackendClient) -> Result<V
             (r#type, parameters)
         };
         let mut folders = Vec::new();
-        for dir in util::await_future(repo.list_sync_dirs(remote.id)).map_err(|e| e.to_string())? {
+        let dirs = util::await_future(repo.list_sync_dirs(remote.id)).map_err(|e| e.to_string())?;
+        for dir in &dirs {
             let exclusions = util::await_future(repo.list_exclusions(dir.id)).map_err(|e| e.to_string())?.into_iter().map(|e| e.remote_path).collect();
             let hidden = util::await_future(repo.list_hidden_folders(dir.id)).map_err(|e| e.to_string())?;
-            folders.push(FolderEntry { local_path: dir.local_path, remote_path: dir.remote_path, exclusions, hidden });
+            let filters = util::await_future(repo.list_nested_filters(dir.id)).map_err(|e| e.to_string())?;
+            let nested = nested_in(dir, &dirs)
+                .filter_map(|inner| Some((dir.relative(&inner.remote_path).to_owned(), filters.get(&inner.id)?.as_str().to_owned())))
+                .collect();
+            folders.push(FolderEntry { local_path: dir.local_path.clone(), remote_path: dir.remote_path.clone(), exclusions, hidden, nested });
         }
         entries.push(RemoteEntry {
             name: remote.name,
@@ -168,9 +179,11 @@ pub fn import(text: &str, repo: &dyn Repository, router: &ClientRouter) -> Resul
         let policy = SyncPolicy { interval: Interval::from_seconds(entry.interval_seconds), enabled: entry.enabled };
         util::await_future(repo.set_policy(id, policy)).map_err(|e| e.to_string())?;
 
+        let mut nested_choices = Vec::new();
         for folder in entry.folders {
             util::await_future(repo.insert_sync_dir(id, folder.local_path.clone(), folder.remote_path.clone())).map_err(|e| e.to_string())?;
             imported.folders += 1;
+            nested_choices.push((folder.local_path.clone(), folder.remote_path.clone(), folder.nested));
             if folder.exclusions.is_empty() && folder.hidden.is_empty() {
                 continue;
             }
@@ -183,11 +196,37 @@ pub fn import(text: &str, repo: &dyn Repository, router: &ClientRouter) -> Resul
             let hidden = folder.hidden.into_iter().filter(|h| crate::services::nomedia::is_inside(h)).collect();
             util::await_future(repo.set_hidden_folders(dir.id, hidden)).map_err(|e| e.to_string())?;
         }
+        import_nested_filters(repo, id, &nested_choices)?;
         imported.remotes += 1;
     }
 
     apply_preferences(&file.preferences).map_err(|e| format!("Remotes imported, but the preferences could not be saved: {e}"))?;
     Ok(imported)
+}
+
+/// The remote's folders inside `dir`'s remote folder.
+fn nested_in<'a>(dir: &'a SyncDir, dirs: &'a [SyncDir]) -> impl Iterator<Item = &'a SyncDir> {
+    dirs.iter().filter(move |d| dir.contains(d))
+}
+
+/// Sets what each imported folder does with the folders inside it, as the file says, and makes the symlinks on this device. A symlink that can't be made (something is in its place) leaves the choice to the user; a folder the file doesn't name is excluded.
+fn import_nested_filters(repo: &dyn Repository, remote: crate::domain::remote::RemoteId, choices: &[(String, String, BTreeMap<String, String>)]) -> Result<(), String> {
+    let dirs = util::await_future(repo.list_sync_dirs(remote)).map_err(|e| e.to_string())?;
+    for (local, remote_path, nested) in choices {
+        let Some(dir) = dirs.iter().find(|d| &d.local_path == local && &d.remote_path == remote_path) else { continue };
+        for inner in nested_in(dir, &dirs) {
+            let filter = nested.get(dir.relative(&inner.remote_path)).and_then(|f| NestedFilter::parse(f)).unwrap_or(NestedFilter::Exclude);
+            if filter == NestedFilter::Symlink {
+                let at = crate::services::nested_link::location(dir, inner);
+                if let Err(err) = crate::services::nested_link::make(&at, std::path::Path::new(&inner.local_path)) {
+                    eprintln!("syncative: couldn't link {} to {}: {err}; the choice is left to the user.", at.display(), inner.local_path);
+                    continue;
+                }
+            }
+            util::await_future(repo.set_nested_filter(dir.id, inner.id, Some(filter))).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 /// Saves what the file sets; what it leaves out stays as it is.
@@ -265,6 +304,28 @@ mod tests {
         let hidden_of = |local: &str| folders.iter().find(|f| f.local_path == local).unwrap().hidden.clone();
         assert_eq!(hidden_of("/sdcard/Pictures"), ["Private"]);
         assert!(hidden_of("/sdcard/Music").is_empty());
+    }
+
+    #[test]
+    fn nested_filters_survive_export_and_import_with_their_symlinks() {
+        use crate::infrastructure::persistence::migrations::{Migrator, MigratorTrait};
+        let db = util::await_future(sea_orm::Database::connect("sqlite::memory:")).unwrap();
+        util::await_future(Migrator::up(&db, None)).unwrap();
+        let repo = crate::infrastructure::persistence::repository::SeaOrmRepository::new(db);
+        let router = ClientRouter::new(std::sync::Arc::new(crate::test_support::FakeBackend::default()));
+        let tmp = crate::test_support::TempDir::new("settings_nested");
+        let root = tmp.as_str();
+        let file = format!(r#"{{"format":"syncative-settings","version":1,"preferences":{{}},"remotes":[{{"name":"P","type":"native-proton","interval_seconds":300,"enabled":true,
+            "folders":[{{"local_path":"{root}/all","remote_path":"","nested":{{"Docs":"symlink","Music":"both"}}}},
+                       {{"local_path":"{root}/docs","remote_path":"Docs"}},{{"local_path":"{root}/music","remote_path":"Music"}},{{"local_path":"{root}/old","remote_path":"Old"}}]}}]}}"#);
+
+        import(&file, &repo, &router).unwrap();
+        assert_eq!(std::fs::read_link(tmp.path.join("all/Docs")).unwrap(), tmp.path.join("docs"));
+        let remotes = remote_entries(&repo, &router).unwrap();
+        let all = remotes[0].folders.iter().find(|f| f.remote_path.is_empty()).unwrap();
+        // A folder the file doesn't name is excluded, as it was before these choices.
+        let expected: BTreeMap<String, String> = [("Docs", "symlink"), ("Music", "both"), ("Old", "exclude")].into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
+        assert_eq!(all.nested, expected);
     }
 
     #[test]

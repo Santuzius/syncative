@@ -1276,16 +1276,7 @@ impl SyncativeApp {
 /// `sd.remote_path`. Local-tree overlaps are blocked at AddSyncDir time,
 /// so only the remote-tree case can occur.
 fn remote_page_auto_excluded<'a>(sd: &SyncDir, all: &'a [SyncDir]) -> Vec<&'a SyncDir> {
-    all.iter()
-        .filter(|d| d.id != sd.id && d.remote_id == sd.remote_id)
-        .filter(|d| {
-            if sd.remote_path.is_empty() {
-                !d.remote_path.is_empty()
-            } else {
-                d.remote_path.starts_with(&format!("{}/", sd.remote_path))
-            }
-        })
-        .collect()
+    all.iter().filter(|d| sd.contains(d)).collect()
 }
 
 /// True when two local paths overlap — equal, or one is a strict
