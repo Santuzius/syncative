@@ -158,6 +158,7 @@ fn conflicts_event(conflicts: Vec<Conflict>, resolutions: Vec<Resolution>) -> Sy
         sync_dir_id: D1,
         conflicts,
         resolutions,
+        undecided_nested: 0,
     }
 }
 

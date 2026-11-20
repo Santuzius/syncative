@@ -30,8 +30,8 @@ use crate::{
         tray::{self, TrayAction, TrayUpdate},
     },
     screens::{
-        about, add_remote, conflict, folder_picker, main_page, preferences, remote_page, settings,
-        share,
+        about, add_remote, conflict, folder_picker, main_page, nested, preferences, remote_page,
+        settings, share,
     },
     services::{
         appearance::{Appearance, ThemeChoice, TrayIconChoice},
@@ -56,6 +56,7 @@ pub enum Message {
     About(about::Msg),
     Preferences(preferences::Msg),
     Conflict(conflict::Msg),
+    Nested(nested::Msg),
     AddRemoteResult(Result<RemoteId, String>),
     RemotesLoaded(Vec<Remote>),
     SyncDirsLoaded(RemoteId, Vec<SyncDir>),
@@ -240,6 +241,8 @@ pub struct SyncativeApp {
     conflicts: HashMap<SyncDirId, Vec<Conflict>>,
     /// Open conflict dialog.
     conflict_dialog: Option<conflict::Dialog>,
+    /// The dialog for sub-folders also synced as their own folder, still undecided.
+    nested_dialog: Option<nested::Dialog>,
     /// In-progress Add Remote form. Some(...) while the screen is shown.
     add_remote_draft: Option<add_remote::Draft>,
     /// Sender into the ksni subscription task. `Some` once the tray
@@ -337,6 +340,7 @@ impl SyncativeApp {
             preferences_error: None,
             conflicts: HashMap::new(),
             conflict_dialog: None,
+            nested_dialog: None,
             add_remote_draft: None,
             tray_tx: None,
             last_tray_status: None,
@@ -630,7 +634,11 @@ impl SyncativeApp {
             Message::NestedFilterSet(sd_id, nested, result) => {
                 self.handle_nested_filter_set(sd_id, nested, result)
             }
-            Message::Remote(remote_page::Msg::OpenFilters(sd_id)) => self.open_filters(sd_id),
+            Message::Remote(remote_page::Msg::ResolveNested(sd_id)) => {
+                self.show_nested(sd_id, 0);
+                Task::none()
+            }
+            Message::Nested(msg) => self.handle_nested_msg(msg),
             Message::Remote(remote_page::Msg::RequestCleanLeftovers(sd_id, relative)) => {
                 self.handle_request_clean_leftovers(sd_id, relative)
             }
@@ -890,6 +898,12 @@ impl SyncativeApp {
                 )
             ]
             .into()
+        } else if let Some(view) = self.nested_view(compact) {
+            stack![
+                base,
+                remote_page::modal(nested::view(view).map(Message::Nested), None)
+            ]
+            .into()
         } else if let Some(dialog) = self.conflict_dialog.as_ref() {
             stack![
                 base,
@@ -1092,7 +1106,10 @@ impl SyncativeApp {
         if self.close_folder_picker().is_some() {
             return true;
         }
-        if self.pending_delete.take().is_some() || self.conflict_dialog.take().is_some() {
+        if self.pending_delete.take().is_some()
+            || self.conflict_dialog.take().is_some()
+            || self.nested_dialog.take().is_some()
+        {
             return true;
         }
         if std::mem::take(&mut self.background_dialog_open) {

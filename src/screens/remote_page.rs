@@ -81,8 +81,8 @@ pub enum Msg {
     RemoveExclusion(SyncDirExclusionId, SyncDirId),
     /// What the folder (first) does with a folder inside it that is also synced as its own folder (second); `None` brings the choices back.
     SetNestedFilter(SyncDirId, SyncDirId, Option<NestedFilter>),
-    /// "Resolve…" for nested folders still undecided: open the folder's filters.
-    OpenFilters(SyncDirId),
+    /// "Resolve…" for nested folders still undecided: open the dialog on the first.
+    ResolveNested(SyncDirId),
     /// Broom on an exclusion: ask before deleting the synced files still on this computer.
     RequestCleanLeftovers(SyncDirId, String),
     Reauthenticate(RemoteId, String),
@@ -762,6 +762,7 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         (Some(differ), Some(unsyncable)) => Some(format!("{differ}, {unsyncable}")),
         (differ, unsyncable) => differ.or(unsyncable),
     };
+    let undecided = folder.nested.iter().filter(|(_, f)| f.is_none()).count();
     let detail: String = match folder.state {
         RunState::Syncing(_) => folder
             .latest_line
@@ -774,6 +775,7 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         }
         .to_owned(),
         _ if conflict_note.is_some() => "Choose which version to keep".to_owned(),
+        _ if undecided > 0 => "Choose what to do with the folders inside".to_owned(),
         // The status icon already shows the warning sign that starts the log line.
         RunState::Warning | RunState::Error => folder
             .latest_problem
@@ -850,7 +852,6 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         );
     }
 
-    let undecided = folder.nested.iter().filter(|(_, f)| f.is_none()).count();
     if undecided > 0 {
         let note = if undecided == 1 {
             "1 folder inside is also synced as its own folder".to_owned()
@@ -868,7 +869,7 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
                     button(text("Resolve…").size(TEXT))
                         .padding([5, 12])
                         .style(theme::button_secondary)
-                        .on_press(Msg::OpenFilters(sd.id)),
+                        .on_press(Msg::ResolveNested(sd.id)),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -1072,14 +1073,16 @@ fn exclusion_panel<'a>(
         })
     };
 
-    // Sub-folders also synced as their own folder: undecided ones offer the three filters, decided ones show theirs and can be chosen again.
+    // Sub-folders also synced as their own folder: decided ones show theirs and can be chosen again ("Resolve…" on the card asks for the undecided ones).
     for &(desc, filter) in nested {
         let relative = sd.relative(&desc.remote_path);
-        let choose = |f: NestedFilter| Msg::SetNestedFilter(sd.id, desc.id, Some(f));
         let kind_icon =
             |glyph: icondata::Icon, tip: &'a str| with_tip(muted_icon(glyph, 14.0), tip);
         let head = match filter {
-            None => kind_icon(icondata::TbFolderOutline, "Left out until you choose"),
+            None => kind_icon(
+                icondata::TbFolderQuestionOutline,
+                "Left out until you choose (Resolve…)",
+            ),
             Some(NestedFilter::Exclude) => kind_icon(icondata::TbFolderOffOutline, "Excluded"),
             Some(NestedFilter::Symlink) => kind_icon(
                 icondata::TbFolderSymlinkOutline,
@@ -1113,61 +1116,6 @@ fn exclusion_panel<'a>(
         } else if leftovers.and_then(|m| m.get(relative)).is_none() {
             // Match the height of the rows with buttons.
             line = line.padding([4, 0]);
-        }
-        if filter.is_none() {
-            let choice = |glyph: icondata::Icon, label: &'a str, msg: Msg| {
-                button(
-                    row![icon(glyph, 14.0), text(label).size(CAPTION)]
-                        .spacing(4)
-                        .align_y(Alignment::Center),
-                )
-                .padding([4, 8])
-                .style(theme::button_secondary)
-                .on_press(msg)
-            };
-            let mut choices = row![].spacing(6).align_y(Alignment::Center);
-            if crate::services::nested_link::APPLIES {
-                choices = choices.push(choice(
-                    icondata::TbFolderSymlinkOutline,
-                    "Add symlink",
-                    choose(NestedFilter::Symlink),
-                ));
-            }
-            choices = choices
-                .push(choice(
-                    icondata::TbFoldersOutline,
-                    "Sync in both",
-                    choose(NestedFilter::SyncInBoth),
-                ))
-                .push(choice(
-                    icondata::TbFolderOffOutline,
-                    "Exclude",
-                    choose(NestedFilter::Exclude),
-                ));
-            let mut entry = column![
-                line,
-                container(choices).padding(iced::Padding {
-                    left: 22.0,
-                    ..Default::default()
-                })
-            ]
-            .spacing(4);
-            if let Some((_, why)) = nested_problem.filter(|(id, _)| *id == desc.id) {
-                entry = entry.push(
-                    container(
-                        text(why)
-                            .size(CAPTION)
-                            .style(theme::danger_text)
-                            .wrapping(Wrapping::WordOrGlyph),
-                    )
-                    .padding(iced::Padding {
-                        left: 22.0,
-                        ..Default::default()
-                    }),
-                );
-            }
-            list = list.push(entry);
-            continue;
         }
         match nested_problem.filter(|(id, _)| *id == desc.id) {
             Some((_, why)) => {

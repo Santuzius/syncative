@@ -45,6 +45,8 @@ pub enum SyncEvent {
         conflicts: Vec<Conflict>,
         /// The user's choices this pass was given (applied, or dropped because the file changed again). Choices made while the pass ran aren't in here, so the app keeps hiding those files.
         resolutions: Vec<Resolution>,
+        /// Sync folders inside this one that are also synced on their own, with no choice yet of what this one does with them. They wait for the user like conflicts.
+        undecided_nested: usize,
     },
     /// Per-sync-dir coarse run-state transition. Drives the status icon on
     /// the remote page. The `RunState` variants the sync engine emits are

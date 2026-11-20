@@ -30,7 +30,8 @@ use crate::{
 
 use super::{
     CONFLICT_LINE_PREFIXES, Cadence, Command, Input, LINK_LINE_PREFIX, LogLine, Logs,
-    MAX_LOG_LINES, PassVerdict, Snapshot, UploadStatus, is_auth_failure, pass::Pass,
+    MAX_LOG_LINES, NESTED_LINE_PREFIX, PassVerdict, Snapshot, UploadStatus, is_auth_failure,
+    pass::Pass,
 };
 
 /// Tries per shared file before it is given up, not counting those that failed for want of a connection or a sign-in.
@@ -95,6 +96,8 @@ pub(crate) struct Core {
     /// The user's conflict choices, handed to the remote's next pass. They stay until a pass reports back on them, so a cancelled pass doesn't lose them.
     resolutions: HashMap<RemoteId, HashMap<SyncDirId, Vec<Resolution>>>,
     conflicts: HashMap<SyncDirId, Vec<Conflict>>,
+    /// How many sync folders inside each folder wait for the user's choice, as the last pass reported.
+    undecided_nested: HashMap<SyncDirId, usize>,
     pass_lines: HashMap<SyncDirId, String>,
     problems: HashMap<SyncDirId, String>,
     logs: Logs,
@@ -138,6 +141,7 @@ impl Core {
             cancel_flags: HashMap::new(),
             resolutions: HashMap::new(),
             conflicts: HashMap::new(),
+            undecided_nested: HashMap::new(),
             pass_lines: HashMap::new(),
             problems: HashMap::new(),
             logs,
@@ -390,6 +394,7 @@ impl Core {
                 self.log_versions.remove(id);
                 self.pass_lines.remove(id);
                 self.problems.remove(id);
+                self.undecided_nested.remove(id);
                 if self.conflicts.remove(id).is_some() {
                     self.conflicts_version += 1;
                 }
@@ -664,7 +669,11 @@ impl Core {
                 sync_dir_id,
                 conflicts,
                 resolutions,
-            } => self.conflicts_reported(remote_id, sync_dir_id, conflicts, resolutions),
+                undecided_nested,
+            } => {
+                self.conflicts_reported(remote_id, sync_dir_id, conflicts, resolutions);
+                self.undecided_nested_reported(remote_id, sync_dir_id, undecided_nested);
+            }
             SyncEvent::RemoteStarted { .. }
             | SyncEvent::RemoteCompleted { .. }
             | SyncEvent::RemoteFailed { .. }
@@ -707,6 +716,26 @@ impl Core {
             self.conflicts.insert(sync_dir_id, conflicts);
         }
         self.conflicts_version += 1;
+    }
+
+    /// A pass reported how many sync folders inside the folder wait for the user's choice: like conflicts, they leave the folder in Warning, and a new one is logged once.
+    fn undecided_nested_reported(
+        &mut self,
+        remote_id: RemoteId,
+        sync_dir_id: SyncDirId,
+        count: usize,
+    ) {
+        let known = if count == 0 {
+            self.undecided_nested.remove(&sync_dir_id)
+        } else {
+            self.undecided_nested.insert(sync_dir_id, count)
+        };
+        if count > known.unwrap_or(0) {
+            self.push_log_line(sync_dir_id, format!("{NESTED_LINE_PREFIX}: {count}"));
+        }
+        if count > 0 {
+            self.state.problem(remote_id, sync_dir_id);
+        }
     }
 
     /// Store the user's choice for the next pass, hide the conflict and start that pass.

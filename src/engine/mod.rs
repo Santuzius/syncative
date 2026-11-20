@@ -37,6 +37,9 @@ pub const CONFLICT_LINE_PREFIXES: [&str; 2] =
     ["⚠ Different on both sides", "⚠ Changed on both sides"];
 /// The log line for a symbolic link waiting for the user's decision.
 pub const LINK_LINE_PREFIX: &str = "⚠ Link can't be synced";
+/// The log line for sync folders inside a folder that wait for the user's choice.
+pub const NESTED_LINE_PREFIX: &str =
+    "⚠ Folders inside also synced on their own, waiting for a choice";
 
 /// What the GUI asks the engine to do.
 #[derive(Debug, Clone)]

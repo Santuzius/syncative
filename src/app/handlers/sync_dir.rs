@@ -13,7 +13,7 @@ use crate::{
         sync::{NestedFilter, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncMode},
     },
     engine::Command,
-    screens::{main_page, remote_page, settings},
+    screens::{main_page, nested, remote_page, settings},
     services::{leftovers, nested_link},
 };
 
@@ -72,15 +72,114 @@ impl SyncativeApp {
         let open = around
             .map(|d| d.id)
             .or_else(|| (!remote_page_auto_excluded(added, all).is_empty()).then_some(added.id));
-        if open.is_some() {
-            self.exclusion_panel = open;
+        if let Some(parent) = open {
+            // Inside another folder: the question about the folder just added comes first.
+            let added = added.id;
+            let position = self
+                .undecided_nested(parent)
+                .iter()
+                .position(|id| *id == added)
+                .unwrap_or(0);
+            self.show_nested(parent, position);
+            if let Some(dialog) = self.nested_dialog.as_mut() {
+                dialog.after_add = true;
+            }
         }
     }
 
-    /// Handle [`remote_page::Msg::OpenFilters`] — "Resolve…" for nested folders: open the panel where they wait.
-    pub(in crate::app) fn open_filters(&mut self, sd_id: SyncDirId) -> Task<Message> {
-        self.exclusion_panel = Some(sd_id);
-        self.reload_exclusions(sd_id, |_| async {})
+    /// The sync_dirs nested in `parent` that the user hasn't decided on yet.
+    fn undecided_nested(&self, parent: SyncDirId) -> Vec<SyncDirId> {
+        let Some(parent_dir) = self.all_known_sync_dirs.iter().find(|d| d.id == parent) else {
+            return Vec::new();
+        };
+        let decided = self.nested_filters.get(&parent);
+        remote_page_auto_excluded(parent_dir, &self.all_known_sync_dirs)
+            .into_iter()
+            .map(|d| d.id)
+            .filter(|id| decided.is_none_or(|f| !f.contains_key(id)))
+            .collect()
+    }
+
+    /// Open the nested folder dialog on `parent`'s undecided folder at `position` (or the last one), close it when none is left.
+    pub(in crate::app) fn show_nested(&mut self, parent: SyncDirId, position: usize) {
+        let (apply_to_all, after_add) = self
+            .nested_dialog
+            .take()
+            .map_or((false, false), |d| (d.apply_to_all, d.after_add));
+        let list = self.undecided_nested(parent);
+        let Some(last) = list.len().checked_sub(1) else {
+            return;
+        };
+        let position = position.min(last);
+        self.nested_dialog = Some(nested::Dialog {
+            parent,
+            nested: list[position],
+            position,
+            total: list.len(),
+            apply_to_all: apply_to_all && list.len() > 1,
+            after_add,
+        });
+    }
+
+    /// What [`nested::view`] draws for the open dialog; `None` when it is closed or its folders are gone.
+    pub(in crate::app) fn nested_view(&self, compact: bool) -> Option<nested::View<'_>> {
+        let dialog = self.nested_dialog.as_ref()?;
+        let find = |id| self.all_known_sync_dirs.iter().find(|d| d.id == id);
+        let parent = find(dialog.parent)?;
+        let nested = find(dialog.nested)?;
+        let remote = self.remotes.iter().find(|r| r.id == parent.remote_id)?;
+        Some(nested::View {
+            dialog,
+            remote_name: &remote.name,
+            parent,
+            nested,
+            compact,
+        })
+    }
+
+    /// Handle [`Message::Nested`]: a choice goes for the shown folder, or with "Apply to all" for every undecided one in the same sync folder; the dialog then moves on to the next.
+    pub(in crate::app) fn handle_nested_msg(&mut self, msg: nested::Msg) -> Task<Message> {
+        let Some(dialog) = self.nested_dialog.as_mut() else {
+            return Task::none();
+        };
+        let filter = match msg {
+            nested::Msg::ApplyToAll(on) => {
+                dialog.apply_to_all = on;
+                return Task::none();
+            }
+            nested::Msg::Cancel => {
+                self.nested_dialog = None;
+                return Task::none();
+            }
+            nested::Msg::Previous | nested::Msg::Next => {
+                let (parent, position) = (dialog.parent, dialog.position);
+                let position = if matches!(msg, nested::Msg::Previous) {
+                    position.saturating_sub(1)
+                } else {
+                    position + 1
+                };
+                self.show_nested(parent, position);
+                return Task::none();
+            }
+            nested::Msg::Choose(filter) => filter,
+        };
+        let dialog = dialog.clone();
+        let covered = if dialog.apply_to_all {
+            self.undecided_nested(dialog.parent)
+        } else {
+            vec![dialog.nested]
+        };
+        let tasks: Vec<Task<Message>> = covered
+            .iter()
+            .map(|&nested| self.handle_set_nested_filter(dialog.parent, nested, Some(filter)))
+            .collect();
+        // Counted as decided right away, so the next one moves up to the same position (2/3 → 2/2); a failure shows in the folder's filters.
+        let decided = self.nested_filters.entry(dialog.parent).or_default();
+        for nested in covered {
+            decided.insert(nested, filter);
+        }
+        self.show_nested(dialog.parent, dialog.position);
+        Task::batch(tasks)
     }
 
     /// Handle [`remote_page::Msg::SetNestedFilter`] — store what `sd_id` does with the sync_dir `nested_id` inside it, making or removing the symlink on the way, then sync.

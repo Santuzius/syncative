@@ -49,6 +49,8 @@ pub(super) struct Snapshot {
     pub walk_denied: Option<String>,
     /// Remote-key paths of the symbolic links in the local folder. Links can't be synced as they are: rclone would read the file behind a link with the link's own size, and a download would replace the link with a plain file or write through it into the folder it points to. The planner asks the user about each link and leaves everything below it alone on both sides.
     pub local_links: HashSet<String>,
+    /// Sync folders inside this one, also synced on their own, that the user hasn't decided on yet (left out until then).
+    pub undecided_nested: usize,
 }
 
 impl Snapshot {
@@ -77,6 +79,10 @@ impl Snapshot {
         // The user may have chosen to sync a nested folder here too (`NestedFilter::SyncInBoth`); until they decide, it stays out.
         let nested_filters =
             util::await_future(repo.list_nested_filters(sync_dir.id)).unwrap_or_default();
+        let undecided_nested = all_sync_dirs
+            .iter()
+            .filter(|d| sync_dir.contains(d) && !nested_filters.contains_key(&d.id))
+            .count();
         let mut excluded_local_prefixes: Vec<String> = Vec::new();
         let mut excluded_remote_prefixes: Vec<String> = Vec::new();
         for d in all_sync_dirs
@@ -186,6 +192,7 @@ impl Snapshot {
             walk_unreliable,
             walk_denied,
             local_links,
+            undecided_nested,
         })
     }
 }

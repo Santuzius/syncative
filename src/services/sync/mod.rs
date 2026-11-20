@@ -239,6 +239,7 @@ where
             sync_dir_id: sync_dir.id,
             conflicts: applied.conflicts.clone(),
             resolutions: resolutions.to_vec(),
+            undecided_nested: snapshot.undecided_nested,
         });
     }
     ensure_nomedia();

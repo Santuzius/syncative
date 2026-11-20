@@ -6,6 +6,7 @@ pub mod add_remote;
 pub mod conflict;
 pub mod folder_picker;
 pub mod main_page;
+pub mod nested;
 pub mod preferences;
 pub mod remote_page;
 pub mod settings;
