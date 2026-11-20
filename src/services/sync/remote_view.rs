@@ -73,7 +73,7 @@ pub(super) fn build(
         cancel,
     )?;
 
-    let (items, next) = match (changes, usable) {
+    let (mut items, next) = match (changes, usable) {
         (Changes::None, Some(_)) => (from_db(db), Next::Keep),
         (
             Changes::Some {
@@ -148,10 +148,7 @@ pub(super) fn build(
         // A backend answering without a cursor to compare against: nothing to rely on.
         (_, None) => (by_path(list()?), Next::Listed { cursor: None }),
     };
-    let items: HashMap<String, RemoteItem> = items
-        .into_iter()
-        .filter(|(path, _)| !super::snapshot::path_is_excluded(path, excluded))
-        .collect();
+    items.retain(|path, _| !super::snapshot::path_is_excluded(path, excluded));
 
     let level = level(&items, db);
     match next {
