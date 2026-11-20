@@ -18,7 +18,7 @@ Not available yet; the mode isn't offered there. The plan is a document provider
 
 ## Changes by other clients
 
-rclone's VFS keeps a folder's listing for five minutes (`--dir-cache-time`), and learns of other clients' changes earlier through the backend's ChangeNotify, which it polls every minute (`--poll-interval`). rclone's drive backend reads Google's change log there; Syncative's Proton backend (`src/go/proton/rclonefs`) reads the volume's event log, the same one the sync's change query follows. The event log names a moved file by its new parent only, so the backend remembers where it listed each file while ChangeNotify runs, and the VFS forgets the folder the file left as well.
+rclone's VFS keeps a folder's listing for five minutes (`--dir-cache-time`). Each pass of a network drive folder asks the mounted backend's change log what changed since the previous pass and has the VFS forget those paths (`syncative/mount-poll`, an RPC call of Syncative's in `src/go/rclone/networkdrive.go`), so the mount follows the remote's interval and pause like a synced folder; rclone's own poll timer is off (`PollInterval` 0). Google Drive and Dropbox answer from the fork's change-log calls, Proton (`src/go/proton/rclonefs`) from the volume's event log. That log names a moved file by its new parent only, so the Proton backend remembers where it listed each file once a mount follows the log, and the VFS forgets the folder the file left as well. A WebDAV mount has no change log and shows other clients' changes after the five minutes.
 
 ## Open points
 

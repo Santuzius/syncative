@@ -16,7 +16,7 @@ import (
 	"github.com/rclone/rclone/fs/cache"
 )
 
-// changeLog is what the fork's drive and dropbox backends offer.
+// changeLog is what the fork's drive and dropbox backends offer, and Syncative's Proton backend for mounts (networkdrive.go).
 type changeLog interface {
 	ChangesStartToken(ctx context.Context) (string, error)
 	ChangesSince(ctx context.Context, notify func(string, fs.EntryType), token string) (string, error)

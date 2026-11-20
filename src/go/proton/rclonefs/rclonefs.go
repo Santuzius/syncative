@@ -65,14 +65,14 @@ type Fs struct {
 	files    *filePaths
 }
 
-// filePaths remembers where listed files lie while rclone's VFS watches for changes (ChangeNotify): the event log names a file by its link ID and its new parent only, and the VFS has to forget the folder it left too. The directory cache does the same for folders.
+// filePaths remembers where listed files lie once a mount follows the event log (ChangesStartToken): the log names a file by its link ID and its new parent only, and the VFS has to forget the folder it left too. The directory cache does the same for folders.
 type filePaths struct {
 	mu   sync.Mutex
 	on   bool
 	byID map[string]string
 }
 
-// put records file `id` at `remote`, once ChangeNotify runs.
+// put records file `id` at `remote`, once a mount follows the log.
 func (p *filePaths) put(id, remote string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -665,7 +665,7 @@ func (f *Fs) ItemChangesSince(ctx context.Context, event string) (rclone.ItemCha
 	return out, nil
 }
 
-// changesSince reads the event log after `event` and forgets what the changes leave stale: the kept listings, and the directory cache's entries of folders that moved or went, where their old paths would still lead. notify, when given, gets each path below the root that changed, where an item was and where it is now, as ChangeNotify reports them.
+// changesSince reads the event log after `event` and forgets what the changes leave stale: the kept listings, and the directory cache's entries of folders that moved or went, where their old paths would still lead. notify, when given, gets each path below the root that changed: where an item was and where it is now.
 func (f *Fs) changesSince(ctx context.Context, event string, notify func(string, fs.EntryType)) (*drive.Changes, error) {
 	sess, err := f.session()
 	if err != nil {
@@ -684,9 +684,6 @@ func (f *Fs) changesSince(ctx context.Context, event string, notify func(string,
 		kind   fs.EntryType
 	}
 	var paths []changed
-	if found.Relist {
-		paths = append(paths, changed{"", fs.EntryDirectory})
-	}
 	var flush []string
 	for _, c := range found.Changes {
 		kind := fs.EntryObject
@@ -725,54 +722,24 @@ func (f *Fs) changesSince(ctx context.Context, event string, notify func(string,
 	return found, nil
 }
 
-// ChangeNotify tells rclone's VFS which paths other clients changed, every poll interval, so a mounted folder shows them without waiting for its directory cache to expire.
-func (f *Fs) ChangeNotify(ctx context.Context, notify func(string, fs.EntryType), pollIntervals <-chan time.Duration) {
+// ChangesStartToken is where the event log stands now, for ChangesSince. From now on the backend remembers where it lists files, so ChangesSince can report the folder a moved file left.
+func (f *Fs) ChangesStartToken(ctx context.Context) (string, error) {
 	f.files.mu.Lock()
 	f.files.on = true
 	f.files.mu.Unlock()
-	go func() {
-		// Start from the log as it is now, so every change after the mount is reported.
-		event, err := f.LatestItemEvent(ctx)
-		if err != nil {
-			fs.Infof(f, "Couldn't read the event log: %v", err)
-		}
-		var ticker *time.Ticker
-		var ticks <-chan time.Time
-		for {
-			select {
-			case <-ctx.Done():
-				if ticker != nil {
-					ticker.Stop()
-				}
-				return
-			case interval, ok := <-pollIntervals:
-				if ticker != nil {
-					ticker.Stop()
-					ticker, ticks = nil, nil
-				}
-				if !ok {
-					return
-				}
-				if interval != 0 {
-					ticker = time.NewTicker(interval)
-					ticks = ticker.C
-				}
-			case <-ticks:
-				if event == "" {
-					if event, err = f.LatestItemEvent(ctx); err != nil {
-						fs.Infof(f, "Couldn't read the event log: %v", err)
-					}
-					continue
-				}
-				found, err := f.changesSince(ctx, event, notify)
-				if err != nil {
-					fs.Infof(f, "Couldn't read the changes: %v", err)
-					continue
-				}
-				event = found.Cursor
-			}
-		}
-	}()
+	return f.LatestItemEvent(ctx)
+}
+
+// ChangesSince calls notify with the paths below the root that changed after event `token` and returns the event after them; "" when the log can't be followed from `token`. A network drive's pass asks it, for the mount to forget those paths (src/go/rclone/networkdrive.go).
+func (f *Fs) ChangesSince(ctx context.Context, notify func(string, fs.EntryType), token string) (string, error) {
+	found, err := f.changesSince(ctx, token, notify)
+	if err != nil {
+		return "", err
+	}
+	if found.Relist {
+		return "", nil
+	}
+	return found.Cursor, nil
 }
 
 // Check the interfaces are satisfied.
@@ -783,7 +750,6 @@ var (
 	_ fs.DirMover        = (*Fs)(nil)
 	_ fs.Abouter         = (*Fs)(nil)
 	_ fs.DirCacheFlusher = (*Fs)(nil)
-	_ fs.ChangeNotifier  = (*Fs)(nil)
 	_ fs.Object          = (*Object)(nil)
 	_ fs.MimeTyper       = (*Object)(nil)
 	_ fs.IDer            = (*Object)(nil)

@@ -113,20 +113,37 @@ where
     };
 
     if sync_dir.mode == SyncMode::NetworkDrive {
-        return match super::network_drive::ensure_mounted(
+        let drive = super::network_drive::ensure_mounted(
             &remote.name,
             &sync_dir.remote_path,
             &sync_dir.local_path,
-        ) {
-            Ok(mounted) => {
-                if mounted {
-                    emit_status(tr::tr!(
-                        "Network drive at {}",
-                        crate::util::fmt_home(&sync_dir.local_path)
-                    ));
-                }
+        )
+        .and_then(|mounted| {
+            if mounted {
+                emit_status(tr::tr!(
+                    "Network drive at {}",
+                    crate::util::fmt_home(&sync_dir.local_path)
+                ));
+            }
+            // Like a synced folder's pass, each pass asks for the remote's changes; the mount then lists the changed folders anew.
+            super::network_drive::poll(&remote.name, &sync_dir.remote_path, mounted)
+        });
+        return match drive {
+            Ok(_) => {
                 emit_state(RunState::Synced);
                 Outcome::Synced
+            }
+            Err(err) if crate::infrastructure::translators::is_offline(&err) => {
+                eprintln!(
+                    "sync: offline, network drive {}: {err}",
+                    sync_dir.local_path
+                );
+                emit_status(tr::tr!(
+                    "Offline — couldn't reach {}; trying again later.",
+                    remote.name
+                ));
+                emit_state(RunState::Offline);
+                Outcome::Aborted
             }
             Err(err) => {
                 eprintln!("sync: network drive {}: {err}", sync_dir.local_path);

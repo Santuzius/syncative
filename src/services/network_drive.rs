@@ -51,19 +51,36 @@ pub fn ensure_mounted(remote: &str, remote_path: &str, local_path: &str) -> Resu
         "fs": fs,
         "mountPoint": local_path,
         "mountType": "mount",
-        "vfsOpt": { "CacheMode": "full" },
+        // No poll timer of rclone's own: each pass asks for the remote's changes (`poll`).
+        "vfsOpt": { "CacheMode": "full", "PollInterval": 0 },
     });
     syncative_go::rpc("mount/mount", input.to_string()).map_err(|e| mount_error(&e))?;
     mounts.insert(local_path.to_owned(), fs);
     Ok(true)
 }
 
-/// rclone's answer as a sentence for the folder's log: the error text without its JSON wrapping, and what to install when FUSE is missing.
-fn mount_error(reply: &str) -> String {
-    let text = serde_json::from_str::<serde_json::Value>(reply)
+/// Have the mount of `remote_path` forget what changed on the remote since the previous call, so it lists those folders anew; `reset` right after mounting starts the change log there. Returns how many paths changed. Backends without a change log (WebDAV) answer 0, and their mount lists a folder again after rclone's directory cache time.
+pub fn poll(remote: &str, remote_path: &str, reset: bool) -> Result<u64, String> {
+    let input = serde_json::json!({ "fs": format!("{remote}:{remote_path}"), "reset": reset });
+    let reply =
+        syncative_go::rpc("syncative/mount-poll", input.to_string()).map_err(|e| rpc_error(&e))?;
+    Ok(serde_json::from_str::<serde_json::Value>(&reply)
+        .ok()
+        .and_then(|v| v.get("changes")?.as_u64())
+        .unwrap_or(0))
+}
+
+/// The error text of an rclone answer, without its JSON wrapping.
+fn rpc_error(reply: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(reply)
         .ok()
         .and_then(|v| v.get("error")?.as_str().map(str::to_owned))
-        .unwrap_or_else(|| reply.to_owned());
+        .unwrap_or_else(|| reply.to_owned())
+}
+
+/// rclone's answer as a sentence for the folder's log: the error text without its JSON wrapping, and what to install when FUSE is missing.
+fn mount_error(reply: &str) -> String {
+    let text = rpc_error(reply);
     if text.contains("fusermount") {
         format!("Couldn't mount the network drive: install fuse3 (fusermount3). {text}")
     } else {
