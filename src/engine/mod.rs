@@ -53,11 +53,11 @@ pub enum Command {
     Usage(RemoteId),
     /// The remote was added or signed in again (and its setting enabled in the database): clear the sign-in problem and sync it.
     SignedIn(RemoteId),
-    /// The user's choice for a conflict, handed to the remote's next pass, which starts right away.
+    /// The user's choices for conflicts of one folder, handed to the remote's next pass, which starts right away.
     Resolve {
         remote_id: RemoteId,
         sync_dir_id: SyncDirId,
-        resolution: Resolution,
+        resolutions: Vec<Resolution>,
     },
     /// Add a line to a folder's log.
     Log(SyncDirId, String),

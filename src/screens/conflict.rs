@@ -5,7 +5,7 @@ use std::path::Path;
 use iced::{
     Alignment, Element, Font, Length,
     font::Weight,
-    widget::{Space, button, column, container, rich_text, row, span, text_input},
+    widget::{Space, button, checkbox, column, container, rich_text, row, span, text_input},
 };
 use time::OffsetDateTime;
 
@@ -37,6 +37,8 @@ pub enum Msg {
     /// Skip to the previous / next conflict of the same folder.
     Previous,
     Next,
+    /// "Apply to all": the choice also goes for the folder's other conflicts of the same kind (files or links).
+    ApplyToAll(bool),
 }
 
 /// The open dialog.
@@ -51,6 +53,9 @@ pub struct Dialog {
     /// Index of this conflict among the folder's open conflicts, and how many there are.
     pub position: usize,
     pub total: usize,
+    /// The folder's other open conflicts of the same kind (files or links), which "Apply to all" covers.
+    pub others: usize,
+    pub apply_to_all: bool,
 }
 
 impl Dialog {
@@ -61,6 +66,7 @@ impl Dialog {
         conflict: Conflict,
         position: usize,
         total: usize,
+        others: usize,
     ) -> Self {
         let new_name = local_names::from_local(file_name(&conflict.local_path)).into_owned();
         Self {
@@ -71,7 +77,14 @@ impl Dialog {
             new_name,
             position,
             total,
+            others,
+            apply_to_all: false,
         }
+    }
+
+    /// Whether `other` is of the kind "Apply to all" covers from this dialog.
+    pub fn same_kind(&self, other: &Conflict) -> bool {
+        self.conflict.link.is_some() == other.link.is_some()
     }
 
     /// The new name is usable for "keep both": changed, a plain file name, and free in the folder.
@@ -295,26 +308,41 @@ pub fn view(dialog: &Dialog, compact: bool) -> Element<'_, Msg> {
 
     let header = header(dialog, if c.first_sync { "File exists on both sides" } else { "File changed on both sides" });
 
-    container(
-        column![
-            header,
-            text(if c.first_sync {
-                format!("'{}' exists on {} and on {remote} with different content. Which version do you want to keep? The other one is overwritten.", file_name(&c.local_path), crate::util::THIS_DEVICE)
-            } else {
-                format!("'{}' was changed on {} and on {remote} since the last sync. Which version do you want to keep? The other one is overwritten.", file_name(&c.local_path), crate::util::THIS_DEVICE)
-            })
-            .size(TEXT),
-            sides,
-            comparison,
-            rename,
-            buttons,
-        ]
-        .spacing(16),
-    )
+    let mut content = column![
+        header,
+        text(if c.first_sync {
+            format!("'{}' exists on {} and on {remote} with different content. Which version do you want to keep? The other one is overwritten.", file_name(&c.local_path), crate::util::THIS_DEVICE)
+        } else {
+            format!("'{}' was changed on {} and on {remote} since the last sync. Which version do you want to keep? The other one is overwritten.", file_name(&c.local_path), crate::util::THIS_DEVICE)
+        })
+        .size(TEXT),
+        sides,
+        comparison,
+        rename,
+    ]
+    .spacing(16);
+    if let Some(all) = apply_to_all(dialog, "files") {
+        content = content.push(all);
+        if dialog.apply_to_all {
+            content = content.push(text("For the others, \"Keep both\" renames the local version to the next free name, like 'name (1).ext'.").size(CAPTION).style(theme::muted));
+        }
+    }
+    container(content.push(buttons))
     .padding(22)
     .max_width(760)
     .style(theme::dialog)
     .into()
+}
+
+/// "Apply to all" while the folder has other conflicts of the same kind.
+fn apply_to_all<'a>(dialog: &Dialog, what: &str) -> Option<Element<'a, Msg>> {
+    (dialog.others > 0).then(|| {
+        checkbox(dialog.apply_to_all)
+            .label(format!("Apply to all {what} ({} more)", dialog.others))
+            .text_size(TEXT)
+            .on_toggle(Msg::ApplyToAll)
+            .into()
+    })
 }
 
 /// The title, with the arrows to the folder's other conflicts when there are several.
@@ -378,9 +406,9 @@ fn link_view<'a>(dialog: &'a Dialog, link: &'a Link, compact: bool) -> Element<'
         (_, false) => "The copy takes the link's place and is uploaded; the original stays where it is, separate from the copy.".to_owned(),
     };
     let leave_note = if c.remote.is_some() {
-        format!("The link stays as it is, and so does the version on {remote}. Both are added to this folder's exclusions, where you can remove them again.")
+        format!("The link stays as it is, and so does the version on {remote}. Both are added to this folder's filters, where you can remove them again.")
     } else {
-        "The link stays and its content isn't synced. It's added to this folder's exclusions, where you can remove it again.".to_owned()
+        "The link stays and its content isn't synced. It's added to this folder's filters, where you can remove it again.".to_owned()
     };
     let choice = |glyph: icondata::Icon, label: &'a str, note: String, msg: Msg| {
         column![
@@ -398,7 +426,11 @@ fn link_view<'a>(dialog: &'a Dialog, link: &'a Link, compact: bool) -> Element<'
 
     let cancel = button(text("Cancel").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::Cancel);
     let cancel: Element<'_, Msg> = if compact { cancel.width(Length::Fill).into() } else { row![Space::new().width(Length::Fill), cancel].into() };
-    container(column![header(dialog, "Link can't be synced"), body, cancel].spacing(16))
+    let mut content = column![header(dialog, "Link can't be synced"), body].spacing(16);
+    if let Some(all) = apply_to_all(dialog, "links") {
+        content = content.push(all);
+    }
+    container(content.push(cancel))
         .padding(22)
         .max_width(640)
         .style(theme::dialog)

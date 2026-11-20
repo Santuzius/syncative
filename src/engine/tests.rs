@@ -486,7 +486,7 @@ async fn conflicts_are_logged_once_and_hidden_once_decided() {
     rig.send(Command::Resolve {
         remote_id: R1,
         sync_dir_id: D1,
-        resolution: resolution("x"),
+        resolutions: vec![resolution("x")],
     })
     .await;
     assert_eq!(rig.snap().conflicts[&D1].len(), 1);
@@ -505,7 +505,7 @@ async fn conflicts_are_logged_once_and_hidden_once_decided() {
     rig.send(Command::Resolve {
         remote_id: R1,
         sync_dir_id: D1,
-        resolution: resolution("y"),
+        resolutions: vec![resolution("y")],
     })
     .await;
     assert!(!rig.snap().conflicts.contains_key(&D1));

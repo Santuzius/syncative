@@ -245,8 +245,8 @@ impl Core {
             Command::Resolve {
                 remote_id,
                 sync_dir_id,
-                resolution,
-            } => self.resolve(remote_id, sync_dir_id, resolution),
+                resolutions,
+            } => self.resolve(remote_id, sync_dir_id, resolutions),
             Command::Log(sync_dir_id, line) => self.push_log_line(sync_dir_id, line),
             Command::Online(online) => {
                 let was_offline = std::mem::replace(&mut self.offline, !online);
@@ -696,9 +696,9 @@ impl Core {
     }
 
     /// Store the user's choice for the next pass, hide the conflict and start that pass.
-    fn resolve(&mut self, remote_id: RemoteId, sync_dir_id: SyncDirId, resolution: Resolution) {
+    fn resolve(&mut self, remote_id: RemoteId, sync_dir_id: SyncDirId, resolutions: Vec<Resolution>) {
         if let Some(list) = self.conflicts.get_mut(&sync_dir_id) {
-            list.retain(|c| c.remote_path != resolution.remote_path);
+            list.retain(|c| !resolutions.iter().any(|r| r.remote_path == c.remote_path));
             // Nothing left to decide: drop the Warning the conflicts caused (it would outlast the next Synced) until the pass that applies the choices reports.
             if list.is_empty() {
                 self.conflicts.remove(&sync_dir_id);
@@ -713,8 +713,8 @@ impl Core {
             .or_default()
             .entry(sync_dir_id)
             .or_default();
-        pending.retain(|r| r.remote_path != resolution.remote_path);
-        pending.push(resolution);
+        pending.retain(|p| !resolutions.iter().any(|r| r.remote_path == p.remote_path));
+        pending.extend(resolutions);
         self.sync_now(remote_id);
     }
 
