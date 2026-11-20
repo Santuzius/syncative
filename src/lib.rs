@@ -33,7 +33,7 @@ use crate::{
             },
             repository::SeaOrmRepository,
         },
-        proton::client::NativeProtonClient,
+        proton::client::ProtonClient,
         rclone::LibrcloneClient,
         stderr_capture,
     },
@@ -338,7 +338,7 @@ fn random_password() -> std::io::Result<String> {
 
 /// Load every remote from the DB, and for those flagged
 /// `Backend::NativeProton` resume the saved session (if any), wrap
-/// the UID in a [`NativeProtonClient`], and register it on the
+/// the UID in a [`ProtonClient`], and register it on the
 /// router keyed by remote name. When the resume fails, register a
 /// [`DisabledProtonClient`] instead so the sync engine surfaces a
 /// clear "Reauthenticate" message rather than falling through to
@@ -379,16 +379,26 @@ fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
             continue;
         }
         match crate::services::auth::resume_proton_session(&remote.name) {
-            Ok(Some(cred)) => {
-                router.register(
-                    remote.name.clone(),
-                    Arc::new(NativeProtonClient::new(cred.uid)),
-                );
-                eprintln!(
-                    "syncative: native-proton session resumed for '{}'.",
-                    remote.name,
-                );
-            }
+            Ok(Some(cred)) => match ProtonClient::new(cred.uid, &remote.name) {
+                Ok(client) => {
+                    router.register(remote.name.clone(), Arc::new(client));
+                    eprintln!(
+                        "syncative: native-proton session resumed for '{}'.",
+                        remote.name,
+                    );
+                }
+                Err(err) => {
+                    let reason = format!(
+                        "Proton Drive session for '{}' not resumed yet ({err}). Retrying automatically — no action needed.",
+                        remote.name,
+                    );
+                    eprintln!("syncative: {reason}");
+                    router.register(
+                        remote.name.clone(),
+                        Arc::new(PendingProtonClient::new(remote.name.clone(), reason)),
+                    );
+                }
+            },
             Ok(None) => {
                 let reason = format!(
                     "Proton Drive session for '{}' not found in keyring. {}",

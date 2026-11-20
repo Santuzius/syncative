@@ -39,6 +39,7 @@ pub fn delete_remote(
         // rclone config row; drop the entry and skip the rclone side
         // (calling delete_config for a non-rclone remote would just
         // surface a "remote not found" error from librclone).
+        syncative_go::proton::unbind_remote(remote_name);
         auth::forget_proton_session(remote_name)?;
         return Ok(());
     }

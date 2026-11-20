@@ -9,7 +9,7 @@ use crate::{
         ports::Repository,
         remote::{ProviderKind, RemoteId, SyncPolicy},
     },
-    infrastructure::{client_router::ClientRouter, proton::client::NativeProtonClient},
+    infrastructure::{client_router::ClientRouter, proton::client::ProtonClient},
     services::secrets,
     util,
 };
@@ -44,12 +44,12 @@ pub fn login_params(
 /// parses as a [`HumanVerification`], and the caller retries with it
 /// once the user has solved it in the browser.
 ///
-/// Uses the native Proton client (no rclone in the path). Logs in
+/// Logs in
 /// against Proton's API, persists the reusable credential blob into
 /// the OS keyring under `Syncative Keys / proton-session-<name>`,
 /// inserts the remote with `backend = native-proton`, and registers
-/// the session's UID on the router so the sync engine picks up the
-/// native adapter immediately.
+/// a [`ProtonClient`] for the session on the router so the sync engine
+/// picks it up immediately.
 pub fn add_proton_drive_remote(
     name: &str,
     params: &LoginParams,
@@ -74,14 +74,17 @@ pub fn add_proton_drive_remote(
     };
     let _ = util::await_future(repo.set_policy(id, policy));
 
-    router.register(name.to_owned(), Arc::new(NativeProtonClient::new(cred.uid)));
+    router.register(
+        name.to_owned(),
+        Arc::new(ProtonClient::new(cred.uid, name)?),
+    );
     Ok(id)
 }
 
 /// Reauthenticate an existing Proton Drive remote whose session blob
 /// has expired (2FA refresh exhausted) or gone missing. Logs in with
 /// fresh credentials, overwrites the keyring entry, and swaps the
-/// router's disabled stub for a live [`NativeProtonClient`]. Leaves
+/// router's disabled stub for a live [`ProtonClient`]. Leaves
 /// the DB row untouched — same name, same sync_dirs, same exclusions —
 /// so the user's configuration survives the reauth unchanged.
 pub fn reauth_proton_drive_remote(
@@ -93,7 +96,10 @@ pub fn reauth_proton_drive_remote(
 
     persist_session_to_keyring(name, &cred.uid)?;
 
-    router.register(name.to_owned(), Arc::new(NativeProtonClient::new(cred.uid)));
+    router.register(
+        name.to_owned(),
+        Arc::new(ProtonClient::new(cred.uid, name)?),
+    );
     Ok(())
 }
 

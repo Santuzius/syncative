@@ -65,10 +65,12 @@ Cargo treats the same repository under two different tags as two different sourc
 
 ## The rclone fork
 
-Syncative takes rclone from its fork [Santuzius/rclone](https://github.com/Santuzius/rclone) (`replace` in `src/go/go.mod`). The fork exports the one-off change-log query of the drive and dropbox backends (`ChangesStartToken`, `ChangesSince`), which `src/go/rclone/changes.go` asks once per sync pass; upstream runs it only on ChangeNotify's timer. It is maintained as a fork, without a pull request upstream.
+Syncative takes rclone from its fork [Santuzius/rclone](https://github.com/Santuzius/rclone) (`replace` in `src/go/go.mod`). The fork exports the one-off change-log query of the drive and dropbox backends (`ChangesStartToken`, `ChangesSince`), which `src/go/rclone/changes.go` asks once per sync pass; upstream runs it only on ChangeNotify's timer. It also drops the folders a change moved or removed from the drive backend's folder cache. It is maintained as a fork, without a pull request upstream.
 
-- **Branch `syncative`:** an rclone release tag plus the patch commit on top. Each state Syncative uses is tagged `vX.Y.Z-syncative.N`: the rclone release and a counter for the patch.
-- **Upgrading rclone:** rebase the patch commit onto the new release tag (`git rebase --onto vNEW vOLD syncative`), tag `vNEW-syncative.1`, push branch and tag, set the tag in the `replace` of `src/go/go.mod` and the `require` of `github.com/rclone/rclone` to `vNEW`, run `go mod tidy`, and update `vendorHash` in `nix/package.nix`.
+- **Branch `syncative`:** an rclone release tag plus the patch commits on top. Each state Syncative uses is tagged `vX.Y.Z-syncative.N`: the rclone release and a counter for the patches. The branch `syncative-v1.69` keeps the patches on v1.69.0, which releases up to 0.26.x build from.
+- **Upgrading rclone:** rebase the patch commits onto the new release tag (`git rebase --onto vNEW vOLD syncative`), tag `vNEW-syncative.1`, push branch and tag, set the tag in the `replace` of `src/go/go.mod` and the `require` of `github.com/rclone/rclone` to `vNEW`, run `go mod tidy`, and update `vendorHash` in `nix/package.nix`. Then run the remote checklist ([testing.md](../development/testing.md#checklist-for-a-remote)) for Google Drive and Proton, which both go through rclone.
+- **go-crypto:** rclone requires upstream `ProtonMail/go-crypto`, which Go ranks above Proton's `-proton` build of the same version, while go-proton-api's gopenpgp needs the `-proton` build. A `replace` in `src/go/go.mod` pins it; move it along when rclone raises the version.
+- **go-proton-api:** after moving the submodule `src/go/proton/api` to another commit, set the same `rev` (and a new `hash`) for `protonApi` in `nix/package.nix`.
 - **`vendorHash`:** set it to `lib.fakeHash` and copy the hash from the failing build, or build the Go modules alone: `nix-build -E 'with import <nixpkgs> {}; (buildGoModule { pname = "syncative-go"; version = "0"; src = ./src; modRoot = "go"; vendorHash = lib.fakeHash; }).goModules'` from the repository root, with `src/go/vendor` absent.
 
 ## The APK release key

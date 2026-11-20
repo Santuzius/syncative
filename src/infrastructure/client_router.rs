@@ -1,7 +1,7 @@
 //! Router that dispatches [`BackendClient`] calls to the appropriate
 //! adapter per-remote. Holds a default (rclone-backed) client plus a
-//! name-keyed override map that points native-backend remotes at a
-//! `NativeProtonClient`. Sync code keeps talking to
+//! name-keyed override map that points Proton remotes at a
+//! `ProtonClient`, which keeps their session. Sync code keeps talking to
 //! `Arc<dyn BackendClient>` — the router is transparent.
 
 use std::{
