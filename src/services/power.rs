@@ -244,7 +244,6 @@ pub fn allow_background() {
 /// Hands [`current_cadence`] to the engine, if it runs yet, after the settings or the conditions changed; the engine reads it itself when it starts.
 pub fn apply() {
     let cadence = current_cadence();
-    // The engine paces Google Drive's and Dropbox's change logs along.
     if let Some(engine) = crate::engine::get() {
         engine.send(crate::engine::Command::Cadence(cadence));
     }

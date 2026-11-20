@@ -41,6 +41,7 @@
   - Methods on upstream types become free functions taking the type as a parameter.
   - Fields the upstream types lack are parsed from the raw JSON there.
   - If something truly can't be done without changing the submodule, the feature is dropped instead.
+- rclone comes from Syncative's fork, which adds the one-off change-log query: see [release.md](../packaging/release.md#the-rclone-fork).
 - Forks of iced, iced_android and android-activity: see [android/README.md](../../android/README.md) and [release.md](../packaging/release.md#the-android-forks).
 
 ## Code

@@ -41,7 +41,7 @@ let
       inherit version;
       src = fullSrc;
       modRoot = "src/go";
-      vendorHash = "sha256-m4NXG685iNFUNas5zREsnTNYMLfzIS2qjM2zf7mkCho=";
+      vendorHash = "sha256-RmfCYG8NqgUy6ZOBFPtYKlypFsKYBWPzHYHheP1exAs=";
     }).goModules;
 
   desktopItem = makeDesktopItem {

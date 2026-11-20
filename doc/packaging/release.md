@@ -63,6 +63,14 @@ Syncative uses iced_android and its two forks by tag, so other apps can use the 
 
 Cargo treats the same repository under two different tags as two different sources, so all of them must name the same release.
 
+## The rclone fork
+
+Syncative takes rclone from its fork [Santuzius/rclone](https://github.com/Santuzius/rclone) (`replace` in `src/go/go.mod`). The fork exports the one-off change-log query of the drive and dropbox backends (`ChangesStartToken`, `ChangesSince`), which `src/go/rclone/changes.go` asks once per sync pass; upstream runs it only on ChangeNotify's timer. It is maintained as a fork, without a pull request upstream.
+
+- **Branch `syncative`:** an rclone release tag plus the patch commit on top. Each state Syncative uses is tagged `vX.Y.Z-syncative.N`: the rclone release and a counter for the patch.
+- **Upgrading rclone:** rebase the patch commit onto the new release tag (`git rebase --onto vNEW vOLD syncative`), tag `vNEW-syncative.1`, push branch and tag, set the tag in the `replace` of `src/go/go.mod` and the `require` of `github.com/rclone/rclone` to `vNEW`, run `go mod tidy`, and update `vendorHash` in `nix/package.nix`.
+- **`vendorHash`:** set it to `lib.fakeHash` and copy the hash from the failing build, or build the Go modules alone: `nix-build -E 'with import <nixpkgs> {}; (buildGoModule { pname = "syncative-go"; version = "0"; src = ./src; modRoot = "go"; vendorHash = lib.fakeHash; }).goModules'` from the repository root, with `src/go/vendor` absent.
+
 ## The APK release key
 
 - Android installs an update only over an APK signed with the same key. If the key is lost, users have to uninstall and lose their sign-ins, and Obtainium stops updating. Keep the keystore backed up and its password in a password manager.

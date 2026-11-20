@@ -173,27 +173,7 @@ unsafe fn take_string(ptr: *mut c_char) -> String {
     text
 }
 
-/// How often remotes with change notification (Google Drive) ask their provider's change log; `None` restores the default of 5 s.
-pub fn set_change_poll_interval(interval: Option<std::time::Duration>) {
-    let seconds = interval.map_or(0, |d| d.as_secs().clamp(1, i32::MAX as u64) as i32);
-    unsafe { ffi::RcloneSetChangePollSeconds(seconds) };
-}
-
-/// Where the change log of the rclone remote `remote` (name without colon) stands: the same cursor later means nothing changed in between. `None` for backends without change notification and for a while after watching started. Cheap: no network, the backend polls its change log in the background.
-/// The first call creates the backend, which may go over the network; setting `cancel` makes that give up.
-pub fn change_cursor(remote: &str, cancel: &std::sync::atomic::AtomicBool) -> Option<String> {
-    let c_remote = CString::new(remote).ok()?;
-    let flag = cancel.as_ptr() as *mut std::os::raw::c_uchar;
-    let cursor = unsafe {
-        take_string(ffi::RcloneChangeCursor(
-            c_remote.as_ptr() as *mut c_char,
-            flag,
-        ))
-    };
-    (!cursor.is_empty()).then_some(cursor)
-}
-
-/// One change rclone's change notification reported, see [`changes_since`].
+/// One change a remote's change log reported, see [`changes_since`].
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Changed {
     /// From the remote's root.
@@ -201,26 +181,40 @@ pub struct Changed {
     pub is_dir: bool,
 }
 
-/// What the backend of `remote` reported after `cursor` (from [`change_cursor`]) and the cursor after it; `None` when that isn't known completely (another run's cursor, more changes than are kept, a change the backend couldn't name).
-pub fn changes_since(remote: &str, cursor: &str) -> Option<(String, Vec<Changed>)> {
-    #[derive(serde::Deserialize)]
-    struct Reply {
-        ok: bool,
-        cursor: String,
-        changes: Option<Vec<Changed>>,
-    }
-    let c_remote = CString::new(remote).ok()?;
-    let c_cursor = CString::new(cursor).ok()?;
+/// What [`changes_since`] found.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct Changes {
+    /// The backend has a change log (Google Drive, Dropbox); without one the rest is empty.
+    pub supported: bool,
+    /// `changes` holds everything after the cursor given. False for no cursor or one of an earlier run; `cursor` then starts from now.
+    pub known: bool,
+    pub cursor: String,
+    #[serde(default)]
+    pub changes: Option<Vec<Changed>>,
+}
+
+/// Asks the change log of the rclone remote `remote` (name without colon) what changed after `cursor` (from an earlier call; `""` for none): one request. The first call creates the backend, which may go over the network; setting `cancel` makes it give up.
+pub fn changes_since(
+    remote: &str,
+    cursor: &str,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<Changes, String> {
+    let c_remote = CString::new(remote).map_err(|e| e.to_string())?;
+    let c_cursor = CString::new(cursor).map_err(|e| e.to_string())?;
+    let flag = cancel.as_ptr() as *mut std::os::raw::c_uchar;
     let json = unsafe {
-        take_string(ffi::RcloneChangesSince(
+        take_string(ffi::RcloneChanges(
             c_remote.as_ptr() as *mut c_char,
             c_cursor.as_ptr() as *mut c_char,
+            flag,
         ))
     };
-    let reply: Reply = serde_json::from_str(&json).ok()?;
-    reply
-        .ok
-        .then(|| (reply.cursor, reply.changes.unwrap_or_default()))
+    let reply: serde_json::Value =
+        serde_json::from_str(&json).map_err(|e| format!("changes: {e}: {json}"))?;
+    if let Some(err) = reply.get("error").and_then(|e| e.as_str()) {
+        return Err(err.to_owned());
+    }
+    serde_json::from_value(reply).map_err(|e| format!("changes: {e}"))
 }
 
 /// The change tags (ETags) of a Nextcloud or ownCloud folder, see [`folder_tags`].
@@ -265,7 +259,7 @@ pub fn folder_tags(
 /// `rclone.ErrNoFolderTags` in src/go/rclone/davtags.go.
 const NO_FOLDER_TAGS: &str = "the remote keeps no folder change tags";
 
-/// Stop change tracking for `remote`, e.g. after its config was replaced or deleted.
+/// Drop the backend kept for `remote`'s change log, e.g. after its config was replaced or deleted.
 pub fn forget_remote(remote: &str) {
     if let Ok(c_remote) = CString::new(remote) {
         unsafe { ffi::RcloneForgetRemote(c_remote.as_ptr() as *mut c_char) };

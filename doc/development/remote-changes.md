@@ -24,12 +24,10 @@ A sync pass needs the remote state of its folder. Listing it costs one request p
 |---|---|---|---|
 | Proton | last event of the volume's event log and the sync folder's link ID | the changed links with their decrypted names, placed by ID | kept |
 | Nextcloud, ownCloud | the sync folder's ETag, which the server renews with every change below it | a walk into the subfolders whose ETag changed (`src/go/rclone/davtags.go`) | kept |
-| Google Drive, Dropbox | a counter on rclone's change notification | the folders holding the paths it reported (`src/go/rclone/watch.go`, the last 256) | one full listing: rclone's change log can't continue from an earlier run |
+| Google Drive, Dropbox | the provider's change-log token, asked once per pass through Syncative's rclone fork | the folders holding the paths it reported (`src/go/rclone/changes.go`) | one full listing: rclone names Drive's changes through the folders its backend has listed in this run |
 | Other rclone backends | none | | every pass lists |
 
-The engine sets how often rclone asks Google Drive's and Dropbox's change logs: a third of the shortest interval among their enabled remotes, but not more often than every 5 s or than the power settings' floor allows, and hourly while nothing is scheduled (`Core::change_poll_interval` in `src/engine/core.rs`). A change made just after a poll therefore waits at most a third of an interval longer for its pass.
-
-More than 64 folders to fetch, a change rclone couldn't name, a folder without an ETag, the sync folder itself renamed or gone, or a Proton event that can't be read make the pass list in full.
+More than 64 folders to fetch, a folder without an ETag, the sync folder itself renamed or gone, or a Proton event that can't be read make the pass list in full.
 
 ## Paths and IDs
 

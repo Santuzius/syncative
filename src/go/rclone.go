@@ -12,7 +12,6 @@ import "C"
 
 import (
 	"encoding/json"
-	"time"
 	"unsafe"
 
 	"syncative/go/rclone"
@@ -69,21 +68,19 @@ func RcloneRPCCancellable(method *C.char, input *C.char, cancelled *C.uchar) (re
 	return result
 }
 
-// RcloneChangeCursor names where the change log of the rclone remote `remote` (name without colon) stands, "" if it can't tell; see rclone.Cursor. Free the result with RcloneFreeString.
+// RcloneChanges asks the change log of the rclone remote `remote` (name without colon) what changed after `cursor` ("" for none); see rclone.ChangesSince. Returns JSON, `{"supported":…,"known":…,"cursor":…,"changes":[{"path":…,"is_dir":…}]}` or `{"error":…}`. Free the result with RcloneFreeString.
 //
-//export RcloneChangeCursor
-func RcloneChangeCursor(remote *C.char, cancelled *C.uchar) *C.char {
+//export RcloneChanges
+func RcloneChanges(remote *C.char, cursor *C.char, cancelled *C.uchar) *C.char {
 	ctx, stop := rclone.CancelledBy((*uint8)(unsafe.Pointer(cancelled)))
 	defer stop()
-	return C.CString(rclone.Cursor(ctx, C.GoString(remote)))
-}
-
-// RcloneChangesSince returns what the backend of `remote` reported after `cursor`; see rclone.ChangesSince. Returns JSON `{"ok":bool,"cursor":…,"changes":[{"path":…,"is_dir":…}]}`. Free the result with RcloneFreeString.
-//
-//export RcloneChangesSince
-func RcloneChangesSince(remote *C.char, cursor *C.char) *C.char {
-	changes, now, ok := rclone.ChangesSince(C.GoString(remote), C.GoString(cursor))
-	out, _ := json.Marshal(map[string]any{"ok": ok, "cursor": now, "changes": changes})
+	changes, err := rclone.ChangesSince(ctx, C.GoString(remote), C.GoString(cursor))
+	var out []byte
+	if err != nil {
+		out, _ = json.Marshal(map[string]string{"error": err.Error()})
+	} else {
+		out, _ = json.Marshal(changes)
+	}
 	return C.CString(string(out))
 }
 
@@ -103,18 +100,11 @@ func RcloneFolderTags(remote *C.char, path *C.char, depth C.int, cancelled *C.uc
 	return C.CString(string(out))
 }
 
-// RcloneForgetRemote stops change tracking for `remote`.
+// RcloneForgetRemote drops the backend kept for `remote`'s change log; see rclone.Forget.
 //
 //export RcloneForgetRemote
 func RcloneForgetRemote(remote *C.char) {
 	rclone.Forget(C.GoString(remote))
-}
-
-// RcloneSetChangePollSeconds sets how often remotes with change notification ask their provider's change log; 0 restores the default. See rclone.SetPollInterval.
-//
-//export RcloneSetChangePollSeconds
-func RcloneSetChangePollSeconds(seconds C.int) {
-	rclone.SetPollInterval(time.Duration(seconds) * time.Second)
 }
 
 //export RcloneFreeString

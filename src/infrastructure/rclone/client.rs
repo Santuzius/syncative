@@ -11,12 +11,7 @@
 //! way the on-disk file becomes a transient, regenerable artefact and
 //! the source of truth lives behind libsecret.
 
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, path::PathBuf};
 
 use crate::domain::{
     ports::{BackendClient, Cancel},
@@ -30,50 +25,14 @@ use super::rpc::{self, BackendListFilter, BackendRemoteItem};
 #[derive(Clone)]
 pub struct LibrcloneClient {
     rclone_config_path: PathBuf,
-    /// When each remote last answered, see [`REACHED_WITHIN`].
-    reached: Arc<Mutex<HashMap<String, Instant>>>,
 }
-
-/// "Nothing changed" from a change log that the backend polls in the background counts only if the provider answered within this time. Offline, the change log can't report anything, and the database would stand in for a remote nobody reached.
-const REACHED_WITHIN: Duration = Duration::from_secs(60);
 
 impl LibrcloneClient {
     /// `rclone_config_path` is the path librclone writes its config
     /// to. After every mutation we read the file back from this path
     /// and sync the contents to the keyring.
     pub fn new(rclone_config_path: PathBuf) -> Self {
-        Self {
-            rclone_config_path,
-            reached: Arc::default(),
-        }
-    }
-
-    fn mark_reached(&self, remote: &str) {
-        if let Ok(mut reached) = self.reached.lock() {
-            reached.insert(remote.to_owned(), Instant::now());
-        }
-    }
-
-    /// Fails while the provider can't be reached; one small request unless it answered within [`REACHED_WITHIN`]. A backend without `about` counts as reached.
-    fn check_reachable(&self, remote: &str, cancel: &Cancel) -> Result<(), String> {
-        let recent = self
-            .reached
-            .lock()
-            .ok()
-            .and_then(|reached| reached.get(remote).copied())
-            .is_some_and(|at| at.elapsed() < REACHED_WITHIN);
-        if recent {
-            return Ok(());
-        }
-        match rpc::sync::about(remote, cancel) {
-            Err(err) if crate::infrastructure::translators::is_offline(&err.error) => {
-                Err(err.error)
-            }
-            _ => {
-                self.mark_reached(remote);
-                Ok(())
-            }
-        }
+        Self { rclone_config_path }
     }
 
     /// Push the current on-disk rclone config into the keyring. Logged
@@ -140,7 +99,6 @@ impl BackendClient for LibrcloneClient {
             rpc::sync::list(remote, path, recursive, map_filter(filter), cancel)
                 .map(|items| items.into_iter().map(map_item).collect())
                 .map_err(|err| err.error)?;
-        self.mark_reached(remote);
         Ok(items)
     }
 
@@ -285,7 +243,6 @@ impl BackendClient for LibrcloneClient {
         // Nextcloud and ownCloud: the folder's ETag changes with everything below it, and those of its subfolders show which branch changed.
         match syncative_go::folder_tags(remote, path, 0, cancel) {
             Ok(Some(tags)) => {
-                self.mark_reached(remote);
                 return Ok(match cursor {
                     Some(before) if before == tags.tag => Changes::None,
                     Some(_) => Changes::Some {
@@ -306,29 +263,31 @@ impl BackendClient for LibrcloneClient {
                 return Ok(Changes::Unknown { cursor: None });
             }
         }
-        // Backends with a change log (Google Drive, Dropbox): polled in the background, so the provider's answer may be old.
-        let now = syncative_go::change_cursor(remote, cancel);
-        let Some(before) = cursor else {
-            return Ok(Changes::Unknown { cursor: now });
-        };
-        if now.as_deref() == Some(before) {
-            self.check_reachable(remote, cancel)?;
+        // Backends with a change log (Google Drive, Dropbox): one request for what changed since the last pass.
+        let found = syncative_go::changes_since(remote, cursor.unwrap_or(""), cancel)?;
+        if !found.supported {
+            return Ok(Changes::Unknown { cursor: None });
+        }
+        if !found.known {
+            return Ok(Changes::Unknown {
+                cursor: Some(found.cursor),
+            });
+        }
+        let changed = found.changes.unwrap_or_default();
+        if changed.is_empty() {
             return Ok(Changes::None);
         }
-        let Some((now, changed)) = syncative_go::changes_since(remote, before) else {
-            return Ok(Changes::Unknown { cursor: now });
-        };
         // The folder holding each changed item shows what became of it; a changed folder's own content may have changed too.
         let changes = changed
             .into_iter()
             .flat_map(|c| {
-                let parent = c.path.rfind('/').map_or("", |i| &c.path[..i]).to_owned();
+                let parent = crate::util::parent_of(&c.path).to_owned();
                 let own = c.is_dir.then(|| RemoteChange::Folder(c.path.clone()));
                 std::iter::once(RemoteChange::Folder(parent)).chain(own)
             })
             .collect();
         Ok(Changes::Some {
-            cursor: now,
+            cursor: found.cursor,
             root_id: None,
             changes,
         })

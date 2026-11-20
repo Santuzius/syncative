@@ -771,35 +771,3 @@ async fn a_shared_file_saved_during_its_upload_goes_up_again_under_the_same_name
     assert!(rig.snap().uploads.is_empty());
     assert!(!dir.exists());
 }
-
-#[tokio::test]
-async fn change_logs_are_asked_at_a_third_of_the_shortest_interval_of_drive_and_dropbox() {
-    use crate::domain::remote::{Interval, ProviderKind};
-    let mut rig = rig().await;
-    let minute = Duration::from_secs(60);
-    // Neither remote has a change log to ask.
-    assert_eq!(rig.core.change_poll_interval(), 60 * minute);
-
-    for (r, (kind, interval)) in rig.repo.remotes.lock().unwrap().iter_mut().zip([
-        (ProviderKind::GDrive, Interval::OneHour),
-        (ProviderKind::Dropbox, Interval::OneMinute),
-    ]) {
-        r.provider_kind = Some(kind);
-        r.policy.interval = interval;
-    }
-    rig.send(Command::Reload).await;
-    assert_eq!(rig.core.change_poll_interval(), minute / 3);
-
-    // The cadence's floor stretches the intervals and is itself the shortest poll.
-    rig.send(Command::Cadence(Cadence::AtMost(5 * minute)))
-        .await;
-    assert_eq!(rig.core.change_poll_interval(), 5 * minute);
-
-    rig.send(Command::Cadence(Cadence::Full)).await;
-    rig.set_enabled(R2, false);
-    rig.send(Command::Reload).await;
-    assert_eq!(rig.core.change_poll_interval(), 20 * minute);
-
-    rig.send(Command::Cadence(Cadence::Held)).await;
-    assert_eq!(rig.core.change_poll_interval(), 60 * minute);
-}
