@@ -28,6 +28,8 @@ Run it for every new remote type, for beta remotes such as Nextcloud before they
 
 **Setup:** a throwaway account, signed in to the desktop test instance and to a second client of the same account: the provider's web app, and where possible Syncative on the phone. Sync at least two folders: a new one and one that already existed on the remote with content (created by another client, not by Syncative). Turn *Detailed log* on. A person doing the steps in the web app works step by step with whoever watches the logs: one change, *Sync now*, check, next change.
 
+For Google Drive, rclone with the test instance's config (see above) can stand in for the web app while the phone syncs: `moveto` renames and moves, `deletefile` and `purge` move to the trash, and `backend untrash GoogleDrive:<folder>` restores everything in the trash below that folder, earlier test leftovers included.
+
 After each step the local folder and the remote must match, and a second pass must change nothing (no endless uploads, downloads or "Checking for changes" loops).
 
 1. **Own changes:** add, change and delete files and a subfolder locally.
