@@ -291,3 +291,29 @@ fn a_folder_without_a_change_tag_makes_the_pass_list() {
     assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
     assert!(client.delete_file_calls.lock().unwrap().is_empty());
 }
+
+#[test]
+fn a_folder_gone_on_the_remote_leaves_no_rows_of_its_content() {
+    let tmp = TempDir::new("view_dir_gone");
+    let repo = FakeRepo::new();
+    synced_file(&tmp, &repo);
+    std::fs::create_dir_all(tmp.path.join("d/inner")).unwrap();
+    let a = tmp.write_file("d/a.txt", b"a");
+    touch_mtime(&a, T);
+    let b = tmp.write_file("d/inner/b.txt", b"b");
+    touch_mtime(&b, T);
+    for (path, local) in [("d", tmp.path.join("d")), ("d/a.txt", a.clone()), ("d/inner", tmp.path.join("d/inner")), ("d/inner/b.txt", b.clone())] {
+        repo.insert_item(SyncDirId(1), local.to_str().unwrap(), path, T, T);
+    }
+    let client = FakeBackend::default();
+    let ids = [("a.txt", "A", false), ("d", "D", true), ("d/a.txt", "DA", false), ("d/inner", "DI", true), ("d/inner/b.txt", "DIB", false)];
+    client.set_list("", Ok(ids.iter().map(|(p, id, dir)| with_id(remote_item(p, *dir, T), id)).collect()));
+    client.set_changes(vec![Changes::Unknown { cursor: Some("c1".into()) }]);
+    pass(&tmp, &repo, &client);
+
+    // Another client trashed "d": one event for the folder.
+    client.set_changes(vec![Changes::Some { cursor: "c2".into(), root_id: Some("R".into()), changes: vec![RemoteChange::Gone("D".into())] }]);
+    pass(&tmp, &repo, &client);
+    assert!(!tmp.path.join("d").exists());
+    assert_eq!(repo.item_count(), 1, "only a.txt keeps its row");
+}

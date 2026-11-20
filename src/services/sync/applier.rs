@@ -238,11 +238,7 @@ where
                     emit_error(SyncError::General(local_path.clone(), err.to_string()));
                     break 'action;
                 }
-                let _ = util::await_future(repo.delete_sync_item_by_paths(
-                    sync_dir.id,
-                    &local_path,
-                    &remote_path,
-                ));
+                forget_rows(repo, sync_dir, &local_path, &remote_path, is_dir);
             }
             Action::DeleteRemote {
                 local_path,
@@ -273,11 +269,7 @@ where
                         break 'action;
                     }
                 }
-                let _ = util::await_future(repo.delete_sync_item_by_paths(
-                    sync_dir.id,
-                    &local_path,
-                    &remote_path,
-                ));
+                forget_rows(repo, sync_dir, &local_path, &remote_path, is_dir);
             }
             Action::ClearDbRow {
                 local_path,
@@ -654,6 +646,18 @@ fn progress_text(activity: Option<SyncActivity>, done: usize, total: usize) -> S
         Some(SyncActivity::Deleting) => tr::tr!("Deleting: {} of {} done…", done, total),
         Some(SyncActivity::Resolving) => tr::tr!("Comparing files present on both sides: {} of {} done…", done, total),
         Some(SyncActivity::Listing) | None => tr::tr!("{} of {} done…", done, total),
+    }
+}
+
+/// Forgets the row of an item deleted on both sides now, and for a folder those of everything that was below it: the planner may have left their own deletes out (no sibling to prove the listing complete), and a row left over would stand for a remote item that no longer exists once the database stands in for the listing.
+fn forget_rows(repo: &dyn Repository, sync_dir: &SyncDir, local_path: &str, remote_path: &str, is_dir: bool) {
+    let forgotten = if is_dir {
+        util::await_future(repo.delete_sync_items_with_local_prefix(sync_dir.id, local_path))
+    } else {
+        util::await_future(repo.delete_sync_item_by_paths(sync_dir.id, local_path, remote_path))
+    };
+    if let Err(err) = forgotten {
+        eprintln!("sync: could not forget '{remote_path}' in the database: {err}");
     }
 }
 
