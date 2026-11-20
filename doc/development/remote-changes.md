@@ -27,6 +27,8 @@ A sync pass needs the remote state of its folder. Listing it costs one request p
 | Google Drive, Dropbox | a counter on rclone's change notification | the folders holding the paths it reported (`src/go/rclone/watch.go`, the last 256) | one full listing: rclone's change log can't continue from an earlier run |
 | Other rclone backends | none | | every pass lists |
 
+The engine sets how often rclone asks Google Drive's and Dropbox's change logs: a third of the shortest interval among their enabled remotes, but not more often than every 5 s or than the power settings' floor allows, and hourly while nothing is scheduled (`Core::change_poll_interval` in `src/engine/core.rs`). A change made just after a poll therefore waits at most a third of an interval longer for its pass.
+
 More than 64 folders to fetch, a change rclone couldn't name, a folder without an ETag, the sync folder itself renamed or gone, or a Proton event that can't be read make the pass list in full.
 
 ## Paths and IDs

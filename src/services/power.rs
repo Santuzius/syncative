@@ -244,12 +244,7 @@ pub fn allow_background() {
 /// Hands [`current_cadence`] to the engine, if it runs yet, after the settings or the conditions changed; the engine reads it itself when it starts.
 pub fn apply() {
     let cadence = current_cadence();
-    // Google Drive's and Dropbox's change logs in the same rhythm; hourly while held.
-    syncative_go::set_change_poll_interval(match cadence {
-        Cadence::Full => None,
-        Cadence::AtMost(floor) => Some(floor),
-        Cadence::Held => Some(Duration::from_secs(60 * 60)),
-    });
+    // The engine paces Google Drive's and Dropbox's change logs along.
     if let Some(engine) = crate::engine::get() {
         engine.send(crate::engine::Command::Cadence(cadence));
     }

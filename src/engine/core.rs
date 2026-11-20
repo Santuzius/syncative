@@ -7,7 +7,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use tokio::sync::mpsc;
@@ -37,6 +37,8 @@ use super::{
 pub(crate) const UPLOAD_TRIES: u32 = 3;
 /// Wait before a failed upload is tried again, times the tries so far.
 const UPLOAD_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
+/// The change-log polls' shortest interval, rclone's default.
+const CHANGE_POLL_MIN: Duration = Duration::from_secs(5);
 /// Wait before a file that changed during its upload goes up again, so a save in progress can finish.
 const UPLOAD_SETTLE: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -104,6 +106,8 @@ pub(crate) struct Core {
     last_status: Option<TrayStatus>,
     /// See [`Command::Cadence`].
     cadence: Cadence,
+    /// What [`Self::pace_change_polls`] last handed to the Go side.
+    change_poll: Option<Duration>,
     /// See [`Command::Online`].
     offline: bool,
     /// Remotes whose running pass was stopped because the provider couldn't be reached; their folders show Offline when it ends.
@@ -146,6 +150,7 @@ impl Core {
             passes_finished: 0,
             last_status: None,
             cadence: Cadence::Full,
+            change_poll: None,
             offline: false,
             unreachable: HashSet::new(),
             usage: HashMap::new(),
@@ -275,6 +280,7 @@ impl Core {
             Command::Cadence(cadence) => {
                 let woke = cadence.looser_than(self.cadence);
                 self.cadence = cadence;
+                self.pace_change_polls();
                 // The summary may say why syncing is held; send it again.
                 self.last_status = None;
                 // Up to date by the time someone looks.
@@ -400,6 +406,35 @@ impl Core {
         }
         self.remotes = remotes;
         self.sync_dirs = sync_dirs;
+        self.pace_change_polls();
+    }
+
+    /// How often Google Drive and Dropbox ask their change logs, which a pass reads when it starts: a third of the shortest interval among their enabled remotes, so a change waits at most a third of an interval longer for its pass. Never more often than [`CHANGE_POLL_MIN`] or the cadence's floor, hourly while nothing is scheduled.
+    pub(super) fn change_poll_interval(&self) -> Duration {
+        let floor = self.cadence.floor().unwrap_or_default();
+        self.remotes
+            .iter()
+            .filter(|r| {
+                r.policy.enabled
+                    && matches!(
+                        r.provider_kind,
+                        Some(ProviderKind::GDrive | ProviderKind::Dropbox)
+                    )
+            })
+            .filter_map(|r| self.interval(r))
+            .min()
+            .map_or(Duration::from_secs(60 * 60), |shortest| {
+                (shortest / 3).max(CHANGE_POLL_MIN).max(floor)
+            })
+    }
+
+    /// Hand [`Self::change_poll_interval`] to the Go side when it changed.
+    fn pace_change_polls(&mut self) {
+        let every = self.change_poll_interval();
+        if self.change_poll != Some(every) {
+            self.change_poll = Some(every);
+            syncative_go::set_change_poll_interval(Some(every));
+        }
     }
 
     /// Enabled by the user and not blocked on reauthentication.
