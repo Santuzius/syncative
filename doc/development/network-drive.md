@@ -16,9 +16,12 @@ The fourth folder mode, *Network drive* 🧪 (`SyncMode::NetworkDrive`, a beta f
 
 Not available yet; the mode isn't offered there. The plan is a document provider (`DocumentsProvider` in Java, registered in `AndroidManifest.xml`) that calls a few Go functions on the same VFS: list, open, read, write, close.
 
+## Changes by other clients
+
+rclone's VFS keeps a folder's listing for five minutes (`--dir-cache-time`), and learns of other clients' changes earlier through the backend's ChangeNotify, which it polls every minute (`--poll-interval`). rclone's drive backend reads Google's change log there; Syncative's Proton backend (`src/go/proton/rclonefs`) reads the volume's event log, the same one the sync's change query follows. The event log names a moved file by its new parent only, so the backend remembers where it listed each file while ChangeNotify runs, and the VFS forgets the folder the file left as well.
+
 ## Open points
 
-- rclone's VFS keeps a folder's listing for five minutes (`--dir-cache-time`). The drive backend tells it about remote changes through ChangeNotify; Syncative's Proton backend doesn't implement ChangeNotify yet, so another client's changes show in a Proton network drive within those five minutes.
 - Whether GNOME Files and Dolphin list the mount in their sidebars, and whether Files by Google on Android shows other apps' document providers, is still to be checked.
 
 Testing: add a network drive folder in the test instance (with `beta-features` in its data dir), then read and write through the mount and watch the change arrive in a synced folder of the same remote folder.

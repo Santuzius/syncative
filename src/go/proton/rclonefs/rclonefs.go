@@ -62,6 +62,32 @@ type Fs struct {
 	features *fs.Features
 	dirCache *dircache.DirCache
 	recent   *listings
+	files    *filePaths
+}
+
+// filePaths remembers where listed files lie while rclone's VFS watches for changes (ChangeNotify): the event log names a file by its link ID and its new parent only, and the VFS has to forget the folder it left too. The directory cache does the same for folders.
+type filePaths struct {
+	mu   sync.Mutex
+	on   bool
+	byID map[string]string
+}
+
+// put records file `id` at `remote`, once ChangeNotify runs.
+func (p *filePaths) put(id, remote string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.on {
+		p.byID[id] = remote
+	}
+}
+
+// take returns where file `id` was listed and forgets it.
+func (p *filePaths) take(id string) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	remote, ok := p.byID[id]
+	delete(p.byID, id)
+	return remote, ok
 }
 
 // listings keeps the last folder listings for the lookups of single items that follow them: rclone finds each file it copies by its path, and Proton can only list the whole folder for it. Bounded in time, so other clients' changes show soon, and in number, as a listing holds every item's keys.
@@ -188,7 +214,7 @@ func NewFs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, e
 		return nil, err
 	}
 	root = strings.Trim(path.Clean("/"+root), "/")
-	f := &Fs{name: name, root: root, opt: *opt, recent: &listings{byDir: map[string]listing{}}}
+	f := &Fs{name: name, root: root, opt: *opt, recent: &listings{byDir: map[string]listing{}}, files: &filePaths{byID: map[string]string{}}}
 	f.features = (&fs.Features{
 		CanHaveEmptyDirectories: true,
 		ReadMimeType:            true,
@@ -273,6 +299,7 @@ func (f *Fs) List(ctx context.Context, dir string) (fs.DirEntries, error) {
 			entries = append(entries, fs.NewDir(remote, item.ModTime()).SetID(item.Link.LinkID))
 			continue
 		}
+		f.files.put(item.Link.LinkID, remote)
 		entries = append(entries, f.newObject(remote, item))
 	}
 	return entries, nil
@@ -618,25 +645,14 @@ func (f *Fs) LatestItemEvent(ctx context.Context) (string, error) {
 	return sess.LatestEventID(ctx)
 }
 
-// ItemChangesSince returns the links that changed after `event`. A folder among them leaves the directory cache, where its old path would still lead to it.
+// ItemChangesSince returns the links that changed after `event`.
 func (f *Fs) ItemChangesSince(ctx context.Context, event string) (rclone.ItemChanges, error) {
-	sess, err := f.session()
-	if err != nil {
-		return rclone.ItemChanges{}, err
-	}
-	found, err := sess.ChangesSince(ctx, event)
+	found, err := f.changesSince(ctx, event, nil)
 	if err != nil {
 		return rclone.ItemChanges{}, err
 	}
 	out := rclone.ItemChanges{Next: found.Cursor, Relist: found.Relist}
-	if len(found.Changes) > 0 || found.Relist {
-		// Another client changed the drive: what the kept listings show may be gone.
-		f.recent.clear()
-	}
 	for _, c := range found.Changes {
-		if old, ok := f.dirCache.GetInv(c.LinkID); ok && (c.IsDir || c.Gone) {
-			f.dirCache.FlushDir(old)
-		}
 		out.Items = append(out.Items, rclone.ItemChange{
 			ID:          c.LinkID,
 			ParentID:    c.ParentLinkID,
@@ -649,6 +665,116 @@ func (f *Fs) ItemChangesSince(ctx context.Context, event string) (rclone.ItemCha
 	return out, nil
 }
 
+// changesSince reads the event log after `event` and forgets what the changes leave stale: the kept listings, and the directory cache's entries of folders that moved or went, where their old paths would still lead. notify, when given, gets each path below the root that changed, where an item was and where it is now, as ChangeNotify reports them.
+func (f *Fs) changesSince(ctx context.Context, event string, notify func(string, fs.EntryType)) (*drive.Changes, error) {
+	sess, err := f.session()
+	if err != nil {
+		return nil, err
+	}
+	found, err := sess.ChangesSince(ctx, event)
+	if err != nil {
+		return nil, err
+	}
+	if len(found.Changes) > 0 || found.Relist {
+		// Another client changed the drive: what the kept listings show may be gone.
+		f.recent.clear()
+	}
+	type changed struct {
+		remote string
+		kind   fs.EntryType
+	}
+	var paths []changed
+	if found.Relist {
+		paths = append(paths, changed{"", fs.EntryDirectory})
+	}
+	var flush []string
+	for _, c := range found.Changes {
+		kind := fs.EntryObject
+		var old string
+		var known bool
+		if c.IsDir {
+			kind = fs.EntryDirectory
+			old, known = f.dirCache.GetInv(c.LinkID)
+			if known {
+				flush = append(flush, old)
+			}
+		} else {
+			old, known = f.files.take(c.LinkID)
+		}
+		if known {
+			paths = append(paths, changed{old, kind})
+		}
+		if parent, ok := f.dirCache.GetInv(c.ParentLinkID); ok && !c.Gone && c.Name != "" {
+			remote := path.Join(parent, f.opt.Enc.ToStandardName(c.Name))
+			if !known || remote != old {
+				paths = append(paths, changed{remote, kind})
+			}
+			if !c.IsDir {
+				f.files.put(c.LinkID, remote)
+			}
+		}
+	}
+	for _, dir := range flush {
+		f.dirCache.FlushDir(dir)
+	}
+	if notify != nil {
+		for _, p := range paths {
+			notify(p.remote, p.kind)
+		}
+	}
+	return found, nil
+}
+
+// ChangeNotify tells rclone's VFS which paths other clients changed, every poll interval, so a mounted folder shows them without waiting for its directory cache to expire.
+func (f *Fs) ChangeNotify(ctx context.Context, notify func(string, fs.EntryType), pollIntervals <-chan time.Duration) {
+	f.files.mu.Lock()
+	f.files.on = true
+	f.files.mu.Unlock()
+	go func() {
+		// Start from the log as it is now, so every change after the mount is reported.
+		event, err := f.LatestItemEvent(ctx)
+		if err != nil {
+			fs.Infof(f, "Couldn't read the event log: %v", err)
+		}
+		var ticker *time.Ticker
+		var ticks <-chan time.Time
+		for {
+			select {
+			case <-ctx.Done():
+				if ticker != nil {
+					ticker.Stop()
+				}
+				return
+			case interval, ok := <-pollIntervals:
+				if ticker != nil {
+					ticker.Stop()
+					ticker, ticks = nil, nil
+				}
+				if !ok {
+					return
+				}
+				if interval != 0 {
+					ticker = time.NewTicker(interval)
+					ticks = ticker.C
+				}
+			case <-ticks:
+				if event == "" {
+					if event, err = f.LatestItemEvent(ctx); err != nil {
+						fs.Infof(f, "Couldn't read the event log: %v", err)
+					}
+					continue
+				}
+				found, err := f.changesSince(ctx, event, notify)
+				if err != nil {
+					fs.Infof(f, "Couldn't read the changes: %v", err)
+					continue
+				}
+				event = found.Cursor
+			}
+		}
+	}()
+}
+
 // Check the interfaces are satisfied.
 var (
 	_ fs.Fs              = (*Fs)(nil)
@@ -657,6 +783,7 @@ var (
 	_ fs.DirMover        = (*Fs)(nil)
 	_ fs.Abouter         = (*Fs)(nil)
 	_ fs.DirCacheFlusher = (*Fs)(nil)
+	_ fs.ChangeNotifier  = (*Fs)(nil)
 	_ fs.Object          = (*Object)(nil)
 	_ fs.MimeTyper       = (*Object)(nil)
 	_ fs.IDer            = (*Object)(nil)
