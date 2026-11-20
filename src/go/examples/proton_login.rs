@@ -1,14 +1,9 @@
-//! Live Proton login + Drive round-trip (read AND write).
+//! Live Proton login, then a listing of the drive's root through rclone.
 //!
 //! Reads credentials from env vars — keeps them out of shell history
-//! and argv — then exercises: login → save → resume → list root →
-//! stat first child (if any) → download first file (if any) →
-//! create a scratch folder under the root → upload a small scratch
-//! file into it → logout.
-//!
-//! Set `PROTON_WRITE_SMOKE=1` to enable the write portion (folder +
-//! upload). Off by default so it doesn't litter the user's Drive on
-//! every invocation.
+//! and argv — then exercises: login → save → resume → list the root
+//! through rclone → logout. For changing the drive, see
+//! `cmd/protonctl`.
 //!
 //!     PROTON_USERNAME=alice@proton.me \
 //!     PROTON_PASSWORD='…' \
@@ -77,122 +72,18 @@ fn main() {
         resumed.uid == cred.uid
     );
 
-    // Drive read smoke on the resumed session. The original UID is
-    // shared so either works — we'll use the resumed one because it's
-    // the one we'll still have after the original times out.
-    let root_id = match proton::root_link_id(&resumed.uid) {
-        Ok(id) => id,
-        Err(err) => {
-            eprintln!("root_link_id failed: {err}");
-            let _ = proton::logout(&resumed.uid);
-            std::process::exit(1);
-        }
-    };
-    eprintln!("  root link id = {root_id}");
+    // List the drive's root through rclone, the way the sync reaches it: the session is bound to a remote name, which rclone's "native-proton" backend looks up.
+    if let Err(err) = proton::bind_remote(&resumed.uid, "smoke") {
+        eprintln!("bind_remote failed: {err}");
+        let _ = proton::logout(&resumed.uid);
+        std::process::exit(1);
+    }
+    match native::rpc("operations/list", r#"{"fs":"smoke:","remote":""}"#) {
+        Ok(listing) => eprintln!("  root listing: {listing}"),
+        Err(err) => eprintln!("  listing failed: {err}"),
+    }
+    proton::unbind_remote("smoke");
 
-    let entries = match proton::list_directory(&resumed.uid, "") {
-        Ok(e) => e,
-        Err(err) => {
-            eprintln!("list_directory failed: {err}");
-            let _ = proton::logout(&resumed.uid);
-            std::process::exit(1);
-        }
-    };
-    eprintln!("  root entries: {}", entries.len());
-    for e in entries.iter().take(8) {
-        eprintln!(
-            "    - {:<30}  {}  size={}  mtime={}",
-            e.name,
-            if e.is_dir { "dir " } else { "file" },
-            e.size,
-            e.mod_time_unix
-        );
-    }
-    if entries.len() > 8 {
-        eprintln!("    … ({} more)", entries.len() - 8);
-    }
-
-    // Stat the first child to confirm the shape round-trips, then
-    // download the first file (if any) to a temp path.
-    if let Some(first) = entries.first() {
-        match proton::stat(&resumed.uid, &first.link_id) {
-            Ok(Some(entry)) => eprintln!(
-                "  stat({}) = {} bytes, is_dir={}",
-                entry.name, entry.size, entry.is_dir
-            ),
-            Ok(None) => eprintln!("  stat({}) returned None (non-active)", first.name),
-            Err(err) => eprintln!("  stat failed: {err}"),
-        }
-    }
-    if let Some(first_file) = entries.iter().find(|e| !e.is_dir) {
-        let dl_path =
-            env::temp_dir().join(format!("syncative-proton-dl-smoke-{}", std::process::id()));
-        eprintln!(
-            "  downloading '{}' ({} bytes) → {}…",
-            first_file.name,
-            first_file.size,
-            dl_path.display()
-        );
-        match proton::download_file(&resumed.uid, &first_file.link_id, &dl_path) {
-            Ok(()) => {
-                let meta = std::fs::metadata(&dl_path);
-                eprintln!(
-                    "    downloaded OK, local bytes = {}",
-                    meta.map(|m| m.len() as i64).unwrap_or(-1)
-                );
-                let _ = std::fs::remove_file(&dl_path);
-            }
-            Err(err) => eprintln!("    download failed: {err}"),
-        }
-    } else {
-        eprintln!("  (no files at root to download — skipping download smoke)");
-    }
-
-    // Opt-in write smoke. Skipped by default so the Drive doesn't
-    // accumulate scratch folders between runs.
-    if env::var("PROTON_WRITE_SMOKE").ok().as_deref() == Some("1") {
-        let folder_name = format!("syncative-native-smoke-{}", std::process::id());
-        eprintln!("  creating folder '{folder_name}' under root…");
-        match proton::create_folder(&resumed.uid, "", &folder_name) {
-            Ok(id) => {
-                eprintln!("    folder OK, link id = {id}");
-                // Upload a tiny scratch file into the new folder.
-                let payload = format!(
-                    "syncative native proton upload smoke — pid {} — hello from cgo!\n",
-                    std::process::id()
-                );
-                let src = env::temp_dir().join(format!(
-                    "syncative-proton-upload-src-{}.txt",
-                    std::process::id()
-                ));
-                if let Err(err) = std::fs::write(&src, &payload) {
-                    eprintln!("    scratch write failed: {err}");
-                } else {
-                    eprintln!(
-                        "  uploading '{}' ({} bytes) into folder…",
-                        src.display(),
-                        payload.len()
-                    );
-                    match proton::upload_file(
-                        &resumed.uid,
-                        &id,
-                        src.file_name().unwrap().to_string_lossy().as_ref(),
-                        &src,
-                    ) {
-                        Ok(file_id) => eprintln!("    upload OK, file link id = {file_id}"),
-                        Err(err) => eprintln!("    upload failed: {err}"),
-                    }
-                }
-                let _ = std::fs::remove_file(&src);
-            }
-            Err(err) => eprintln!("    create_folder failed: {err}"),
-        }
-    } else {
-        eprintln!("  (PROTON_WRITE_SMOKE not set — skipping create_folder / upload smoke)");
-    }
-
-    // Clean up: log out the resumed session (which revokes the shared
-    // refresh token), drop the file.
     match proton::logout(&resumed.uid) {
         Ok(()) => eprintln!("  logout OK"),
         Err(err) => eprintln!("  logout returned: {err}"),

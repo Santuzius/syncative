@@ -342,7 +342,4 @@ pub trait BackendClient: Send + Sync {
     ) -> Result<Option<HashMap<String, String>>, String> {
         Ok(None)
     }
-
-    /// The remote listing the running pass works with, so a backend that addresses items by ID (Proton) can find them by path without asking the provider; `None` when the pass ends.
-    fn use_listing(&self, _remote: &str, _listing: Option<Arc<HashMap<String, RemoteItem>>>) {}
 }

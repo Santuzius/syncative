@@ -6,7 +6,6 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::Path,
-    sync::Arc,
     time::SystemTime,
 };
 
@@ -32,8 +31,7 @@ pub(super) struct LocalEntry {
 /// Combined snapshot of the three views the planner reasons against:
 /// remote listing, local walk, and tracked DB rows.
 pub(super) struct Snapshot {
-    /// Shared with the backend for the pass, see [`BackendClient::use_listing`].
-    pub remote: Arc<HashMap<String, RemoteItem>>,
+    pub remote: HashMap<String, RemoteItem>,
     /// Remote paths the change source reported gone, see [`super::remote_view::RemoteSide::reported_gone`].
     pub reported_gone: HashSet<String>,
     pub local: HashMap<String, LocalEntry>,
@@ -185,7 +183,7 @@ impl Snapshot {
             walk_local(sync_dir, &excluded_local_prefixes);
 
         Ok(Snapshot {
-            remote: Arc::new(remote),
+            remote,
             reported_gone,
             local,
             db,

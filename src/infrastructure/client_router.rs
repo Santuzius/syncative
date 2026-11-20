@@ -158,7 +158,4 @@ impl BackendClient for ClientRouter {
     ) -> Result<Option<HashMap<String, String>>, String> {
         self.pick(remote).folder_tags(remote, path, cancel)
     }
-    fn use_listing(&self, remote: &str, listing: Option<Arc<HashMap<String, RemoteItem>>>) {
-        self.pick(remote).use_listing(remote, listing);
-    }
 }

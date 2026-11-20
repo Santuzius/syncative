@@ -122,30 +122,3 @@ func (s *Session) findChildByName(ctx context.Context, parentLinkID, name string
 	}
 	return "", nil
 }
-
-// findChildLinkByName is like findChildByName but returns the full
-// proton.Link for the matched child, which callers need when they
-// must inspect FileProperties / State / keyrings.
-func (s *Session) findChildLinkByName(ctx context.Context, parentLinkID, name string, wantFile bool) (*proton.Link, error) {
-	entries, err := s.ListDirectory(ctx, parentLinkID)
-	if err != nil {
-		return nil, err
-	}
-	wantType := proton.LinkTypeFolder
-	if wantFile {
-		wantType = proton.LinkTypeFile
-	}
-	for _, e := range entries {
-		if e.Name == name {
-			// Fetch the full link metadata (ListDirectory caches it).
-			link, err := s.getLink(ctx, e.LinkID)
-			if err != nil {
-				continue
-			}
-			if link.Type == wantType {
-				return &link, nil
-			}
-		}
-	}
-	return nil, nil
-}
