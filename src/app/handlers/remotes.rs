@@ -248,11 +248,13 @@ impl SyncativeApp {
                         draft.error = Some("Username is required.".to_owned());
                         return Task::none();
                     }
-                    let user = draft.user.clone();
-                    let pass = draft.pass.clone();
-                    let mailbox_pass = draft.mailbox_pass.clone();
-                    let totp = draft.totp.clone();
-                    let hv = draft.hv.clone();
+                    let params = crate::services::auth::proton_login_params(
+                        &draft.user,
+                        &draft.pass,
+                        &draft.mailbox_pass,
+                        &draft.totp,
+                        draft.hv.as_ref(),
+                    );
                     let router = self.rclone.clone();
                     let is_reauth = draft.reauth;
                     draft.busy = true;
@@ -270,11 +272,7 @@ impl SyncativeApp {
                                 let res = tokio::task::spawn_blocking(move || {
                                     crate::services::auth::reauth_proton_drive_remote(
                                         &name,
-                                        &user,
-                                        &pass,
-                                        &mailbox_pass,
-                                        &totp,
-                                        hv.as_ref(),
+                                        &params,
                                         &router_inner,
                                     )
                                 })
@@ -295,14 +293,7 @@ impl SyncativeApp {
                         async move {
                             tokio::task::spawn_blocking(move || {
                                 crate::services::auth::add_proton_drive_remote(
-                                    &name,
-                                    &user,
-                                    &pass,
-                                    &mailbox_pass,
-                                    &totp,
-                                    hv.as_ref(),
-                                    &*repo,
-                                    &router,
+                                    &name, &params, &*repo, &router,
                                 )
                             })
                             .await

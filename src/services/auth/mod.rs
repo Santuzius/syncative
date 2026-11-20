@@ -19,6 +19,7 @@ pub use oauth::{
 };
 pub use proton::{
     KEYRING_SESSION_MARKER, add_proton_drive_remote, forget_session as forget_proton_session,
+    login_params as proton_login_params,
     persist_session_if_rotated as persist_proton_session_if_rotated, reauth_proton_drive_remote,
     resume_session_from_keyring as resume_proton_session,
 };

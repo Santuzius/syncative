@@ -2,7 +2,7 @@
 
 use std::{path::Path, sync::Arc};
 
-use syncative_go::proton::HumanVerification;
+use syncative_go::proton::{HumanVerification, LoginParams};
 
 use crate::{
     domain::{
@@ -22,21 +22,20 @@ pub const KEYRING_SESSION_MARKER: &str = "keyring";
 
 /// Login parameters, carrying a solved human-verification challenge when
 /// the previous attempt was answered with one (see [`HumanVerification`]).
-fn login_params(
+pub fn login_params(
     username: &str,
     password: &str,
     mailbox_password: &str,
     totp: &str,
     hv: Option<&HumanVerification>,
-) -> syncative_go::proton::LoginParams {
-    syncative_go::proton::LoginParams {
+) -> LoginParams {
+    LoginParams {
         username: username.to_owned(),
         password: password.to_owned(),
         mailbox_password: mailbox_password.to_owned(),
         two_fa: totp.to_owned(),
         hv_token: hv.map(|h| h.token.clone()).unwrap_or_default(),
         hv_methods: hv.map(|h| h.methods.clone()).unwrap_or_default(),
-        ..Default::default()
     }
 }
 
@@ -53,16 +52,11 @@ fn login_params(
 /// native adapter immediately.
 pub fn add_proton_drive_remote(
     name: &str,
-    username: &str,
-    password: &str,
-    mailbox_password: &str,
-    totp: &str,
-    hv: Option<&HumanVerification>,
+    params: &LoginParams,
     repo: &dyn Repository,
     router: &ClientRouter,
 ) -> Result<RemoteId, String> {
-    let params = login_params(username, password, mailbox_password, totp, hv);
-    let cred = syncative_go::proton::login(&params)?;
+    let cred = syncative_go::proton::login(params)?;
 
     persist_session_to_keyring(name, &cred.uid)?;
 
@@ -90,18 +84,12 @@ pub fn add_proton_drive_remote(
 /// router's disabled stub for a live [`NativeProtonClient`]. Leaves
 /// the DB row untouched — same name, same sync_dirs, same exclusions —
 /// so the user's configuration survives the reauth unchanged.
-#[allow(clippy::too_many_arguments)]
 pub fn reauth_proton_drive_remote(
     name: &str,
-    username: &str,
-    password: &str,
-    mailbox_password: &str,
-    totp: &str,
-    hv: Option<&HumanVerification>,
+    params: &LoginParams,
     router: &ClientRouter,
 ) -> Result<(), String> {
-    let params = login_params(username, password, mailbox_password, totp, hv);
-    let cred = syncative_go::proton::login(&params)?;
+    let cred = syncative_go::proton::login(params)?;
 
     persist_session_to_keyring(name, &cred.uid)?;
 
