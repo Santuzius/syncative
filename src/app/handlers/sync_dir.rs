@@ -10,11 +10,11 @@ use crate::{
     domain::{
         ports::{BackendClient, Repository},
         remote::RemoteId,
-        sync::{SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId},
+        sync::{NestedFilter, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId},
     },
     engine::Command,
     screens::{main_page, remote_page, settings},
-    services::leftovers,
+    services::{leftovers, nested_link},
 };
 
 use super::super::{local_paths_overlap, remote_page_auto_excluded, SyncativeApp, Message};
@@ -47,8 +47,85 @@ impl SyncativeApp {
         all: Vec<SyncDir>,
     ) -> Task<Message> {
         self.all_known_sync_dirs = all;
+        self.open_filters_of_added_folder();
         // A new folder inside another one turns the old copy into leftovers.
         self.refresh_exclusions()
+    }
+
+    /// A folder was just added inside an already synced one, or around some: open the filters where the overlap waits for a decision.
+    fn open_filters_of_added_folder(&mut self) {
+        let Some((remote_id, local)) = self.open_filters_of_added.take() else {
+            return;
+        };
+        let all = &self.all_known_sync_dirs;
+        let Some(added) = all.iter().find(|d| d.remote_id == remote_id && d.local_path == local) else {
+            return;
+        };
+        let around = all.iter().find(|d| remote_page_auto_excluded(d, all).iter().any(|n| n.id == added.id));
+        let open = around.map(|d| d.id).or_else(|| (!remote_page_auto_excluded(added, all).is_empty()).then_some(added.id));
+        if open.is_some() {
+            self.exclusion_panel = open;
+        }
+    }
+
+    /// Handle [`remote_page::Msg::OpenFilters`] — "Resolve…" for nested folders: open the panel where they wait.
+    pub(in crate::app) fn open_filters(&mut self, sd_id: SyncDirId) -> Task<Message> {
+        self.exclusion_panel = Some(sd_id);
+        self.reload_exclusions(sd_id, |_| async {})
+    }
+
+    /// Handle [`remote_page::Msg::SetNestedFilter`] — store what `sd_id` does with the sync_dir `nested_id` inside it, making or removing the symlink on the way, then sync.
+    pub(in crate::app) fn handle_set_nested_filter(&mut self, sd_id: SyncDirId, nested_id: SyncDirId, filter: Option<NestedFilter>) -> Task<Message> {
+        let find = |id| self.all_known_sync_dirs.iter().find(|d| d.id == id).cloned();
+        let (Some(parent), Some(nested)) = (find(sd_id), find(nested_id)) else {
+            return Task::none();
+        };
+        let old = self.nested_filters.get(&sd_id).and_then(|f| f.get(&nested_id)).copied();
+        self.nested_filter_problem = None;
+        let repo = self.repo.clone();
+        let engine = self.engine.clone();
+        Task::perform(
+            async move {
+                let at = nested_link::location(&parent, &nested);
+                let target = std::path::PathBuf::from(&nested.local_path);
+                let relative = parent.relative(&nested.remote_path).to_owned();
+                let linked = tokio::task::spawn_blocking(move || {
+                    if old == Some(NestedFilter::Symlink) && filter != Some(NestedFilter::Symlink) {
+                        nested_link::remove(&at, &target)?;
+                    }
+                    if filter == Some(NestedFilter::Symlink) {
+                        nested_link::make(&at, &target)?;
+                    }
+                    Ok::<(), String>(())
+                })
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()));
+                let problem = match linked {
+                    Ok(()) => repo.set_nested_filter(parent.id, nested.id, filter).await.err().map(|e| e.to_string()),
+                    Err(err) => Some(err),
+                };
+                engine.send(Command::SyncNow(parent.remote_id));
+                match problem {
+                    Some(err) => Err(tr::tr!("Couldn't change the filter of '{}': {}", relative, err)),
+                    // Just excluded: copies left behind are offered for clean-up, as for any new exclusion.
+                    None => Ok((filter == Some(NestedFilter::Exclude)).then_some(relative)),
+                }
+            },
+            move |result| Message::NestedFilterSet(sd_id, nested_id, result),
+        )
+    }
+
+    /// Handle [`Message::NestedFilterSet`] — log a problem, offer the clean-up after an exclusion, and reload the list.
+    pub(in crate::app) fn handle_nested_filter_set(&mut self, sd_id: SyncDirId, nested_id: SyncDirId, result: Result<Option<String>, String>) -> Task<Message> {
+        match result {
+            Err(why) => {
+                self.engine.send(Command::Log(sd_id, format!("⚠ {why}")));
+                self.nested_filter_problem = Some((sd_id, nested_id, why));
+            }
+            Ok(Some(relative)) => self.offer_clean_up = Some((sd_id, relative)),
+            Ok(None) => {}
+        }
+        self.reload_exclusions(sd_id, |_| async {})
     }
 
     /// Reload exclusions and leftover counts of every folder on the open page, so the filter count and the broom are right without opening the panel first.
@@ -120,6 +197,7 @@ impl SyncativeApp {
             return Task::none();
         }
         self.add_sync_dir_error = None;
+        self.open_filters_of_added = Some((id, local_norm.clone()));
         let repo = self.repo.clone();
         let rclone = self.rclone.clone();
         Task::perform(
@@ -174,6 +252,7 @@ impl SyncativeApp {
             }
             Err(err) => {
                 self.add_sync_dir_error = Some(err);
+                self.open_filters_of_added = None;
                 Task::none()
             }
         }
@@ -224,10 +303,29 @@ impl SyncativeApp {
         let Some(id) = self.selected else {
             return Task::none();
         };
+        // Links made for the folder go with it: those in the folders around it, which then sync that sub-folder themselves, and its own to the folders inside it.
+        let all = &self.all_known_sync_dirs;
+        let filter = |parent: SyncDirId, nested: SyncDirId| self.nested_filters.get(&parent).and_then(|f| f.get(&nested)).copied();
+        let mut links: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+        if let Some(gone) = all.iter().find(|d| d.local_path == local && d.remote_path == remote) {
+            for d in all.iter().filter(|d| d.id != gone.id) {
+                if filter(d.id, gone.id) == Some(NestedFilter::Symlink) {
+                    links.push((nested_link::location(d, gone), std::path::PathBuf::from(&gone.local_path)));
+                }
+                if filter(gone.id, d.id) == Some(NestedFilter::Symlink) {
+                    links.push((nested_link::location(gone, d), std::path::PathBuf::from(&d.local_path)));
+                }
+            }
+        }
         let repo = self.repo.clone();
         let engine = self.engine.clone();
         Task::perform(
             async move {
+                for (at, target) in links {
+                    if let Err(err) = nested_link::remove(&at, &target) {
+                        eprintln!("syncative: could not remove the link {}: {err}", at.display());
+                    }
+                }
                 if let Err(err) = repo.cascade_delete_sync_dir(&local, &remote).await {
                     eprintln!("syncative: could not remove the folder {local}: {err}");
                 }
@@ -272,10 +370,16 @@ impl SyncativeApp {
         sd_id: SyncDirId,
         excls: Vec<SyncDirExclusion>,
         leftovers: HashMap<String, leftovers::Found>,
+        nested: HashMap<SyncDirId, NestedFilter>,
     ) -> Task<Message> {
         // Just excluded and copies left behind: offer the clean-up straight away. Waits for the reload that already holds the new exclusion.
-        let offer = self.offer_clean_up.take_if(|(id, path)| *id == sd_id && excls.iter().any(|e| &e.remote_path == path));
+        let is_nested_exclusion = |path: &str| {
+            let sd = self.all_known_sync_dirs.iter().find(|d| d.id == sd_id);
+            sd.is_some_and(|sd| remote_page_auto_excluded(sd, &self.all_known_sync_dirs).iter().any(|n| sd.relative(&n.remote_path) == path && nested.get(&n.id) == Some(&NestedFilter::Exclude)))
+        };
+        let offer = self.offer_clean_up.take_if(|(id, path)| *id == sd_id && (excls.iter().any(|e| &e.remote_path == path) || is_nested_exclusion(path)));
         self.exclusion_leftovers.insert(sd_id, leftovers);
+        self.nested_filters.insert(sd_id, nested);
         self.sync_dir_exclusions.insert(sd_id, excls);
         match offer {
             Some((_, path)) if self.pending_delete.is_none() => self.handle_request_clean_leftovers(sd_id, path),
@@ -295,10 +399,17 @@ impl SyncativeApp {
         let auto: Vec<String> = sd
             .map(|sd| remote_page_auto_excluded(sd, &self.all_known_sync_dirs).into_iter().map(|d| sd.relative(&d.remote_path).to_owned()).collect())
             .unwrap_or_default();
+        // Where each nested folder's symlink belongs, to tell whether it is still there.
+        let link_places: HashMap<SyncDirId, (std::path::PathBuf, std::path::PathBuf)> = sd
+            .map(|sd| remote_page_auto_excluded(sd, &self.all_known_sync_dirs).into_iter().map(|d| (d.id, (nested_link::location(sd, d), d.local_path.clone().into()))).collect())
+            .unwrap_or_default();
         Task::perform(
             async move {
                 change(repo.clone()).await;
                 let excls = repo.list_exclusions(sd_id).await.unwrap_or_default();
+                let mut nested = repo.list_nested_filters(sd_id).await.unwrap_or_default();
+                // A symlink that went missing puts the choice to the user again.
+                nested.retain(|id, filter| *filter != NestedFilter::Symlink || link_places.get(id).is_some_and(|(at, target)| nested_link::points_to(at, target)));
                 let mut counts = HashMap::new();
                 if let Some(root) = local_root {
                     let items = repo.list_sync_items(sd_id).await.unwrap_or_default();
@@ -309,9 +420,9 @@ impl SyncativeApp {
                         }
                     }
                 }
-                (excls, counts)
+                (excls, counts, nested)
             },
-            move |(excls, counts)| Message::ExclusionsLoaded(sd_id, excls, counts),
+            move |(excls, counts, nested)| Message::ExclusionsLoaded(sd_id, excls, counts, nested),
         )
     }
 

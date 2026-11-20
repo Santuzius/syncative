@@ -17,7 +17,7 @@ use crate::{
     domain::{
         events::SyncEvent,
         ports::cancel_never,
-        sync::{Conflict, ConflictChoice, LinkTarget, Resolution, SyncDirId, SyncError},
+        sync::{Conflict, ConflictChoice, LinkTarget, NestedFilter, Resolution, SyncDirId, SyncError},
     },
     test_support::{remote, remote_item, sync_dir, touch_mtime, FakeBackend, FakeRepo, TempDir},
 };
@@ -487,6 +487,36 @@ fn rows_of_vanished_copies_under_a_nested_folder_are_forgotten() {
     assert!(!repo.has_item(&format!("{}/Obsidian/note.md", tmp.as_str()), "Obsidian/note.md"));
     assert!(!repo.has_item(&format!("{}/Obsidian", tmp.as_str()), "Obsidian"));
     assert!(repo.has_item(leftover.to_str().unwrap(), "Music/song.ogg"));
+}
+
+/// A folder also synced as its own folder stays out until the user decides; "Sync in both" syncs it here too, a symlink in its place is left alone.
+#[test]
+fn a_nested_folder_follows_its_filter() {
+    let tmp = TempDir::new("sync_nested_filter");
+    let elsewhere = TempDir::new("sync_nested_filter_target");
+    std::os::unix::fs::symlink(elsewhere.as_str(), tmp.path.join("Linked")).unwrap();
+    let repo = FakeRepo::new();
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![
+        remote_item("Both", true, 1_700_000_000),
+        remote_item("Both/a.txt", false, 1_700_000_000),
+        remote_item("Open", true, 1_700_000_000),
+        remote_item("Open/b.txt", false, 1_700_000_000),
+        remote_item("Linked", true, 1_700_000_000),
+        remote_item("Linked/c.txt", false, 1_700_000_000),
+    ]));
+    let nested = [sync_dir(2, 1, "/elsewhere/Both", "Both"), sync_dir(3, 1, "/elsewhere/Open", "Open"), sync_dir(4, 1, elsewhere.as_str(), "Linked")];
+    repo.nested_filters.lock().unwrap().extend([(SyncDirId(2), NestedFilter::SyncInBoth), (SyncDirId(4), NestedFilter::Symlink)]);
+
+    let r = remote(1, "TestRemote");
+    let sd = sync_dir(1, 1, tmp.as_str(), "");
+    let captured: Mutex<Vec<SyncEvent>> = Mutex::new(Vec::new());
+    let outcome = run(&r, &sd, &repo, &client, &nested, &[], |e| captured.lock().unwrap().push(e), &cancel_never(), |_| false);
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(conflicts(&captured.lock().unwrap()).is_empty());
+    let downloads: Vec<String> = client.copy_to_local_calls.lock().unwrap().iter().map(|c| c.1.clone()).collect();
+    assert_eq!(downloads, ["Both/a.txt"]);
+    assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
 }
 
 /// A sub-folder Syncative may not read stops the whole folder's pass: nothing below it may pass for deleted, and nothing else is done either.

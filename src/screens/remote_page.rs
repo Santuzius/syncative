@@ -17,7 +17,7 @@ use crate::{
     domain::{
         remote::{Remote, RemoteId, RemoteUsage},
         run_state::RunState,
-        sync::{Conflict, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId},
+        sync::{Conflict, NestedFilter, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId},
     },
     screens::{
         main_page::{NO_FOLDERS, status_label},
@@ -75,6 +75,10 @@ pub enum Msg {
     BrowseHidden(SyncDirId),
     AddExclusion(SyncDirId),
     RemoveExclusion(SyncDirExclusionId, SyncDirId),
+    /// What the folder (first) does with a folder inside it that is also synced as its own folder (second); `None` brings the choices back.
+    SetNestedFilter(SyncDirId, SyncDirId, Option<NestedFilter>),
+    /// "Resolve…" for nested folders still undecided: open the folder's filters.
+    OpenFilters(SyncDirId),
     /// Broom on an exclusion: ask before deleting the synced files still on this computer.
     RequestCleanLeftovers(SyncDirId, String),
     Reauthenticate(RemoteId, String),
@@ -146,7 +150,10 @@ pub struct Folder<'a> {
     /// `Some` while the activity log is expanded.
     pub log: Option<&'a text_editor::Content>,
     pub exclusions_open: bool,
-    pub auto_excluded: Vec<&'a SyncDir>,
+    /// Folders inside this one that are also synced as their own folder, with what this one does with them (`None`: undecided, left out until then).
+    pub nested: Vec<(&'a SyncDir, Option<NestedFilter>)>,
+    /// Why the last choice for a nested folder (its id) failed.
+    pub nested_problem: Option<(SyncDirId, &'a str)>,
     pub custom_excluded: &'a [SyncDirExclusion],
     pub draft_exclusion: &'a str,
     /// Synced files still on this computer, by excluded path relative to the folder (only non-zero counts).
@@ -225,7 +232,7 @@ pub fn view<'a>(page: Page<'a>) -> Element<'a, Msg> {
                 row![
                     icon(icondata::TbLockOutline, 20.0),
                     text(format!(
-                        "Syncative can no longer access {}. Sign in again to resume syncing — folders, exclusions and schedule are kept.",
+                        "Syncative can no longer access {}. Sign in again to resume syncing — folders, filters and schedule are kept.",
                         remote.name
                     ))
                     .size(TEXT)
@@ -669,7 +676,7 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         detail_text.style(theme::muted)
     };
 
-    let excluded = folder.auto_excluded.len() + folder.custom_excluded.len();
+    let excluded = folder.nested.len() + folder.custom_excluded.len();
     let top = row![
         status_icon(folder.state, 20.0),
         column![
@@ -722,6 +729,28 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         );
     }
 
+    let undecided = folder.nested.iter().filter(|(_, f)| f.is_none()).count();
+    if undecided > 0 {
+        let note = if undecided == 1 { "1 folder inside is also synced as its own folder".to_owned() } else { format!("{undecided} folders inside are also synced as their own folders") };
+        card = card.push(
+            container(
+                row![
+                    icon(icondata::TbFoldersOutline, 16.0),
+                    text(note).size(TEXT).wrapping(Wrapping::WordOrGlyph).width(Length::Fill),
+                    button(text("Resolve…").size(TEXT))
+                        .padding([5, 12])
+                        .style(theme::button_secondary)
+                        .on_press(Msg::OpenFilters(sd.id)),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            )
+            .padding([8, 10])
+            .width(Length::Fill)
+            .style(theme::well),
+        );
+    }
+
     if let Some(content) = folder.log {
         let sd_id = sd.id;
         card = card.push(
@@ -738,7 +767,8 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         card = card.push(exclusion_panel(
             sd,
             &remote_display,
-            &folder.auto_excluded,
+            &folder.nested,
+            folder.nested_problem,
             folder.custom_excluded,
             folder.leftovers,
             folder.draft_exclusion,
@@ -777,7 +807,7 @@ fn folder_actions<'a>(
         if count_fits { square(exclusions_content.into()) } else { button(container(exclusions_content).center_y(Length::Fixed(size))).padding([0, 8]) }
             .style(theme::button_toggle(exclusions_open))
             .on_press(Msg::ToggleExclusions(sd.id)),
-        "Exclusions",
+        "Filters",
     );
     let delete = with_tip(
         // Only the middle 60 % of the square is filled red, so it doesn't outweigh the other buttons; the whole square stays clickable.
@@ -843,7 +873,8 @@ fn tip_below<'a>(content: impl Into<Element<'a, Msg>>, tip: &'a str) -> Element<
 fn exclusion_panel<'a>(
     sd: &'a SyncDir,
     remote_display: &str,
-    auto_excl: &[&'a SyncDir],
+    nested: &[(&'a SyncDir, Option<NestedFilter>)],
+    nested_problem: Option<(SyncDirId, &'a str)>,
     custom_excl: &'a [SyncDirExclusion],
     leftovers: Option<&HashMap<String, crate::services::leftovers::Found>>,
     draft: &'a str,
@@ -873,30 +904,71 @@ fn exclusion_panel<'a>(
         })
     };
 
-    // Sub-trees owned by another sync folder — read-only.
-    for desc in auto_excl {
+    // Sub-folders also synced as their own folder: undecided ones offer the three filters, decided ones show theirs and can be chosen again.
+    for &(desc, filter) in nested {
         let relative = sd.relative(&desc.remote_path);
+        let choose = |f: NestedFilter| Msg::SetNestedFilter(sd.id, desc.id, Some(f));
+        let kind_icon = |glyph: icondata::Icon, tip: &'a str| with_tip(muted_icon(glyph, 14.0), tip);
+        let head = match filter {
+            None => kind_icon(icondata::TbFolderOutline, "Left out until you choose"),
+            Some(NestedFilter::Exclude) => kind_icon(icondata::TbFolderOffOutline, "Excluded"),
+            Some(NestedFilter::Symlink) => kind_icon(icondata::TbFolderSymlinkOutline, "Symlink to its own folder"),
+            Some(NestedFilter::SyncInBoth) => kind_icon(icondata::TbFoldersOutline, "Synced in both"),
+        };
         let mut line = row![
-            muted_icon(icondata::TbFolderOutline, 14.0),
+            head,
             text(relative.to_owned()).size(CAPTION).width(Length::Fill),
-            text("synced as its own folder")
-                .size(CAPTION)
-                .style(theme::muted),
+            text("synced as its own folder").size(CAPTION).style(theme::muted),
         ]
-        .push(broom(relative))
         .spacing(8)
         .align_y(Alignment::Center);
-        // Match the height of the rows with buttons.
-        if leftovers.and_then(|m| m.get(relative)).is_none() {
+        // Copies left behind only matter while the sub-folder is left out.
+        if NestedFilter::leaves_out(filter) {
+            line = line.push(broom(relative));
+        }
+        if filter.is_some() {
+            line = line.push(with_tip(
+                button(icon(icondata::TbXOutline, 14.0))
+                    .padding(4)
+                    .style(theme::button_flat)
+                    .on_press(Msg::SetNestedFilter(sd.id, desc.id, None)),
+                "Choose again",
+            ));
+        } else if leftovers.and_then(|m| m.get(relative)).is_none() {
+            // Match the height of the rows with buttons.
             line = line.padding([4, 0]);
         }
-        list = list.push(line);
+        if filter.is_none() {
+            let choice = |glyph: icondata::Icon, label: &'a str, msg: Msg| {
+                button(row![icon(glyph, 14.0), text(label).size(CAPTION)].spacing(4).align_y(Alignment::Center))
+                    .padding([4, 8])
+                    .style(theme::button_secondary)
+                    .on_press(msg)
+            };
+            let mut choices = row![].spacing(6).align_y(Alignment::Center);
+            if crate::services::nested_link::APPLIES {
+                choices = choices.push(choice(icondata::TbFolderSymlinkOutline, "Add symlink", choose(NestedFilter::Symlink)));
+            }
+            choices = choices
+                .push(choice(icondata::TbFoldersOutline, "Sync in both", choose(NestedFilter::SyncInBoth)))
+                .push(choice(icondata::TbFolderOffOutline, "Exclude", choose(NestedFilter::Exclude)));
+            let mut entry = column![line, container(choices).padding(iced::Padding { left: 22.0, ..Default::default() })].spacing(4);
+            if let Some((_, why)) = nested_problem.filter(|(id, _)| *id == desc.id) {
+                entry = entry.push(container(text(why).size(CAPTION).style(theme::danger_text).wrapping(Wrapping::WordOrGlyph)).padding(iced::Padding { left: 22.0, ..Default::default() }));
+            }
+            list = list.push(entry);
+            continue;
+        }
+        match nested_problem.filter(|(id, _)| *id == desc.id) {
+            Some((_, why)) => list = list.push(column![line, container(text(why).size(CAPTION).style(theme::danger_text).wrapping(Wrapping::WordOrGlyph)).padding(iced::Padding { left: 22.0, ..Default::default() })].spacing(4)),
+            None => list = list.push(line),
+        }
     }
 
     for excl in custom_excl {
         list = list.push(
             row![
-                muted_icon(icondata::TbFolderOutline, 14.0),
+                with_tip(muted_icon(icondata::TbFolderOffOutline, 14.0), "Excluded"),
                 text(&excl.remote_path).size(CAPTION).width(Length::Fill),
             ]
             .push(broom(&excl.remote_path))
@@ -912,9 +984,9 @@ fn exclusion_panel<'a>(
         );
     }
 
-    if auto_excl.is_empty() && custom_excl.is_empty() {
+    if nested.is_empty() && custom_excl.is_empty() {
         list = list.push(
-            text("Nothing is excluded.")
+            text("No filters.")
                 .size(CAPTION)
                 .style(theme::muted),
         );
@@ -941,7 +1013,7 @@ fn exclusion_panel<'a>(
     container(
         column![
             text(format!(
-                "Excluded from sync — paths relative to {remote_display}"
+                "Filters — paths relative to {remote_display}"
             ))
             .size(CAPTION)
             .style(theme::muted),

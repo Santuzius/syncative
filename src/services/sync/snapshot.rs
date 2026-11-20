@@ -15,7 +15,7 @@ use crate::{
     domain::{
         ports::{BackendClient, Cancel, Repository},
         remote::Remote,
-        sync::{ListFilter, RemoteItem, SyncDir, SyncItem},
+        sync::{ListFilter, NestedFilter, RemoteItem, SyncDir, SyncItem},
     },
     services::nomedia,
     util,
@@ -74,11 +74,14 @@ impl Snapshot {
         // costs one `starts_with` per listed item. The matching local
         // sub-tree is also excluded to keep the walk from picking up a
         // coincidentally-named folder under this sync_dir's root.
+        // The user may have chosen to sync a nested folder here too (`NestedFilter::SyncInBoth`); until they decide, it stays out.
+        let nested_filters = util::await_future(repo.list_nested_filters(sync_dir.id)).unwrap_or_default();
         let mut excluded_local_prefixes: Vec<String> = Vec::new();
         let mut excluded_remote_prefixes: Vec<String> = Vec::new();
         for d in all_sync_dirs
             .iter()
             .filter(|d| d.id != sync_dir.id && d.remote_id == sync_dir.remote_id)
+            .filter(|d| NestedFilter::leaves_out(nested_filters.get(&d.id).copied()))
         {
             if let Some(rel) = remote_descendant_relative(sync_dir, &d.remote_path) {
                 excluded_remote_prefixes

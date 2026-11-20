@@ -315,6 +315,12 @@ mod tests {
         fn set_hidden_folders(&self, _sd: SyncDirId, _paths: Vec<String>) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
+        fn list_nested_filters(&self, _sd: SyncDirId) -> BoxFuture<'_, Result<std::collections::HashMap<SyncDirId, crate::domain::sync::NestedFilter>, RepositoryError>> {
+            Box::pin(async { Ok(Default::default()) })
+        }
+        fn set_nested_filter(&self, _sd: SyncDirId, _nested: SyncDirId, _filter: Option<crate::domain::sync::NestedFilter>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+            Box::pin(async { Ok(()) })
+        }
     }
 
     #[derive(Default)]

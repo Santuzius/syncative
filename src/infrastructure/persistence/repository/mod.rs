@@ -8,13 +8,14 @@ use sea_orm::DatabaseConnection;
 use crate::domain::{
     ports::{BoxFuture, Repository, RepositoryError},
     remote::{Backend, Interval, Remote, RemoteId, SyncPolicy},
-    sync::{RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId},
+    sync::{NestedFilter, RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId},
 };
 
 use super::models::{RemotesModel, SyncDirsModel, SyncItemsModel};
 
 mod exclusions;
 mod hidden_folders;
+mod nested_filters;
 mod remotes;
 mod sync_dirs;
 mod sync_items;
@@ -296,6 +297,14 @@ impl Repository for SeaOrmRepository {
         hidden_folders::set_hidden_folders(&self.db, sync_dir, paths)
     }
 
+    fn list_nested_filters(&self, sync_dir: SyncDirId) -> BoxFuture<'_, Result<std::collections::HashMap<SyncDirId, NestedFilter>, RepositoryError>> {
+        nested_filters::list_nested_filters(&self.db, sync_dir)
+    }
+
+    fn set_nested_filter(&self, sync_dir: SyncDirId, nested: SyncDirId, filter: Option<NestedFilter>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        nested_filters::set_nested_filter(&self.db, sync_dir, nested, filter)
+    }
+
     fn delete_sync_items_with_local_prefix(
         &self,
         sync_dir: SyncDirId,
@@ -311,31 +320,48 @@ impl Repository for SeaOrmRepository {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use sea_orm::Database;
 
     use super::SeaOrmRepository;
     use crate::{
-        domain::ports::Repository,
+        domain::{ports::Repository, sync::NestedFilter},
         infrastructure::persistence::migrations::{Migrator, MigratorTrait},
         util::await_future,
     };
 
     #[test]
-    fn folders_and_remotes_with_exclusions_and_hidden_folders_can_be_removed() {
+    fn folders_and_remotes_with_exclusions_hidden_folders_and_nested_filters_can_be_removed() {
         let db = await_future(Database::connect("sqlite::memory:")).unwrap();
         await_future(Migrator::up(&db, None)).unwrap();
         let repo = SeaOrmRepository::new(db);
         let id = await_future(repo.insert_remote("R".to_owned())).unwrap();
-        for local in ["/a", "/b"] {
-            await_future(repo.insert_sync_dir(id, local.to_owned(), String::new())).unwrap();
+        for (local, remote) in [("/a", ""), ("/b", "Inner"), ("/c", "Inner/Deeper")] {
+            await_future(repo.insert_sync_dir(id, local.to_owned(), remote.to_owned())).unwrap();
         }
-        for dir in await_future(repo.list_sync_dirs(id)).unwrap() {
+        let dirs = await_future(repo.list_sync_dirs(id)).unwrap();
+        for dir in &dirs {
             await_future(repo.insert_exclusion(dir.id, "Big".to_owned())).unwrap();
             await_future(repo.set_hidden_folders(dir.id, vec!["Pictures".to_owned()])).unwrap();
         }
+        let id_of = |local: &str| dirs.iter().find(|d| d.local_path == local).unwrap().id;
+        let (a, b, c) = (id_of("/a"), id_of("/b"), id_of("/c"));
+        await_future(repo.set_nested_filter(a, b, Some(NestedFilter::Symlink))).unwrap();
+        await_future(repo.set_nested_filter(a, c, Some(NestedFilter::Exclude))).unwrap();
+        await_future(repo.set_nested_filter(b, c, Some(NestedFilter::SyncInBoth))).unwrap();
+        // Setting it again replaces it; None clears it.
+        await_future(repo.set_nested_filter(a, c, Some(NestedFilter::SyncInBoth))).unwrap();
+        assert_eq!(await_future(repo.list_nested_filters(a)).unwrap(), HashMap::from([(b, NestedFilter::Symlink), (c, NestedFilter::SyncInBoth)]));
+        await_future(repo.set_nested_filter(a, c, None)).unwrap();
+        assert_eq!(await_future(repo.list_nested_filters(a)).unwrap(), HashMap::from([(b, NestedFilter::Symlink)]));
 
+        // /b is both a nested folder of /a and has one of its own.
+        await_future(repo.cascade_delete_sync_dir("/b", "Inner")).unwrap();
+        assert!(await_future(repo.list_nested_filters(a)).unwrap().is_empty());
         await_future(repo.cascade_delete_sync_dir("/a", "")).unwrap();
         assert_eq!(await_future(repo.list_sync_dirs(id)).unwrap().len(), 1);
+
         await_future(repo.cascade_delete_remote(id)).unwrap();
         assert!(await_future(repo.list_remotes()).unwrap().is_empty());
     }

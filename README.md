@@ -61,8 +61,8 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 
 ## Most Important Features
 - Two-way sync, several folders per account, several accounts at the same time
-- Exclusions for sub-folders and files, with a clean-up of copies left behind by an exclusion
-- Conflict resolution: a file changed on both sides is never overwritten silently; you keep the local version, the remote one, or both
+- Filters for sub-folders and files: exclude them, with a clean-up of copies left behind, and for a folder inside another that is also synced on its own, choose between a symlink, syncing it in both or excluding it
+- Conflict resolution: a file changed on both sides is never overwritten silently; you keep the local version, the remote one, or both, for one file or all at once
 - Credentials stay on the device: in the system keyring on Linux, encrypted with the Android Keystore on Android
 - Starts at login or after the phone's restart (can be switched off), Start / Pause per account
 - Shows how much of each account's space is used

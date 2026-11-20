@@ -22,6 +22,42 @@ pub struct SyncDirExclusion {
     pub remote_path: String,
 }
 
+/// What a sync folder does with a sub-folder that is also synced as its own folder (on the same remote, inside its remote folder). Until the user picks one, the sub-folder is left out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum NestedFilter {
+    /// Leave it out: only the other sync folder syncs it.
+    Exclude,
+    /// Leave it out and put a symbolic link to the other sync folder's local folder in its place.
+    Symlink,
+    /// Sync it here too, into a second local copy.
+    SyncInBoth,
+}
+
+impl NestedFilter {
+    /// The value stored in the database.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Exclude => "exclude",
+            Self::Symlink => "symlink",
+            Self::SyncInBoth => "both",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "exclude" => Some(Self::Exclude),
+            "symlink" => Some(Self::Symlink),
+            "both" => Some(Self::SyncInBoth),
+            _ => None,
+        }
+    }
+
+    /// The sub-folder stays out of this folder's sync; `None` is the undecided state.
+    pub fn leaves_out(filter: Option<Self>) -> bool {
+        filter != Some(Self::SyncInBoth)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SyncDir {
     pub id: SyncDirId,

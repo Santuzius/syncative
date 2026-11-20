@@ -229,7 +229,7 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
     let mut body = column![heading].spacing(12);
     if draft.reauth {
         let provider = draft.provider.map(ProviderKind::label).unwrap_or_default();
-        body = body.push(hint("Enter fresh credentials. Folders, exclusions and schedule are kept — only the sign-in session is replaced."));
+        body = body.push(hint("Enter fresh credentials. Folders, filters and schedule are kept — only the sign-in session is replaced."));
         body = body.push(field("Remote", text(format!("{} ({provider})", draft.name)).size(TEXT)));
     } else {
         let picker = pick_list(provider_options(beta), draft.provider.map(ProviderOption), |o| Msg::ProviderChanged(o.0))

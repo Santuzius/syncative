@@ -2,6 +2,7 @@
 mod remotes;
 mod sync_dir_exclusions;
 mod sync_dir_hidden_folders;
+mod sync_dir_nested_filters;
 mod sync_dirs;
 mod sync_items;
 
@@ -18,6 +19,10 @@ pub use sync_dir_exclusions::Model as SyncDirExclusionsModel;
 pub use sync_dir_hidden_folders::ActiveModel as SyncDirHiddenFoldersActiveModel;
 pub use sync_dir_hidden_folders::Column as SyncDirHiddenFoldersColumn;
 pub use sync_dir_hidden_folders::Entity as SyncDirHiddenFoldersEntity;
+
+pub use sync_dir_nested_filters::ActiveModel as SyncDirNestedFiltersActiveModel;
+pub use sync_dir_nested_filters::Column as SyncDirNestedFiltersColumn;
+pub use sync_dir_nested_filters::Entity as SyncDirNestedFiltersEntity;
 
 pub use sync_dirs::ActiveModel as SyncDirsActiveModel;
 pub use sync_dirs::Column as SyncDirsColumn;

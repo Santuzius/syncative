@@ -127,13 +127,14 @@ pub(super) fn cascade_delete_sync_dir(
                 .exec(db)
                 .await
                 .map_err(map_err)?;
-            // Its exclusions and hidden folders refer to it; SQLite refuses to delete it before them.
+            // Its exclusions, hidden folders and nested filters refer to it; SQLite refuses to delete it before them.
             SyncDirExclusionsEntity::delete_many()
                 .filter(SyncDirExclusionsColumn::SyncDirId.eq(sd.id))
                 .exec(db)
                 .await
                 .map_err(map_err)?;
             super::hidden_folders::delete_hidden_folders(db, crate::domain::sync::SyncDirId(sd.id)).await?;
+            super::nested_filters::delete_nested_filters(db, crate::domain::sync::SyncDirId(sd.id)).await?;
             sd.delete(db).await.map_err(map_err)?;
         }
         Ok(())

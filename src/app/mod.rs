@@ -21,7 +21,7 @@ use crate::{
         ports::Repository,
         remote::{Remote, RemoteId},
         run_state::RunState,
-        sync::{Conflict, SyncDir, SyncDirExclusion, SyncDirId},
+        sync::{Conflict, NestedFilter, SyncDir, SyncDirExclusion, SyncDirId},
     },
     engine::{self, Snapshot},
     infrastructure::{
@@ -57,12 +57,15 @@ pub enum Message {
     RemotesLoaded(Vec<Remote>),
     SyncDirsLoaded(RemoteId, Vec<SyncDir>),
     AllSyncDirsRefreshed(Vec<SyncDir>),
-    /// Exclusions of a sync_dir plus, per exclusion, how many synced files are still on this computer.
+    /// Exclusions of a sync_dir plus, per exclusion, how many synced files are still on this computer, and what it does with the sync_dirs nested in it.
     ExclusionsLoaded(
         SyncDirId,
         Vec<SyncDirExclusion>,
         HashMap<String, leftovers::Found>,
+        HashMap<SyncDirId, NestedFilter>,
     ),
+    /// A nested filter was set and its symlink made or removed: the path to offer the clean-up for after an exclusion, or the problem for the folder's log.
+    NestedFilterSet(SyncDirId, SyncDirId, Result<Option<String>, String>),
     /// Leftovers of an excluded path were deleted (or not); carries the path relative to the sync_dir for the log.
     LeftoversCleaned(SyncDirId, String, Result<leftovers::Cleaned, String>),
     /// Result of the desktop folder chooser (`None` = cancelled / no portal).
@@ -161,6 +164,12 @@ pub struct SyncativeApp {
     exclusion_panel: Option<SyncDirId>,
     /// Loaded user-defined exclusions per sync_dir.
     sync_dir_exclusions: HashMap<SyncDirId, Vec<SyncDirExclusion>>,
+    /// What each sync_dir does with the sync_dirs nested in it, as far as the user decided.
+    nested_filters: HashMap<SyncDirId, HashMap<SyncDirId, NestedFilter>>,
+    /// A sync_dir just added (remote, local path): once the lists are reloaded, the filters of the folder it overlaps open.
+    open_filters_of_added: Option<(RemoteId, String)>,
+    /// Why the last nested filter couldn't be set (folder, nested folder, reason), shown under its row until the next choice.
+    nested_filter_problem: Option<(SyncDirId, SyncDirId, String)>,
     /// Synced files still on this computer under an excluded path, by sync_dir and path relative to it; only non-zero counts.
     exclusion_leftovers: HashMap<SyncDirId, HashMap<String, leftovers::Found>>,
     /// An exclusion just added: once its reload is in, the clean-up is offered if copies are left behind.
@@ -273,6 +282,9 @@ impl SyncativeApp {
             all_known_sync_dirs: Vec::new(),
             exclusion_panel: None,
             sync_dir_exclusions: HashMap::new(),
+            nested_filters: HashMap::new(),
+            open_filters_of_added: None,
+            nested_filter_problem: None,
             exclusion_leftovers: HashMap::new(),
             offer_clean_up: None,
             draft_exclusion: HashMap::new(),
@@ -586,9 +598,14 @@ impl SyncativeApp {
                 self.handle_settings(sub)
             }
             Message::PolicySaved => Task::none(),
-            Message::ExclusionsLoaded(sd_id, excls, leftovers) => {
-                self.handle_exclusions_loaded(sd_id, excls, leftovers)
+            Message::ExclusionsLoaded(sd_id, excls, leftovers, nested) => {
+                self.handle_exclusions_loaded(sd_id, excls, leftovers, nested)
             }
+            Message::Remote(remote_page::Msg::SetNestedFilter(sd_id, nested, filter)) => {
+                self.handle_set_nested_filter(sd_id, nested, filter)
+            }
+            Message::NestedFilterSet(sd_id, nested, result) => self.handle_nested_filter_set(sd_id, nested, result),
+            Message::Remote(remote_page::Msg::OpenFilters(sd_id)) => self.open_filters(sd_id),
             Message::Remote(remote_page::Msg::RequestCleanLeftovers(sd_id, relative)) => {
                 self.handle_request_clean_leftovers(sd_id, relative)
             }
@@ -1088,7 +1105,11 @@ impl SyncativeApp {
                 latest_problem: self.snapshot.problems.get(&dir.id).map(String::as_str),
                 log: self.sync_dir_log_content.get(&dir.id),
                 exclusions_open: self.exclusion_panel == Some(dir.id),
-                auto_excluded: remote_page_auto_excluded(dir, &self.all_known_sync_dirs),
+                nested: remote_page_auto_excluded(dir, &self.all_known_sync_dirs)
+                    .into_iter()
+                    .map(|d| (d, self.nested_filters.get(&dir.id).and_then(|f| f.get(&d.id)).copied()))
+                    .collect(),
+                nested_problem: self.nested_filter_problem.as_ref().filter(|(sd, _, _)| *sd == dir.id).map(|(_, nested, why)| (*nested, why.as_str())),
                 custom_excluded: self
                     .sync_dir_exclusions
                     .get(&dir.id)

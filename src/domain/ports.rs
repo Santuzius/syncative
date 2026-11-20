@@ -21,7 +21,7 @@ use std::{
 use super::{
     remote::{Remote, RemoteId, RemoteUsage, SyncPolicy},
     sync::{
-        Changes, FileDetails, ListFilter, RemoteCursor, RemoteItem, RemoteMeta, SyncDir,
+        Changes, FileDetails, ListFilter, NestedFilter, RemoteCursor, RemoteItem, RemoteMeta, SyncDir,
         SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId,
     },
 };
@@ -196,6 +196,11 @@ pub trait Repository: Send + Sync {
     fn list_hidden_folders(&self, sync_dir: SyncDirId) -> BoxFuture<'_, Result<Vec<String>, RepositoryError>>;
     /// Replace the sync_dir's hidden folders.
     fn set_hidden_folders(&self, sync_dir: SyncDirId, paths: Vec<String>) -> BoxFuture<'_, Result<(), RepositoryError>>;
+
+    /// What the sync_dir does with each sync_dir nested in its remote folder that the user decided on.
+    fn list_nested_filters(&self, sync_dir: SyncDirId) -> BoxFuture<'_, Result<HashMap<SyncDirId, NestedFilter>, RepositoryError>>;
+    /// Set or, with `None`, clear what `sync_dir` does with `nested`.
+    fn set_nested_filter(&self, sync_dir: SyncDirId, nested: SyncDirId, filter: Option<NestedFilter>) -> BoxFuture<'_, Result<(), RepositoryError>>;
 }
 
 pub trait BackendClient: Send + Sync {

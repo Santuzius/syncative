@@ -9,7 +9,7 @@ use std::{collections::HashMap, sync::Mutex};
 use crate::domain::{
     ports::{BoxFuture, Repository, RepositoryError},
     remote::{Remote, RemoteId, SyncPolicy},
-    sync::{RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId},
+    sync::{NestedFilter, RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId},
 };
 
 #[derive(Default)]
@@ -22,6 +22,8 @@ pub struct FakeRepo {
     /// Hidden folders, the same for every sync_dir.
     pub hidden: Mutex<Vec<String>>,
     pub cursors: Mutex<HashMap<SyncDirId, RemoteCursor>>,
+    /// Nested filters, the same for every sync_dir.
+    pub nested_filters: Mutex<HashMap<SyncDirId, NestedFilter>>,
 }
 
 impl FakeRepo {
@@ -34,6 +36,7 @@ impl FakeRepo {
             sync_dirs: Mutex::new(vec![]),
             hidden: Mutex::new(vec![]),
             cursors: Mutex::new(HashMap::new()),
+            nested_filters: Mutex::new(HashMap::new()),
         }
     }
 
@@ -318,6 +321,18 @@ impl Repository for FakeRepo {
         Box::pin(async { Ok(hidden) })
     }
     fn set_hidden_folders(&self, _sd: SyncDirId, _paths: Vec<String>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        Box::pin(async { Ok(()) })
+    }
+    fn list_nested_filters(&self, _sd: SyncDirId) -> BoxFuture<'_, Result<HashMap<SyncDirId, NestedFilter>, RepositoryError>> {
+        let filters = self.nested_filters.lock().unwrap().clone();
+        Box::pin(async { Ok(filters) })
+    }
+    fn set_nested_filter(&self, _sd: SyncDirId, nested: SyncDirId, filter: Option<NestedFilter>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        let mut filters = self.nested_filters.lock().unwrap();
+        match filter {
+            Some(f) => { filters.insert(nested, f); }
+            None => { filters.remove(&nested); }
+        }
         Box::pin(async { Ok(()) })
     }
     fn delete_sync_items_with_local_prefix(
