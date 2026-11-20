@@ -274,7 +274,8 @@ impl BackendClient for LibrcloneClient {
             });
         }
         let changed = found.changes.unwrap_or_default();
-        if changed.is_empty() {
+        // An empty answer with a new cursor: the log moved on outside the synced folders. Store where it stands, or every later pass would fetch those entries again.
+        if changed.is_empty() && cursor == Some(found.cursor.as_str()) {
             return Ok(Changes::None);
         }
         // The folder holding each changed item shows what became of it; a changed folder's own content may have changed too.

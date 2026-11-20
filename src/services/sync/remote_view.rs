@@ -95,11 +95,13 @@ pub(super) fn build(
                 cancel,
             ) {
                 Ok(()) => {
-                    eprintln!(
-                        "sync: '{}' applied {} remote change(s) instead of listing.",
-                        sync_dir.remote_path,
-                        changes.len()
-                    );
+                    if !changes.is_empty() {
+                        eprintln!(
+                            "sync: '{}' applied {} remote change(s) instead of listing.",
+                            sync_dir.remote_path,
+                            changes.len()
+                        );
+                    }
                     reported_gone = db
                         .keys()
                         .filter(|path| !items.contains_key(*path))

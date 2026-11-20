@@ -85,6 +85,34 @@ fn a_level_listing_stores_the_cursor_and_the_next_pass_lists_nothing() {
 }
 
 #[test]
+fn a_change_log_that_moved_on_elsewhere_advances_the_cursor_without_listing() {
+    let tmp = TempDir::new("view_log_elsewhere");
+    let repo = FakeRepo::new();
+    synced_file(&tmp, &repo);
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![remote_item("a.txt", false, T)]));
+    client.set_changes(vec![
+        Changes::Unknown {
+            cursor: Some("c1".into()),
+        },
+        Changes::Some {
+            cursor: "c2".into(),
+            root_id: None,
+            changes: Vec::new(),
+        },
+    ]);
+    pass(&tmp, &repo, &client);
+    clear_calls(&client);
+
+    assert_eq!(pass(&tmp, &repo, &client), Outcome::Synced);
+    assert!(client.list_calls.lock().unwrap().is_empty());
+    assert_eq!(
+        repo.cursor(SyncDirId(1)).map(|c| c.cursor),
+        Some("c2".into())
+    );
+}
+
+#[test]
 fn a_new_local_file_is_uploaded_while_the_database_stands_in() {
     let tmp = TempDir::new("view_local_new");
     let repo = FakeRepo::new();
