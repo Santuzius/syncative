@@ -6,6 +6,7 @@ For users, see the [README](../README.md) and the [privacy policy](../PRIVACY.md
   - [Conventions](development/conventions.md): branches, versions, commits, file locations, UI text, the rename from Celeste
   - [Testing](development/testing.md): the isolated desktop test instance, mock remotes, Android tests
   - [Remote changes](development/remote-changes.md): when a sync pass lists the remote and when the database stands in for it
+  - [Network drive](development/network-drive.md): the beta folder mode that mounts a remote folder instead of syncing it
   - [cargo-config.example.toml](development/cargo-config.example.toml): building against local checkouts of the forks
   - [Android build](../android/README.md)
 - **Packaging**

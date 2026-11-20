@@ -393,6 +393,7 @@ pub fn add_folder_dialog<'a>(
     draft_remote: &'a str,
     error: Option<&'a str>,
     compact: bool,
+    beta: bool,
 ) -> Element<'a, Msg> {
     container(add_folder_form(
         remote,
@@ -401,6 +402,7 @@ pub fn add_folder_dialog<'a>(
         draft_remote,
         error,
         compact,
+        beta,
     ))
     .padding(if compact { 16 } else { 22 })
     .max_width(620)
@@ -414,16 +416,17 @@ pub fn mode_glyph(mode: SyncMode) -> icondata::Icon {
         SyncMode::TwoWay => icondata::TbArrowsLeftRightOutline,
         SyncMode::Upload => icondata::TbArrowRightOutline,
         SyncMode::Download => icondata::TbArrowLeftOutline,
+        SyncMode::NetworkDrive => icondata::TbCloudDataConnectionOutline,
     }
 }
 
 /// The modes as a button group with what the chosen one does beneath, as the power mode in Preferences.
 fn mode_choice<'a>(
+    choices: &[SyncMode],
     current: Option<SyncMode>,
     on_pick: impl Fn(SyncMode) -> Msg,
 ) -> Element<'a, Msg> {
-    let mut choice =
-        column![segmented(&SyncMode::ALL, SyncMode::label, current, on_pick)].spacing(10);
+    let mut choice = column![segmented(choices, SyncMode::label, current, on_pick)].spacing(10);
     if let Some(mode) = current {
         let mut points = column![].spacing(4);
         for &point in mode.points() {
@@ -435,7 +438,7 @@ fn mode_choice<'a>(
 }
 
 /// Settings of one sync folder, laid out like the remote's settings and Preferences: its mode and, on Android, the folders hidden from the gallery.
-pub fn folder_settings_dialog<'a>(sd: &'a SyncDir) -> Element<'a, Msg> {
+pub fn folder_settings_dialog<'a>(sd: &'a SyncDir, beta: bool) -> Element<'a, Msg> {
     let id = sd.id;
     let mut rows = column![
         column![
@@ -446,7 +449,11 @@ pub fn folder_settings_dialog<'a>(sd: &'a SyncDir) -> Element<'a, Msg> {
                     .style(theme::muted)
             ]
             .spacing(2),
-            mode_choice(Some(sd.mode), move |mode| Msg::SetSyncMode(id, mode)),
+            mode_choice(
+                &SyncMode::choices(beta, Some(sd.mode)),
+                Some(sd.mode),
+                move |mode| Msg::SetSyncMode(id, mode)
+            ),
         ]
         .spacing(10)
         .padding([12, 14])
@@ -1228,6 +1235,7 @@ fn add_folder_form<'a>(
     draft_remote: &'a str,
     error: Option<&'a str>,
     compact: bool,
+    beta: bool,
 ) -> Element<'a, Msg> {
     let can_add = !draft_local.trim().is_empty();
     // Labels beside the fields on the desktop, above them on a phone.
@@ -1252,7 +1260,7 @@ fn add_folder_form<'a>(
     let mode_field: Element<'a, Msg> = if compact {
         column![
             text("Mode").size(CAPTION).style(theme::muted),
-            mode_choice(Some(mode), Msg::PickAddMode)
+            mode_choice(&SyncMode::choices(beta, None), Some(mode), Msg::PickAddMode)
         ]
         .spacing(4)
         .into()
@@ -1261,7 +1269,7 @@ fn add_folder_form<'a>(
             container(text("Mode").size(TEXT))
                 .padding([6, 0])
                 .width(Length::Fixed(FORM_LABEL_WIDTH)),
-            mode_choice(Some(mode), Msg::PickAddMode)
+            mode_choice(&SyncMode::choices(beta, None), Some(mode), Msg::PickAddMode)
         ]
         .spacing(ROW_SPACING)
         .into()

@@ -346,8 +346,16 @@ impl SyncativeApp {
             ));
             return Task::none();
         }
+        if mode == SyncMode::NetworkDrive
+            && let Some(reason) = crate::services::network_drive::unusable_folder(&local_norm)
+        {
+            self.add_sync_dir_error = Some(reason);
+            return Task::none();
+        }
         self.add_sync_dir_error = None;
-        self.open_filters_of_added = Some((id, local_norm.clone()));
+        // A network drive syncs nothing, so it has no exclusions to set.
+        self.open_filters_of_added =
+            (mode != SyncMode::NetworkDrive).then(|| (id, local_norm.clone()));
         let repo = self.repo.clone();
         let rclone = self.rclone.clone();
         Task::perform(

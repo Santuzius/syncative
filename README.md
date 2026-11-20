@@ -34,6 +34,7 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
    - Some providers are also available as beta features 🧪. Check *Preferences* -> *Beta features* to enable them. Currently available as beta:
      - **Nextcloud** 🧪
 4. **Add a folder:** click *+*, choose what the folder does (*Sync*, *Cloud backup* or *Local backup*), then pick a local folder and the path on the remote. Missing folders are created on both sides, and Syncative syncs them at the interval set in the remote's settings. A folder's ⚙ button changes its type later.
+   - **Network drive** 🧪 (beta, Linux): the remote folder shows up in an empty local folder like a drive in the file manager. Files stay on the remote and are downloaded when opened; recently opened ones also work offline. Needs `fuse3`.
 
 ## Use Cases
 - Syncing folders anywhere on your system, not just inside one sync folder.

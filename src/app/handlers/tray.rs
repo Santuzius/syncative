@@ -146,6 +146,7 @@ impl SyncativeApp {
     /// Google Drive pass would block for minutes). The OS reaps the
     /// engine's threads and the GUI window when the process exits.
     pub(in crate::app) fn handle_quit(&mut self) -> Task<Message> {
+        crate::services::network_drive::unmount_all();
         std::process::exit(0);
     }
 }

@@ -68,10 +68,33 @@ pub enum SyncMode {
     Upload,
     /// Local backup: the remote is the source. New and changed files come down; a file changed or deleted here is downloaded again; files deleted on the remote stay here, and files only here are left alone.
     Download,
+    /// Network drive (beta): nothing is synced; the local path shows the remote folder through rclone's mount, which fetches files when they are opened (`services::network_drive`).
+    NetworkDrive,
 }
 
 impl SyncMode {
-    pub const ALL: [Self; 3] = [Self::TwoWay, Self::Upload, Self::Download];
+    pub const ALL: [Self; 4] = [
+        Self::TwoWay,
+        Self::Upload,
+        Self::Download,
+        Self::NetworkDrive,
+    ];
+
+    /// Offered only with the beta features on, see `services::beta`.
+    pub fn is_beta(self) -> bool {
+        self == Self::NetworkDrive
+    }
+
+    /// The modes to choose from for a folder in mode `current` (`None` for a new folder). A network drive and a synced folder hold different things locally (nothing, or a full copy), so one doesn't turn into the other: the folder is removed and added again. Android has no network drive yet.
+    pub fn choices(beta: bool, current: Option<Self>) -> Vec<Self> {
+        if current == Some(Self::NetworkDrive) {
+            return vec![Self::NetworkDrive];
+        }
+        Self::ALL
+            .into_iter()
+            .filter(|m| !m.is_beta() || (beta && current.is_none() && !cfg!(target_os = "android")))
+            .collect()
+    }
 
     /// The value stored in the database and the settings file.
     pub fn as_str(self) -> &'static str {
@@ -79,6 +102,7 @@ impl SyncMode {
             Self::TwoWay => "sync",
             Self::Upload => "upload",
             Self::Download => "download",
+            Self::NetworkDrive => "network-drive",
         }
     }
 
@@ -87,6 +111,7 @@ impl SyncMode {
             "sync" => Some(Self::TwoWay),
             "upload" => Some(Self::Upload),
             "download" => Some(Self::Download),
+            "network-drive" => Some(Self::NetworkDrive),
             _ => None,
         }
     }
@@ -97,6 +122,8 @@ impl SyncMode {
             Self::TwoWay => "Sync",
             Self::Upload => "Cloud backup",
             Self::Download => "Local backup",
+            // With the mark of `services::beta::MARK`, also when the beta features are off, as for other beta features in use.
+            Self::NetworkDrive => "Network drive 🧪",
         }
     }
 
@@ -116,6 +143,11 @@ impl SyncMode {
                 "One-way download: this folder keeps a copy of the remote folder",
                 "Files deleted on the remote stay here",
                 "Changes made here are replaced by the remote's version",
+            ],
+            Self::NetworkDrive => &[
+                "Shows up in the file manager as a drive in the folder below",
+                "Files stay on the remote and are downloaded when opened",
+                "Works offline only for files opened recently",
             ],
         }
     }

@@ -995,7 +995,7 @@ impl SyncativeApp {
         }) {
             stack![
                 base,
-                remote_page::folder_settings_dialog(dir).map(Message::Remote)
+                remote_page::folder_settings_dialog(dir, self.beta).map(Message::Remote)
             ]
             .into()
         } else if let Some(remote) = self
@@ -1014,6 +1014,7 @@ impl SyncativeApp {
                 draft_remote,
                 self.add_sync_dir_error.as_deref(),
                 compact,
+                self.beta,
             )
             .map(Message::Remote);
             stack![

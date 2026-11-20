@@ -312,6 +312,7 @@ impl Core {
                 r.provider_kind = ProviderKind::from_rclone_type(&t);
             }
         }
+        crate::services::network_drive::retain(&sync_dirs);
         self.apply(remotes, sync_dirs);
     }
 

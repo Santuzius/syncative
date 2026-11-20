@@ -13,6 +13,7 @@ require (
 )
 
 require (
+	bazil.org/fuse v0.0.0-20230120002735-62a210ff1fd5 // indirect
 	cloud.google.com/go/auth v0.24.1-0.20261001053825-dbc26066f70a // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
@@ -42,6 +43,7 @@ require (
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-chi/chi/v5 v5.5.0 // indirect
 	github.com/go-darwin/apfs v0.0.0-20211011131704-f84b94dbf348 // indirect
+	github.com/go-git/go-billy/v5 v5.9.2 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -50,6 +52,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect
 	github.com/googleapis/gax-go/v2 v2.26.2 // indirect
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jtolds/gls v4.20.0+incompatible // indirect
 	github.com/jzelinskie/whirlpool v0.0.0-20201016144138-0675e54bb004 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
@@ -59,6 +62,7 @@ require (
 	github.com/mattn/go-isatty v0.0.23 // indirect
 	github.com/mattn/go-runewidth v0.0.31 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/moby/sys/mountinfo v0.7.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/peterh/liner v1.2.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -73,6 +77,7 @@ require (
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966 // indirect
 	github.com/smarty/assertions v1.15.0 // indirect
+	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect

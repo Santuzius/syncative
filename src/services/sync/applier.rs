@@ -442,7 +442,7 @@ where
                         .map(|r| r.choice.clone())
                         // A one-way folder doesn't ask: its source's copy wins.
                         .or(match sync_dir.mode {
-                            SyncMode::TwoWay => None,
+                            SyncMode::TwoWay | SyncMode::NetworkDrive => None,
                             SyncMode::Upload => Some(ConflictChoice::KeepLocal),
                             SyncMode::Download => Some(ConflictChoice::KeepRemote),
                         })

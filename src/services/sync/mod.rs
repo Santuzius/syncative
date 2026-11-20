@@ -112,6 +112,31 @@ where
         });
     };
 
+    if sync_dir.mode == SyncMode::NetworkDrive {
+        return match super::network_drive::ensure_mounted(
+            &remote.name,
+            &sync_dir.remote_path,
+            &sync_dir.local_path,
+        ) {
+            Ok(mounted) => {
+                if mounted {
+                    emit_status(tr::tr!(
+                        "Network drive at {}",
+                        crate::util::fmt_home(&sync_dir.local_path)
+                    ));
+                }
+                emit_state(RunState::Synced);
+                Outcome::Synced
+            }
+            Err(err) => {
+                eprintln!("sync: network drive {}: {err}", sync_dir.local_path);
+                emit_error(SyncError::General(sync_dir.remote_path.clone(), err));
+                emit_state(RunState::Error);
+                Outcome::Aborted
+            }
+        };
+    }
+
     emit_state(RunState::Syncing(SyncActivity::Listing));
     let snapshot_result =
         snapshot::Snapshot::build(remote, sync_dir, repo, client, all_sync_dirs, cancel);
