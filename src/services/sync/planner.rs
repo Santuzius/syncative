@@ -330,7 +330,8 @@ fn plan_one(
         // Equivalent of the GoogleDrive-era sibling verification in
         // 6117026, adapted to the snapshot algorithm.
         (Some(l), None, Some(db)) => {
-            if !parent_is_verified(
+            // Reported gone by the change source is certain; only an absence from a full listing needs a sibling as proof.
+            if !snapshot.reported_gone.contains(remote_path) && !parent_is_verified(
                 remote_path,
                 &snapshot.remote,
                 db_by_parent,

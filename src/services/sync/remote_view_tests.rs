@@ -317,3 +317,31 @@ fn a_folder_gone_on_the_remote_leaves_no_rows_of_its_content() {
     assert!(!tmp.path.join("d").exists());
     assert_eq!(repo.item_count(), 1, "only a.txt keeps its row");
 }
+
+#[test]
+fn files_reported_gone_are_deleted_here_even_when_their_folder_ends_up_empty() {
+    let tmp = TempDir::new("view_gone_empty");
+    let repo = FakeRepo::new();
+    std::fs::create_dir_all(tmp.path.join("d")).unwrap();
+    let a = tmp.write_file("d/a.txt", b"a");
+    touch_mtime(&a, T);
+    let b = tmp.write_file("d/b.txt", b"b");
+    touch_mtime(&b, T);
+    for (path, local) in [("d", tmp.path.join("d")), ("d/a.txt", a.clone()), ("d/b.txt", b.clone())] {
+        repo.insert_item(SyncDirId(1), local.to_str().unwrap(), path, T, T);
+    }
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![with_id(remote_item("d", true, T), "D"), with_id(remote_item("d/a.txt", false, T), "A"), with_id(remote_item("d/b.txt", false, T), "B")]));
+    client.set_changes(vec![Changes::Unknown { cursor: Some("c1".into()) }]);
+    pass(&tmp, &repo, &client);
+
+    // Another client trashed both files; the folder stays, empty.
+    let gone = || Changes::Some { cursor: "c2".into(), root_id: Some("R".into()), changes: vec![RemoteChange::Gone("A".into()), RemoteChange::Gone("B".into())] };
+    client.set_changes(vec![gone(), gone()]);
+    pass(&tmp, &repo, &client);
+    assert!(!a.exists() && !b.exists());
+    assert!(tmp.path.join("d").exists());
+    // Level now: the next pass moves the cursor on.
+    pass(&tmp, &repo, &client);
+    assert_eq!(repo.cursor(SyncDirId(1)).map(|c| c.cursor), Some("c2".into()));
+}

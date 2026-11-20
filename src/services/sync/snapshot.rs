@@ -34,6 +34,8 @@ pub(super) struct LocalEntry {
 pub(super) struct Snapshot {
     /// Shared with the backend for the pass, see [`BackendClient::use_listing`].
     pub remote: Arc<HashMap<String, RemoteItem>>,
+    /// Remote paths the change source reported gone, see [`super::remote_view::RemoteSide::reported_gone`].
+    pub reported_gone: HashSet<String>,
     pub local: HashMap<String, LocalEntry>,
     pub db: HashMap<String, SyncItem>,
     /// Remote-key paths whose local walk hit an I/O error (read_dir,
@@ -136,13 +138,14 @@ impl Snapshot {
                 Err(err) => Err(err),
             }
         };
-        let remote = super::remote_view::build(remote, sync_dir, repo, client, &db, &excluded_remote_prefixes, list, cancel)?;
+        let super::remote_view::RemoteSide { items: remote, reported_gone } = super::remote_view::build(remote, sync_dir, repo, client, &db, &excluded_remote_prefixes, list, cancel)?;
 
         // 3. Local walk — skip subtrees managed by descendant sync_dirs.
         let (local, walk_unreliable, walk_denied, local_links) = walk_local(sync_dir, &excluded_local_prefixes);
 
         Ok(Snapshot {
             remote: Arc::new(remote),
+            reported_gone,
             local,
             db,
             walk_unreliable,

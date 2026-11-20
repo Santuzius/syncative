@@ -50,8 +50,9 @@ pub(super) fn build(
     excluded: &[String],
     list: impl FnOnce() -> Result<Vec<RemoteItem>, String>,
     cancel: &Cancel,
-) -> Result<HashMap<String, RemoteItem>, String> {
+) -> Result<RemoteSide, String> {
     let filter = fingerprint(excluded);
+    let mut reported_gone = HashSet::new();
     let now = unix_now();
     let stored = util::await_future(repo.remote_cursor(sync_dir.id)).ok().flatten();
     let max_age = client.full_listing_every(&remote.name);
@@ -67,6 +68,7 @@ pub(super) fn build(
             match apply(&mut items, &changes, root_id.as_deref(), remote, sync_dir, client, excluded, cancel) {
                 Ok(()) => {
                     eprintln!("sync: '{}' applied {} remote change(s) instead of listing.", sync_dir.remote_path, changes.len());
+                    reported_gone = db.keys().filter(|path| !items.contains_key(*path)).cloned().collect();
                     (items, Next::Advance { cursor, listed_at: stored.listed_at })
                 }
                 Err(Problem::ListInstead(why)) => {
@@ -118,7 +120,14 @@ pub(super) fn build(
             }
         }
     }
-    Ok(items)
+    Ok(RemoteSide { items, reported_gone })
+}
+
+/// The remote side of a pass.
+pub(super) struct RemoteSide {
+    pub items: HashMap<String, RemoteItem>,
+    /// Recorded items the change source reported gone. Unlike an item missing from a full listing, which could be a truncated or rate-limited answer, their absence is certain.
+    pub reported_gone: HashSet<String>,
 }
 
 /// Whether the remote side and the database agree on every item: the same paths, kinds and, for files, remote times. A folder's time changes with its content and isn't compared.
