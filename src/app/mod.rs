@@ -396,13 +396,11 @@ impl SyncativeApp {
                 std::future::pending::<()>().await;
             })
         });
-        // The window counts down to the next sync each second; the tray only shows the minutes since the last one.
-        let tick = if self.window_id.is_some() {
-            Duration::from_secs(1)
-        } else {
-            Duration::from_secs(30)
-        };
-        let ticker = iced::time::every(tick).map(|_| Message::Tick);
+        let ticker = self
+            .tick_interval()
+            .map_or_else(Subscription::none, |tick| {
+                iced::time::every(tick).map(|_| Message::Tick)
+            });
         let tray = tray::subscription().map(|signal| match signal {
             tray::TraySignal::Ready(tx) => Message::TrayReady(tx),
             tray::TraySignal::Action(action) => Message::TrayClick(action),
@@ -755,6 +753,23 @@ impl SyncativeApp {
 }
 
 impl SyncativeApp {
+    /// How often the time shown needs redrawing: each second while the remote page counts down the last hour to the next sync, each minute while it shows hours or only the tray shows the minutes since the last sync, never while nothing shows a time.
+    fn tick_interval(&self) -> Option<Duration> {
+        let minute = Duration::from_secs(60);
+        let countdown = self
+            .window_id
+            .and(self.selected)
+            .filter(|_| !power::held_on_metered(self.power) && !self.snapshot.offline)
+            .and_then(|id| self.next_sync_eta(id));
+        match countdown {
+            Some((remaining, _)) if remaining < Duration::from_secs(60 * 60) => {
+                Some(Duration::from_secs(1))
+            }
+            Some(_) => Some(minute),
+            None => self.tray_tx.is_some().then_some(minute),
+        }
+    }
+
     /// The window's content: the navigation pane beside the page, or in the compact layout the page alone with the navigation as a drawer.
     fn layout(&self, compact: bool, width: f32) -> Element<'_, Message> {
         // Phone layout: the share screen takes the whole window; on the desktop it is a dialog (below).
@@ -1183,7 +1198,7 @@ impl SyncativeApp {
             remote,
             state: self.display_state(remote),
             syncing: self.snapshot.syncing.contains(&remote.id),
-            // No countdown while held: nothing is scheduled until the network changes.
+            // No countdown while held: nothing is scheduled until the network changes. `tick_interval` follows the same rule.
             next_sync: if held_on_metered || self.snapshot.offline {
                 None
             } else {
