@@ -42,9 +42,9 @@ var run = strconv.FormatInt(time.Now().UnixNano(), 36)
 
 var (
 	mu sync.Mutex
-	// pinned holds the backends kept in rclone's cache, so the folders they have seen stay known between passes.
+	// pinned holds per remote the backend the last query used, kept in rclone's cache so the folders it has seen stay known between passes.
 	pinned = map[string]fs.Fs{}
-	// forgotten counts per remote how often Forget dropped its backend, whose successor knows no folders yet.
+	// forgotten counts per remote how often its backend was dropped or replaced; the successor knows no folders yet.
 	forgotten = map[string]int{}
 )
 
@@ -55,14 +55,10 @@ func cursorPrefix(remote string) string {
 	return fmt.Sprintf("%s.%d:", run, forgotten[remote])
 }
 
-// backend returns `remote`'s backend, created on first use and kept from then on. Cancelling `ctx` stops waiting for it to be created.
+// backend returns the backend of `remote` that rclone's cache holds, the one the listings fill, created on first use. Cancelling `ctx` stops waiting for it to be created.
+//
+// Two callers asking for a backend that doesn't exist yet each create one, and the later replaces the earlier in the cache; so it is looked up on every query, and a different one than last time makes the cursors of its predecessor foreign.
 func backend(ctx context.Context, remote string) (fs.Fs, error) {
-	mu.Lock()
-	f, ok := pinned[remote]
-	mu.Unlock()
-	if ok {
-		return f, nil
-	}
 	// rclone detaches the creation from the caller's context and, offline, retries for a long time; give up waiting on cancel instead. The creation finishes in the background and lands in rclone's cache.
 	type created struct {
 		f   fs.Fs
@@ -73,6 +69,7 @@ func backend(ctx context.Context, remote string) (fs.Fs, error) {
 		f, err := cache.Get(context.Background(), remote+":")
 		done <- created{f, err}
 	}()
+	var f fs.Fs
 	select {
 	case c := <-done:
 		if c.err != nil {
@@ -84,10 +81,13 @@ func backend(ctx context.Context, remote string) (fs.Fs, error) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if existing, ok := pinned[remote]; ok {
-		return existing, nil
+	switch before, ok := pinned[remote]; {
+	case !ok:
+		// The pin belongs to the name, so it holds for every later backend of the remote too.
+		cache.Pin(f)
+	case before != f:
+		forgotten[remote]++
 	}
-	cache.Pin(f)
 	pinned[remote] = f
 	return f, nil
 }
