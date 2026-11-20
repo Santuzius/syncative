@@ -30,7 +30,7 @@ Run it for every new remote type, for beta remotes such as Nextcloud before they
 
 For Google Drive, rclone with the test instance's config (see above) can stand in for the web app while the phone syncs: `moveto` renames and moves, `deletefile` and `purge` move to the trash, and `backend untrash GoogleDrive:<folder>` restores everything in the trash below that folder, earlier test leftovers included.
 
-For Proton, `src/go/cmd/protonctl` does the same through a saved session: `go build -o temp/protonctl ./cmd/protonctl` in `src/go`, then `protonctl SESSION ls|tree|put|mkdir|trash`. SESSION is a JSON file with the test instance's session, from `secret-tool lookup service "Syncative Keys" username proton-session-<remote>` (see above), read while the instance runs and used only after it stopped, since a token rotation by one signs the other out. Renames, moves and restoring from the trash still need the web app.
+For Proton, `src/go/cmd/protonctl` does the same through a saved session: `go build -o temp/protonctl ./cmd/protonctl` in `src/go`, then `protonctl SESSION ls|tree|put|mkdir|trash|mv|restore` (`mv` renames and moves, `restore` takes an item out of the trash). SESSION is a JSON file with the test instance's session, from `secret-tool lookup service "Syncative Keys" username proton-session-<remote>` (see above), read while the instance runs and used only after it stopped, since a token rotation by one signs the other out. Stop the instance, make the changes, start it again: that also covers step 7.
 
 After each step the local folder and the remote must match, and a second pass must change nothing (no endless uploads, downloads or "Checking for changes" loops).
 

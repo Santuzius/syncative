@@ -5,6 +5,8 @@
 //	protonctl SESSION put LOCAL PATH     upload a file (a new revision if it exists)
 //	protonctl SESSION mkdir PATH         create a folder
 //	protonctl SESSION trash PATH         move an item to the trash
+//	protonctl SESSION mv PATH NEWPATH    rename or move an item (NEWPATH's folder must exist)
+//	protonctl SESSION restore PATH       restore an item from the trash, back to PATH
 //
 // PATH starts at the drive's root ("/Photos/a.txt"). SESSION is a JSON file with the session (uid, access_token, refresh_token, salted_key_pass), as Syncative keeps it in the keyring under "proton-session-<remote>". A session that rotates its tokens is written back to that file. Don't use a session while Syncative uses it: a rotation by one signs the other out.
 package main
@@ -21,7 +23,7 @@ import (
 
 func main() {
 	if len(os.Args) < 4 {
-		fail(fmt.Errorf("usage: protonctl SESSION ls|tree|put|mkdir|trash ARGS"))
+		fail(fmt.Errorf("usage: protonctl SESSION ls|tree|put|mkdir|trash|mv|restore ARGS"))
 	}
 	sessionPath, cmd, args := os.Args[1], os.Args[2], os.Args[3:]
 	cred, err := drive.LoadCredential(sessionPath)
@@ -88,6 +90,31 @@ func run(ctx context.Context, s *drive.Session, cmd string, args []string) error
 			return err
 		}
 		return s.TrashLink(ctx, id)
+	case cmd == "mv" && len(args) == 2:
+		id, err := linkID(ctx, s, args[0])
+		if err != nil {
+			return err
+		}
+		parent, err := linkID(ctx, s, path.Dir(args[1]))
+		if err != nil {
+			return err
+		}
+		return s.Move(ctx, id, parent, path.Base(args[1]))
+	case cmd == "restore" && len(args) == 1:
+		parent, err := linkID(ctx, s, path.Dir(args[0]))
+		if err != nil {
+			return err
+		}
+		trashed, err := s.TrashedChildren(ctx, parent)
+		if err != nil {
+			return err
+		}
+		for _, item := range trashed {
+			if item.Name == path.Base(args[0]) {
+				return s.Restore(ctx, item.Link.LinkID)
+			}
+		}
+		return fmt.Errorf("%s: not in the trash", args[0])
 	}
 	return fmt.Errorf("unknown command or wrong arguments: %s %v", cmd, args)
 }
