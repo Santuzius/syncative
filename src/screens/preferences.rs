@@ -2,7 +2,7 @@
 
 use iced::{
     Alignment, Element, Length,
-    widget::{Row, Space, button, column, container, row, rule, toggler},
+    widget::{Space, button, column, container, row, rule, toggler},
 };
 
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
         power::PowerMode,
     },
     theme::{self, CAPTION, HEADING, TEXT},
-    widgets::{bullet, icon::icon, text},
+    widgets::{bullet, icon::icon, segmented::segmented, text},
 };
 
 #[derive(Debug, Clone)]
@@ -103,7 +103,7 @@ pub fn view<'a>(
             segmented(
                 &ThemeChoice::ALL,
                 ThemeChoice::label,
-                appearance.window,
+                Some(appearance.window),
                 Msg::WindowThemeChanged
             )
         ),
@@ -115,7 +115,7 @@ pub fn view<'a>(
             segmented(
                 &SizeChoice::ALL,
                 SizeChoice::label,
-                appearance.size,
+                Some(appearance.size),
                 Msg::SizeChanged
             )
         ),
@@ -131,7 +131,7 @@ pub fn view<'a>(
                 segmented(
                     &TrayIconChoice::ALL,
                     TrayIconChoice::label,
-                    appearance.tray_icon,
+                    Some(appearance.tray_icon),
                     Msg::TrayIconChanged,
                 ),
             ));
@@ -412,7 +412,7 @@ fn power_row<'a>(power: Power) -> Element<'a, Msg> {
         segmented(
             &PowerMode::ALL,
             PowerMode::label,
-            power.mode,
+            Some(power.mode),
             Msg::PowerModeChanged
         ),
         points,
@@ -472,7 +472,7 @@ pub fn tray_hint_dialog<'a>(tray_icon: TrayIconChoice) -> Element<'a, Msg> {
         text("Syncative lives in the system tray").size(HEADING + 2.0),
         text("Closing this window keeps Syncative syncing in the background. Its icon in the system tray shows the sync status and opens this window again.").size(TEXT),
         text("If the icon is hard to see on your panel, pick another colour. You can change it later in Preferences → Tray icon.").size(TEXT),
-        segmented(&TrayIconChoice::ALL, TrayIconChoice::label, tray_icon, Msg::TrayIconChanged),
+        segmented(&TrayIconChoice::ALL, TrayIconChoice::label, Some(tray_icon), Msg::TrayIconChanged),
         row![Space::new().width(Length::Fill), button(text("OK").size(TEXT)).padding([6, 16]).style(theme::button_primary).on_press(Msg::TrayHintClosed)],
     ]
     .spacing(12);
@@ -481,32 +481,6 @@ pub fn tray_hint_dialog<'a>(tray_icon: TrayIconChoice) -> Element<'a, Msg> {
         .max_width(520)
         .style(theme::dialog)
         .into()
-}
-
-/// The options as one button group; the chosen one stays highlighted.
-fn segmented<'a, T: Copy + PartialEq + 'a>(
-    options: &[T],
-    label: fn(T) -> &'static str,
-    current: T,
-    on_pick: fn(T) -> Msg,
-) -> Element<'a, Msg> {
-    let buttons = options.iter().map(|&choice| {
-        button(text(label(choice)).size(TEXT))
-            .padding([4, 12])
-            .style(theme::button_toggle(choice == current))
-            .on_press(on_pick(choice))
-            .into()
-    });
-    // Wraps rather than cutting off the last options when the window is narrow or its content large.
-    container(
-        Row::with_children(buttons)
-            .spacing(2)
-            .wrap()
-            .vertical_spacing(2),
-    )
-    .padding(2)
-    .style(theme::well)
-    .into()
 }
 
 /// A row with a button group, which needs the whole width of a phone.

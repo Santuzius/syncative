@@ -33,11 +33,12 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
    - **Google Drive:** needs your own OAuth client ID, which takes a few minutes in the Google Cloud console ([rclone's guide](https://rclone.org/drive/#making-your-own-client-id)). In the consent screen's **Branding** settings, enter [`https://github.com/Santuzius/syncative/blob/main/PRIVACY.md`](./PRIVACY.md) as **Application privacy policy link** and your own website or social media profile as **Application home page**, e.g. `https://t.me/YourTelegramName`. Then paste client ID and secret into Syncative, click *Connect* and grant access in your browser.
    - Some providers are also available as beta features 🧪. Check *Preferences* -> *Beta features* to enable them. Currently available as beta:
      - **Nextcloud** 🧪
-4. **Add a folder:** pick a local folder and the path on the remote it should mirror. Missing folders are created on both sides, and Syncative keeps them in sync at the interval set in the remote's settings.
+4. **Add a folder:** click *+*, choose what the folder does (*Sync*, *Cloud backup* or *Local backup*), then pick a local folder and the path on the remote. Missing folders are created on both sides, and Syncative syncs them at the interval set in the remote's settings. A folder's ⚙ button changes its type later.
 
 ## Use Cases
 - Syncing folders anywhere on your system, not just inside one sync folder.
 - Two-way sync of ordinary files and folders.
+- Backing up a phone's photos or documents to the cloud (*Cloud backup*), or keeping a local copy of a cloud folder (*Local backup*).
 - Syncing files to Android for offline access. (Increased storage usage, but best availability without network.)
 - Two-way sync of program settings and game saves.
   - But be careful: a few apps cope well with being used on several devices at the same time (e.g. [Obsidian](https://obsidian.md)), but most apps and games would cause conflicts. With those, use the program on only one device at a time and make sure the folder has finished syncing before you start it.
@@ -61,6 +62,7 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 
 ## Most Important Features
 - Two-way sync, several folders per account, several accounts at the same time
+- One-way backups: *Cloud backup* uploads a folder, *Local backup* downloads one. Files deleted on the source side stay in the backup, and changes or deletions on the backup side are undone at the next pass
 - Filters for sub-folders and files: exclude them, with a clean-up of copies left behind, and for a folder inside another that is also synced on its own, choose between a symlink, syncing it in both or excluding it
 - Conflict resolution: a file changed on both sides is never overwritten silently; you keep the local version, the remote one, or both, for one file or all at once
 - Credentials stay on the device: in the system keyring on Linux, encrypted with the Android Keystore on Android

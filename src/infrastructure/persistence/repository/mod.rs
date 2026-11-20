@@ -10,7 +10,7 @@ use crate::domain::{
     remote::{Backend, Interval, Remote, RemoteId, SyncPolicy},
     sync::{
         NestedFilter, RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId,
-        SyncDirId, SyncItem, SyncItemId,
+        SyncDirId, SyncItem, SyncItemId, SyncMode,
     },
 };
 
@@ -55,6 +55,8 @@ fn map_sync_dir(m: SyncDirsModel) -> SyncDir {
         remote_id: RemoteId(m.remote_id),
         local_path: m.local_path,
         remote_path: m.remote_path,
+        mode: SyncMode::parse(&m.mode).unwrap_or_default(),
+        rows_mode: SyncMode::parse(&m.rows_mode).unwrap_or_default(),
     }
 }
 
@@ -146,8 +148,25 @@ impl Repository for SeaOrmRepository {
         remote: RemoteId,
         local_path: String,
         remote_path: String,
+        mode: SyncMode,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
-        sync_dirs::insert_sync_dir(&self.db, remote, local_path, remote_path)
+        sync_dirs::insert_sync_dir(&self.db, remote, local_path, remote_path, mode)
+    }
+
+    fn set_sync_dir_mode(
+        &self,
+        sync_dir: SyncDirId,
+        mode: SyncMode,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        sync_dirs::set_mode(&self.db, sync_dir, Some(mode), None)
+    }
+
+    fn set_sync_dir_rows_mode(
+        &self,
+        sync_dir: SyncDirId,
+        mode: SyncMode,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        sync_dirs::set_mode(&self.db, sync_dir, None, Some(mode))
     }
 
     fn sync_dir_exists(
@@ -342,11 +361,14 @@ impl Repository for SeaOrmRepository {
 mod tests {
     use std::collections::HashMap;
 
-    use sea_orm::Database;
+    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
 
     use super::SeaOrmRepository;
     use crate::{
-        domain::{ports::Repository, sync::NestedFilter},
+        domain::{
+            ports::Repository,
+            sync::{NestedFilter, SyncMode},
+        },
         infrastructure::persistence::migrations::{Migrator, MigratorTrait},
         util::await_future,
     };
@@ -358,7 +380,13 @@ mod tests {
         let repo = SeaOrmRepository::new(db);
         let id = await_future(repo.insert_remote("R".to_owned())).unwrap();
         for (local, remote) in [("/a", ""), ("/b", "Inner"), ("/c", "Inner/Deeper")] {
-            await_future(repo.insert_sync_dir(id, local.to_owned(), remote.to_owned())).unwrap();
+            await_future(repo.insert_sync_dir(
+                id,
+                local.to_owned(),
+                remote.to_owned(),
+                Default::default(),
+            ))
+            .unwrap();
         }
         let dirs = await_future(repo.list_sync_dirs(id)).unwrap();
         for dir in &dirs {
@@ -411,11 +439,24 @@ mod tests {
             (one, "/docsx", "Docsx"),
             (other, "/other", "Docs/Notes"),
         ] {
-            await_future(repo.insert_sync_dir(remote, local.to_owned(), path.to_owned())).unwrap();
+            // The table as it was then, without the later columns.
+            await_future(repo.db.execute(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                format!(
+                    "INSERT INTO sync_dirs (remote_id, local_path, remote_path) VALUES ({}, '{local}', '{path}')",
+                    remote.0
+                ),
+            )))
+            .unwrap();
         }
         await_future(Migrator::up(&repo.db, None)).unwrap();
 
         let dirs = await_future(repo.list_all_sync_dirs()).unwrap();
+        // Folders from before the modes sync both ways.
+        assert!(
+            dirs.iter()
+                .all(|d| d.mode == SyncMode::TwoWay && d.rows_mode == SyncMode::TwoWay)
+        );
         let id_of = |local: &str| dirs.iter().find(|d| d.local_path == local).unwrap().id;
         let excluded = |ids: &[&str]| {
             ids.iter()
@@ -444,12 +485,42 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_keeps_its_mode_and_the_mode_of_its_rows_apart() {
+        let db = await_future(Database::connect("sqlite::memory:")).unwrap();
+        await_future(Migrator::up(&db, None)).unwrap();
+        let repo = SeaOrmRepository::new(db);
+        let id = await_future(repo.insert_remote("R".to_owned())).unwrap();
+        await_future(repo.insert_sync_dir(id, "/a".to_owned(), String::new(), SyncMode::Upload))
+            .unwrap();
+        let dir = await_future(repo.list_sync_dirs(id)).unwrap().remove(0);
+        assert_eq!(
+            (dir.mode, dir.rows_mode),
+            (SyncMode::Upload, SyncMode::Upload)
+        );
+
+        await_future(repo.set_sync_dir_mode(dir.id, SyncMode::TwoWay)).unwrap();
+        let dir = await_future(repo.list_sync_dirs(id)).unwrap().remove(0);
+        assert_eq!(
+            (dir.mode, dir.rows_mode),
+            (SyncMode::TwoWay, SyncMode::Upload)
+        );
+
+        await_future(repo.set_sync_dir_rows_mode(dir.id, SyncMode::TwoWay)).unwrap();
+        let dir = await_future(repo.list_sync_dirs(id)).unwrap().remove(0);
+        assert_eq!(
+            (dir.mode, dir.rows_mode),
+            (SyncMode::TwoWay, SyncMode::TwoWay)
+        );
+    }
+
+    #[test]
     fn hidden_folders_are_replaced_as_a_set() {
         let db = await_future(Database::connect("sqlite::memory:")).unwrap();
         await_future(Migrator::up(&db, None)).unwrap();
         let repo = SeaOrmRepository::new(db);
         let id = await_future(repo.insert_remote("R".to_owned())).unwrap();
-        await_future(repo.insert_sync_dir(id, "/a".to_owned(), String::new())).unwrap();
+        await_future(repo.insert_sync_dir(id, "/a".to_owned(), String::new(), Default::default()))
+            .unwrap();
         let dir = await_future(repo.list_sync_dirs(id)).unwrap().remove(0);
 
         await_future(

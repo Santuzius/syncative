@@ -14,7 +14,7 @@ use crate::{
         run_state::{RunState, SyncActivity},
         sync::{
             Conflict, ConflictChoice, FileDetails, Link, LinkTarget, RemoteItem, Resolution,
-            SyncDir, SyncError, SyncItem,
+            SyncDir, SyncError, SyncItem, SyncMode,
         },
     },
     util,
@@ -388,7 +388,7 @@ where
                     remote_mtime: _,
                 } => {
                     eprintln!(
-                        "sync: RECORD '{remote_path}' — present on both sides but untracked; tracking it from now on."
+                        "sync: RECORD '{remote_path}' — untracked so far; tracking it from now on."
                     );
                     match snapshot.remote.get(&remote_path) {
                         Some(item) => {
@@ -440,6 +440,12 @@ where
                                 && r.remote_stamp == conflict.remote_stamp
                         })
                         .map(|r| r.choice.clone())
+                        // A one-way folder doesn't ask: its source's copy wins.
+                        .or(match sync_dir.mode {
+                            SyncMode::TwoWay => None,
+                            SyncMode::Upload => Some(ConflictChoice::KeepLocal),
+                            SyncMode::Download => Some(ConflictChoice::KeepRemote),
+                        })
                         // Never-synced pair on a backend without content digests: the newer copy wins, as before.
                         .or_else(|| {
                             (kind == ConflictKind::BothNew

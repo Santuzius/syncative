@@ -208,6 +208,21 @@ mod tests {
             _r: RemoteId,
             _l: String,
             _rp: String,
+            _m: crate::domain::sync::SyncMode,
+        ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn set_sync_dir_mode(
+            &self,
+            _sd: SyncDirId,
+            _m: crate::domain::sync::SyncMode,
+        ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn set_sync_dir_rows_mode(
+            &self,
+            _sd: SyncDirId,
+            _m: crate::domain::sync::SyncMode,
         ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }

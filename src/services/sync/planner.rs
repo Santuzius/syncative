@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::domain::{
     remote::Remote,
-    sync::{RemoteItem, SyncDir, SyncItem},
+    sync::{RemoteItem, SyncDir, SyncItem, SyncMode},
 };
 
 use super::local_names;
@@ -270,6 +270,17 @@ fn plan_one(
     if ancestor_in_set(remote_path, &snapshot.local_links) {
         return None;
     }
+    if sync_dir.mode != SyncMode::TwoWay {
+        return plan_one_way(
+            remote_path,
+            local,
+            remote,
+            db,
+            sync_dir,
+            snapshot,
+            db_by_parent,
+        );
+    }
     match (local, remote, db) {
         (None, None, None) => None,
         // Stale DB: both sides gone. Clean the row.
@@ -373,6 +384,10 @@ fn plan_one(
         //   2. Sibling presence. Weaker backstop for paths whose
         //      ancestors look healthy but whose parent holds other
         //      DB-tracked rows that didn't make the walk either.
+        // Rows a one-way mode kept for files missing here aren't deletions: until a pass finds none left (`rows_settled`), such files come back as a local backup restores them.
+        (None, Some(r), Some(_)) if sync_dir.rows_mode != SyncMode::TwoWay => {
+            restore_local(r, sync_dir, snapshot, db_by_parent)
+        }
         (None, Some(r), Some(db)) => {
             // Deleted here, edited there: the edit wins, so nothing the user changed is lost. Fetch it back instead of deleting it.
             if !r.is_dir && r.mod_time.unix_timestamp() != db.last_remote_timestamp {
@@ -461,6 +476,156 @@ fn plan_one(
             }
         }
     }
+}
+
+/// [`plan_one`] for [`SyncMode::Upload`] and [`SyncMode::Download`]: the source side wins, its deletions are not passed on, and what only the backup side has is left alone. Nothing is ever deleted.
+fn plan_one_way(
+    remote_path: &str,
+    local: Option<&LocalEntry>,
+    remote: Option<&RemoteItem>,
+    db: Option<&SyncItem>,
+    sync_dir: &SyncDir,
+    snapshot: &Snapshot,
+    db_by_parent: &HashMap<&str, Vec<&str>>,
+) -> Option<Action> {
+    let upload = sync_dir.mode == SyncMode::Upload;
+    // The source's copy over the backup's.
+    let transfer = |l: &LocalEntry, r: &RemoteItem| {
+        Some(if upload {
+            Action::Upload {
+                local_path: l.absolute_path.clone(),
+                remote_path: remote_path.to_owned(),
+                is_dir: l.is_dir,
+            }
+        } else {
+            Action::Download {
+                local_path: l.absolute_path.clone(),
+                remote_path: remote_path.to_owned(),
+                is_dir: r.is_dir,
+            }
+        })
+    };
+    match (local, remote, db) {
+        (None, None, None) => None,
+        (None, None, Some(_)) => Some(Action::ClearDbRow {
+            local_path: db_local_path(remote_path, sync_dir),
+            remote_path: remote_path.to_owned(),
+        }),
+        (Some(l), None, None) if upload => Some(Action::Upload {
+            local_path: l.absolute_path.clone(),
+            remote_path: remote_path.to_owned(),
+            is_dir: l.is_dir,
+        }),
+        // Only in the local backup: left alone.
+        (Some(_), None, None) => None,
+        (None, Some(r), None) if !upload => Some(Action::Download {
+            local_path: derive_local_path(&r.path, sync_dir),
+            remote_path: r.path.clone(),
+            is_dir: r.is_dir,
+        }),
+        // Only in the cloud backup: left alone, but recorded, so the rows still stand in for the remote listing (`remote_view`). Its local time stays 0: a file of that name made here later counts as changed and goes up.
+        (None, Some(r), None) => Some(Action::RecordDbRow {
+            local_path: derive_local_path(&r.path, sync_dir),
+            remote_path: r.path.clone(),
+            local_mtime: 0,
+            remote_mtime: r.mod_time.unix_timestamp(),
+        }),
+        (Some(l), Some(r), None) => {
+            if l.is_dir && r.is_dir {
+                return Some(Action::RecordDbRow {
+                    local_path: l.absolute_path.clone(),
+                    remote_path: remote_path.to_owned(),
+                    local_mtime: l.mtime_secs,
+                    remote_mtime: r.mod_time.unix_timestamp(),
+                });
+            }
+            if l.is_dir != r.is_dir {
+                return transfer(l, r);
+            }
+            // The applier records identical copies without a transfer and otherwise lets the source win.
+            Some(Action::Conflict {
+                local_path: l.absolute_path.clone(),
+                remote_path: remote_path.to_owned(),
+                kind: ConflictKind::BothNew,
+            })
+        }
+        // Gone from the cloud backup: up again, unless the listing looks cut short.
+        (Some(l), None, Some(_)) if upload => {
+            if !snapshot.reported_gone.contains(remote_path)
+                && !parent_is_verified(remote_path, &snapshot.remote, db_by_parent)
+            {
+                eprintln!(
+                    "sync: SKIP re-upload of '{remote_path}' — listing enumerated no entries under '{}' (likely rate-limited / cache flush).",
+                    parent_of(remote_path),
+                );
+                return None;
+            }
+            Some(Action::Upload {
+                local_path: l.absolute_path.clone(),
+                remote_path: remote_path.to_owned(),
+                is_dir: l.is_dir,
+            })
+        }
+        // Deleted on the remote: the local backup keeps its copy, which is no longer synced.
+        (Some(_), None, Some(_)) => Some(Action::ClearDbRow {
+            local_path: db_local_path(remote_path, sync_dir),
+            remote_path: remote_path.to_owned(),
+        }),
+        // Deleted here: the cloud backup keeps its copy. The row stays, so the rows still stand in for the remote listing.
+        (None, Some(_), Some(_)) if upload => None,
+        (None, Some(r), Some(_)) => restore_local(r, sync_dir, snapshot, db_by_parent),
+        (Some(l), Some(r), Some(_)) if l.is_dir && r.is_dir => None,
+        (Some(l), Some(r), Some(db)) => {
+            let local_changed = l.mtime_secs != db.last_local_timestamp;
+            let remote_changed = r.mod_time.unix_timestamp() != db.last_remote_timestamp;
+            // A change on either side: the source's copy wins, also over a change made on the backup side.
+            (local_changed || remote_changed)
+                .then(|| transfer(l, r))
+                .flatten()
+        }
+    }
+}
+
+/// Download a file or folder missing here that the database knows, unless the walk can't be trusted to have seen it: a walk error on the way, or a parent that came back empty (an unmounted disk).
+fn restore_local(
+    r: &RemoteItem,
+    sync_dir: &SyncDir,
+    snapshot: &Snapshot,
+    db_by_parent: &HashMap<&str, Vec<&str>>,
+) -> Option<Action> {
+    if ancestor_in_set(&r.path, &snapshot.walk_unreliable) {
+        eprintln!(
+            "sync: SKIP restoring '{}' — local walk reported an error on this path or an ancestor.",
+            r.path,
+        );
+        return None;
+    }
+    let parent_walked = snapshot
+        .local
+        .get(parent_of(&r.path))
+        .is_some_and(|p| p.is_dir);
+    if !parent_walked && !parent_is_verified(&r.path, &snapshot.local, db_by_parent) {
+        eprintln!(
+            "sync: SKIP restoring '{}' — walk found no entries under '{}'.",
+            r.path,
+            parent_of(&r.path),
+        );
+        return None;
+    }
+    Some(Action::Download {
+        local_path: derive_local_path(&r.path, sync_dir),
+        remote_path: r.path.clone(),
+        is_dir: r.is_dir,
+    })
+}
+
+/// After a switch to [`SyncMode::TwoWay`], whether the rows are in line with it: no row stands for a file that is on the remote but missing here, which a one-way mode may have kept (see [`plan_one`]). Until then such files are downloaded instead of deleted remotely.
+pub(super) fn rows_settled(snapshot: &Snapshot) -> bool {
+    !snapshot.db.keys().any(|key| {
+        !snapshot.local.contains_key(key)
+            && snapshot.remote.contains_key(key)
+            && !ancestor_in_set(key, &snapshot.local_links)
+    })
 }
 
 fn derive_local_path(remote_path: &str, sync_dir: &SyncDir) -> String {

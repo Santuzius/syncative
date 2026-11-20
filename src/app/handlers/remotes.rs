@@ -83,6 +83,7 @@ impl SyncativeApp {
             self.add_sync_dir_error = None;
             self.exclusion_panel = None;
             self.settings_open = false;
+            self.folder_settings = None;
             self.sync_dir_log_content.clear();
         }
         self.selected = Some(id);

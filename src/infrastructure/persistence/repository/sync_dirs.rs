@@ -5,7 +5,7 @@ use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, ModelTr
 use crate::domain::{
     ports::{BoxFuture, RepositoryError},
     remote::RemoteId,
-    sync::{RemoteCursor, SyncDir, SyncDirId},
+    sync::{RemoteCursor, SyncDir, SyncDirId, SyncMode},
 };
 
 use super::super::models::{
@@ -72,6 +72,32 @@ pub(super) fn set_remote_cursor(
     })
 }
 
+/// Set the folder's mode, its rows' mode, or both.
+pub(super) fn set_mode(
+    db: &DatabaseConnection,
+    sync_dir: SyncDirId,
+    mode: Option<SyncMode>,
+    rows_mode: Option<SyncMode>,
+) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    Box::pin(async move {
+        let value = |m: Option<SyncMode>| match m {
+            Some(m) => ActiveValue::Set(m.as_str().to_owned()),
+            None => ActiveValue::NotSet,
+        };
+        let active = SyncDirsActiveModel {
+            id: ActiveValue::Unchanged(sync_dir.0),
+            mode: value(mode),
+            rows_mode: value(rows_mode),
+            ..Default::default()
+        };
+        SyncDirsEntity::update(active)
+            .exec(db)
+            .await
+            .map_err(map_err)?;
+        Ok(())
+    })
+}
+
 pub(super) fn list_all_sync_dirs(
     db: &DatabaseConnection,
 ) -> BoxFuture<'_, Result<Vec<SyncDir>, RepositoryError>> {
@@ -86,12 +112,15 @@ pub(super) fn insert_sync_dir(
     remote: RemoteId,
     local_path: String,
     remote_path: String,
+    mode: SyncMode,
 ) -> BoxFuture<'_, Result<(), RepositoryError>> {
     Box::pin(async move {
         let active = SyncDirsActiveModel {
             remote_id: ActiveValue::Set(remote.0),
             local_path: ActiveValue::Set(local_path),
             remote_path: ActiveValue::Set(remote_path),
+            mode: ActiveValue::Set(mode.as_str().to_owned()),
+            rows_mode: ActiveValue::Set(mode.as_str().to_owned()),
             ..Default::default()
         };
         SyncDirsEntity::insert(active)

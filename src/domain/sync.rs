@@ -58,12 +58,84 @@ impl NestedFilter {
     }
 }
 
+/// Which way a sync folder carries changes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SyncMode {
+    /// Changes, new files and deletions go both ways.
+    #[default]
+    TwoWay,
+    /// Cloud backup: this device is the source. New and changed files go up; a file changed or deleted on the remote is uploaded again; files deleted here stay on the remote, and files only on the remote are left alone.
+    Upload,
+    /// Local backup: the remote is the source. New and changed files come down; a file changed or deleted here is downloaded again; files deleted on the remote stay here, and files only here are left alone.
+    Download,
+}
+
+impl SyncMode {
+    pub const ALL: [Self; 3] = [Self::TwoWay, Self::Upload, Self::Download];
+
+    /// The value stored in the database and the settings file.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::TwoWay => "sync",
+            Self::Upload => "upload",
+            Self::Download => "download",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "sync" => Some(Self::TwoWay),
+            "upload" => Some(Self::Upload),
+            "download" => Some(Self::Download),
+            _ => None,
+        }
+    }
+
+    /// The name the user picks it by.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::TwoWay => "Sync",
+            Self::Upload => "Cloud backup",
+            Self::Download => "Local backup",
+        }
+    }
+
+    /// What it does, one point per line, under the choice.
+    pub fn points(self) -> &'static [&'static str] {
+        match self {
+            Self::TwoWay => &[
+                "Two-way: changes on either side reach the other",
+                "Files deleted on one side are deleted on the other",
+            ],
+            Self::Upload => &[
+                "One-way upload: the remote keeps a copy of this folder",
+                "Files deleted here stay on the remote",
+                "Changes made on the remote are replaced by this folder's version",
+            ],
+            Self::Download => &[
+                "One-way download: this folder keeps a copy of the remote folder",
+                "Files deleted on the remote stay here",
+                "Changes made here are replaced by the remote's version",
+            ],
+        }
+    }
+}
+
+impl std::fmt::Display for SyncMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SyncDir {
     pub id: SyncDirId,
     pub remote_id: RemoteId,
     pub local_path: String,
     pub remote_path: String,
+    pub mode: SyncMode,
+    /// The mode the folder's `sync_items` were last written under. Until a pass brings them in line after a switch to [`SyncMode::TwoWay`], rows the one-way modes kept for files missing here don't count as deletions (see `services::sync::planner`).
+    pub rows_mode: SyncMode,
 }
 
 impl SyncDir {
@@ -281,6 +353,8 @@ mod tests {
             remote_id: RemoteId(1),
             local_path: "/home/me/Docs".to_owned(),
             remote_path: remote_path.to_owned(),
+            mode: Default::default(),
+            rows_mode: Default::default(),
         };
         assert_eq!(dir("Docs").relative("Docs/a/b.txt"), "a/b.txt");
         assert_eq!(dir("Docs").relative("Docs"), "Docs");

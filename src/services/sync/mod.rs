@@ -24,7 +24,7 @@ use crate::domain::{
     ports::{BackendClient, Cancel, Repository, is_cancelled as cancel_check},
     remote::Remote,
     run_state::{RunState, SyncActivity},
-    sync::{Resolution, SyncDir, SyncError},
+    sync::{Resolution, SyncDir, SyncError, SyncMode},
 };
 
 mod applier;
@@ -199,6 +199,17 @@ where
         return Outcome::Aborted;
     }
     let actions = planner::plan(&snapshot, sync_dir);
+    // After a switch of mode the rows follow the new one; back to two-way only once no row a one-way mode kept for a file missing here is left.
+    if sync_dir.rows_mode != sync_dir.mode
+        && (sync_dir.mode != SyncMode::TwoWay || planner::rows_settled(&snapshot))
+        && let Err(err) =
+            crate::util::await_future(repo.set_sync_dir_rows_mode(sync_dir.id, sync_dir.mode))
+    {
+        eprintln!(
+            "sync: could not record the mode of '{}': {err}",
+            sync_dir.remote_path
+        );
+    }
     planner::log_plan_summary(remote, sync_dir, &snapshot, &actions);
     // Replace the "Listing remote…" pending with a phase-level
     // description of what apply() is about to do. Without this, a

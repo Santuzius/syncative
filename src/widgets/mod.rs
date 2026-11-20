@@ -5,6 +5,7 @@
 
 pub mod duration_picker;
 pub mod icon;
+pub mod segmented;
 mod text_ext;
 
 /// Drop-in replacement for `iced::widget::text` that opts into

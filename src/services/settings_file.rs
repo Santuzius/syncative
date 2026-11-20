@@ -9,7 +9,7 @@ use crate::{
     domain::{
         ports::{BackendClient, Repository},
         remote::{Backend, Interval, SyncPolicy},
-        sync::{NestedFilter, SyncDir},
+        sync::{NestedFilter, SyncDir, SyncMode},
     },
     infrastructure::{client_router::ClientRouter, proton::client::DisabledProtonClient},
     services::{appearance::Appearance, autostart, power},
@@ -61,6 +61,9 @@ struct FolderEntry {
     /// What the folder does with each folder inside it that is also synced on its own, by that folder's remote path relative to `remote_path`: `exclude`, `symlink` or `both`. One the file doesn't name is excluded, as before these choices existed.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     nested: BTreeMap<String, String>,
+    /// Which way the folder syncs: `sync`, `upload` or `download` ([`SyncMode::as_str`]). Files without it sync both ways.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mode: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -170,6 +173,7 @@ fn remote_entries(
                 exclusions,
                 hidden,
                 nested,
+                mode: (dir.mode != SyncMode::TwoWay).then(|| dir.mode.as_str().to_owned()),
             });
         }
         entries.push(RemoteEntry {
@@ -239,11 +243,18 @@ pub fn import(
 
         let mut nested_choices = Vec::new();
         for folder in entry.folders {
-            util::await_future(repo.insert_sync_dir(
-                id,
-                folder.local_path.clone(),
-                folder.remote_path.clone(),
-            ))
+            util::await_future(
+                repo.insert_sync_dir(
+                    id,
+                    folder.local_path.clone(),
+                    folder.remote_path.clone(),
+                    folder
+                        .mode
+                        .as_deref()
+                        .and_then(SyncMode::parse)
+                        .unwrap_or_default(),
+                ),
+            )
             .map_err(|e| e.to_string())?;
             imported.folders += 1;
             nested_choices.push((

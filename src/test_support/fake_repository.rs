@@ -11,7 +11,7 @@ use crate::domain::{
     remote::{Remote, RemoteId, SyncPolicy},
     sync::{
         NestedFilter, RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId,
-        SyncDirId, SyncItem, SyncItemId,
+        SyncDirId, SyncItem, SyncItemId, SyncMode,
     },
 };
 
@@ -27,6 +27,8 @@ pub struct FakeRepo {
     pub cursors: Mutex<HashMap<SyncDirId, RemoteCursor>>,
     /// Nested filters, the same for every sync_dir.
     pub nested_filters: Mutex<HashMap<SyncDirId, NestedFilter>>,
+    /// The last [`Repository::set_sync_dir_rows_mode`] call.
+    pub rows_mode: Mutex<Option<(SyncDirId, SyncMode)>>,
 }
 
 impl FakeRepo {
@@ -40,6 +42,7 @@ impl FakeRepo {
             hidden: Mutex::new(vec![]),
             cursors: Mutex::new(HashMap::new()),
             nested_filters: Mutex::new(HashMap::new()),
+            rows_mode: Mutex::new(None),
         }
     }
 
@@ -171,7 +174,33 @@ impl Repository for FakeRepo {
         _r: RemoteId,
         _l: String,
         _rp: String,
+        _m: SyncMode,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        Box::pin(async { Ok(()) })
+    }
+    fn set_sync_dir_mode(
+        &self,
+        sd: SyncDirId,
+        mode: SyncMode,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        for dir in self.sync_dirs.lock().unwrap().iter_mut() {
+            if dir.id == sd {
+                dir.mode = mode;
+            }
+        }
+        Box::pin(async { Ok(()) })
+    }
+    fn set_sync_dir_rows_mode(
+        &self,
+        sd: SyncDirId,
+        mode: SyncMode,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        *self.rows_mode.lock().unwrap() = Some((sd, mode));
+        for dir in self.sync_dirs.lock().unwrap().iter_mut() {
+            if dir.id == sd {
+                dir.rows_mode = mode;
+            }
+        }
         Box::pin(async { Ok(()) })
     }
     fn list_sync_items(

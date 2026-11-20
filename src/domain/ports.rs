@@ -22,7 +22,7 @@ use super::{
     remote::{Remote, RemoteId, RemoteUsage, SyncPolicy},
     sync::{
         Changes, FileDetails, ListFilter, NestedFilter, RemoteCursor, RemoteItem, RemoteMeta,
-        SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId,
+        SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId, SyncMode,
     },
 };
 
@@ -115,6 +115,19 @@ pub trait Repository: Send + Sync {
         remote: RemoteId,
         local_path: String,
         remote_path: String,
+        mode: SyncMode,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    /// Change which way the folder syncs; its `rows_mode` stays for the next pass to bring in line.
+    fn set_sync_dir_mode(
+        &self,
+        sync_dir: SyncDirId,
+        mode: SyncMode,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    /// Record that the folder's rows now follow `mode` ([`SyncDir::rows_mode`]).
+    fn set_sync_dir_rows_mode(
+        &self,
+        sync_dir: SyncDirId,
+        mode: SyncMode,
     ) -> BoxFuture<'_, Result<(), RepositoryError>>;
     fn list_sync_items(
         &self,

@@ -20,6 +20,10 @@ pub struct Model {
     pub remote_listed_at: Option<i64>,
     /// Which parts of the remote folder were left out when `remote_cursor` was stored (exclusions, nested sync folders, hidden folders).
     pub remote_filter: Option<String>,
+    /// Which way the folder syncs, as `domain::sync::SyncMode::as_str`.
+    pub mode: String,
+    /// The mode `sync_items` were last written under.
+    pub rows_mode: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

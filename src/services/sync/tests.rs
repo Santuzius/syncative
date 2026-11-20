@@ -19,6 +19,7 @@ use crate::{
         ports::cancel_never,
         sync::{
             Conflict, ConflictChoice, LinkTarget, NestedFilter, Resolution, SyncDirId, SyncError,
+            SyncMode,
         },
     },
     test_support::{FakeBackend, FakeRepo, TempDir, remote, remote_item, sync_dir, touch_mtime},
@@ -1781,5 +1782,237 @@ fn an_emptied_folder_is_not_reported_missing() {
         !errors(&events)
             .iter()
             .any(|e| matches!(e, SyncError::General(_, msg) if msg == "Remote folder not found"))
+    );
+}
+
+/// [`run_full`] for a folder of the given mode whose rows were written under `rows_mode`.
+fn run_mode(
+    tmp: &TempDir,
+    repo: &FakeRepo,
+    client: &FakeBackend,
+    mode: SyncMode,
+    rows_mode: SyncMode,
+) -> (Outcome, Vec<SyncEvent>) {
+    let r = remote(1, "TestRemote");
+    let mut sd = sync_dir(1, 1, tmp.as_str(), "");
+    sd.mode = mode;
+    sd.rows_mode = rows_mode;
+    let captured: Mutex<Vec<SyncEvent>> = Mutex::new(Vec::new());
+    let outcome = run(
+        &r,
+        &sd,
+        repo,
+        client,
+        &[],
+        &[],
+        |e| captured.lock().unwrap().push(e),
+        &cancel_never(),
+        |_| false,
+    );
+    let events = captured.lock().unwrap().clone();
+    (outcome, events)
+}
+
+/// A synced file `name` in `tmp`, recorded at `ts` on both sides, plus a synced sibling `keep.txt` on both sides, so a listing or walk without `name` counts as complete.
+fn synced_pair(tmp: &TempDir, repo: &FakeRepo, name: &str, ts: i64) -> String {
+    let keep = tmp.write_file("keep.txt", b"keep");
+    touch_mtime(&keep, ts);
+    repo.insert_item(SyncDirId(1), keep.to_str().unwrap(), "keep.txt", ts, ts);
+    let local_path = format!("{}/{name}", tmp.as_str());
+    repo.insert_item(SyncDirId(1), &local_path, name, ts, ts);
+    local_path
+}
+
+#[test]
+fn a_cloud_backup_keeps_files_deleted_here() {
+    let tmp = TempDir::new("upload_local_del");
+    let repo = FakeRepo::new();
+    let local_path = synced_pair(&tmp, &repo, "gone.txt", 1_700_000_000);
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("keep.txt", false, 1_700_000_000),
+            remote_item("gone.txt", false, 1_700_000_000),
+        ]),
+    );
+
+    let (outcome, events) = run_mode(&tmp, &repo, &client, SyncMode::Upload, SyncMode::Upload);
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    assert!(client.delete_file_calls.lock().unwrap().is_empty());
+    assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
+    // The row stays, so the database still stands in for the remote listing.
+    assert!(repo.has_item(&local_path, "gone.txt"));
+}
+
+#[test]
+fn a_cloud_backup_uploads_files_deleted_or_changed_on_the_remote_again() {
+    let tmp = TempDir::new("upload_remote_del");
+    let repo = FakeRepo::new();
+    let deleted = synced_pair(&tmp, &repo, "deleted.txt", 1_700_000_000);
+    touch_mtime(&tmp.write_file("deleted.txt", b"mine"), 1_700_000_000);
+    let changed = tmp.write_file("changed.txt", b"mine");
+    touch_mtime(&changed, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        changed.to_str().unwrap(),
+        "changed.txt",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("keep.txt", false, 1_700_000_000),
+            remote_item("changed.txt", false, 1_750_000_000),
+        ]),
+    );
+    client.set_stat(
+        "changed.txt",
+        Ok(Some(remote_item("changed.txt", false, 1_750_000_000))),
+    );
+
+    let (outcome, events) = run_mode(&tmp, &repo, &client, SyncMode::Upload, SyncMode::Upload);
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    let mut uploaded: Vec<String> = client
+        .copy_to_remote_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, remote)| remote.clone())
+        .collect();
+    uploaded.sort();
+    assert_eq!(uploaded, ["changed.txt", "deleted.txt"]);
+    assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
+    assert!(Path::new(&deleted).exists());
+}
+
+#[test]
+fn a_cloud_backup_leaves_files_only_on_the_remote_alone_but_records_them() {
+    let tmp = TempDir::new("upload_remote_only");
+    let repo = FakeRepo::new();
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![remote_item("theirs.txt", false, 1_700_000_000)]),
+    );
+
+    let (outcome, events) = run_mode(&tmp, &repo, &client, SyncMode::Upload, SyncMode::Upload);
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
+    assert!(client.delete_file_calls.lock().unwrap().is_empty());
+    assert!(!tmp.path.join("theirs.txt").exists());
+    assert!(repo.has_item(&format!("{}/theirs.txt", tmp.as_str()), "theirs.txt"));
+}
+
+#[test]
+fn a_local_backup_keeps_files_deleted_on_the_remote() {
+    let tmp = TempDir::new("download_remote_del");
+    let repo = FakeRepo::new();
+    let local_path = synced_pair(&tmp, &repo, "gone.txt", 1_700_000_000);
+    touch_mtime(&tmp.write_file("gone.txt", b"mine"), 1_700_000_000);
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![remote_item("keep.txt", false, 1_700_000_000)]));
+
+    let (outcome, events) = run_mode(&tmp, &repo, &client, SyncMode::Download, SyncMode::Download);
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    assert!(Path::new(&local_path).exists());
+    assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
+    // No longer synced: the row goes, the copy stays.
+    assert!(!repo.has_item(&local_path, "gone.txt"));
+}
+
+#[test]
+fn a_local_backup_downloads_files_deleted_or_changed_here_again() {
+    let tmp = TempDir::new("download_local_del");
+    let repo = FakeRepo::new();
+    let deleted = synced_pair(&tmp, &repo, "deleted.txt", 1_700_000_000);
+    let changed = tmp.write_file("changed.txt", b"edited here");
+    touch_mtime(&changed, 1_750_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        changed.to_str().unwrap(),
+        "changed.txt",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("keep.txt", false, 1_700_000_000),
+            remote_item("deleted.txt", false, 1_700_000_000),
+            remote_item("changed.txt", false, 1_700_000_000),
+        ]),
+    );
+    client.set_stat(
+        "changed.txt",
+        Ok(Some(remote_item("changed.txt", false, 1_700_000_000))),
+    );
+
+    let (outcome, events) = run_mode(&tmp, &repo, &client, SyncMode::Download, SyncMode::Download);
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    let mut downloaded: Vec<String> = client
+        .copy_to_local_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, remote)| remote.clone())
+        .collect();
+    downloaded.sort();
+    assert_eq!(downloaded, ["changed.txt", "deleted.txt"]);
+    assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
+    assert!(Path::new(&deleted).exists());
+}
+
+#[test]
+fn a_local_backup_leaves_files_only_here_alone() {
+    let tmp = TempDir::new("download_local_only");
+    touch_mtime(&tmp.write_file("mine.txt", b"mine"), 1_700_000_000);
+    let repo = FakeRepo::new();
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![]));
+
+    let (outcome, events) = run_mode(&tmp, &repo, &client, SyncMode::Download, SyncMode::Download);
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
+    assert!(tmp.path.join("mine.txt").exists());
+}
+
+/// Back to two-way after a cloud backup: what the backup kept for files deleted here comes down instead of being deleted from the remote, and the rows count as two-way only once none of those is left.
+#[test]
+fn switching_a_cloud_backup_to_sync_restores_what_it_kept() {
+    let tmp = TempDir::new("upload_to_sync");
+    let repo = FakeRepo::new();
+    synced_pair(&tmp, &repo, "kept.txt", 1_700_000_000);
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("keep.txt", false, 1_700_000_000),
+            remote_item("kept.txt", false, 1_700_000_000),
+        ]),
+    );
+
+    let (outcome, events) = run_mode(&tmp, &repo, &client, SyncMode::TwoWay, SyncMode::Upload);
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    assert!(client.delete_file_calls.lock().unwrap().is_empty());
+    assert_eq!(client.copy_to_local_calls.lock().unwrap().len(), 1);
+    assert_eq!(*repo.rows_mode.lock().unwrap(), None);
+
+    // The next pass finds nothing left to restore.
+    let (outcome, _) = run_mode(&tmp, &repo, &client, SyncMode::TwoWay, SyncMode::Upload);
+    assert_eq!(outcome, Outcome::Synced);
+    assert_eq!(
+        *repo.rows_mode.lock().unwrap(),
+        Some((SyncDirId(1), SyncMode::TwoWay))
     );
 }

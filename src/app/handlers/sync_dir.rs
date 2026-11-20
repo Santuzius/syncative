@@ -10,7 +10,7 @@ use crate::{
     domain::{
         ports::{BackendClient, Repository},
         remote::RemoteId,
-        sync::{NestedFilter, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId},
+        sync::{NestedFilter, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncMode},
     },
     engine::Command,
     screens::{main_page, remote_page, settings},
@@ -202,6 +202,7 @@ impl SyncativeApp {
         let Some((local, remote)) = self.sync_dir_drafts.get(&id).cloned() else {
             return Task::none();
         };
+        let mode = self.add_folder_mode;
         let Some(remote_name) = self
             .remotes
             .iter()
@@ -271,7 +272,7 @@ impl SyncativeApp {
                 .unwrap_or_else(|e| Err(e.to_string()));
                 let result = match created {
                     Ok(()) => repo
-                        .insert_sync_dir(id, local_norm, remote_norm)
+                        .insert_sync_dir(id, local_norm, remote_norm, mode)
                         .await
                         .map(|_| ())
                         .map_err(|e| e.to_string()),
@@ -306,6 +307,42 @@ impl SyncativeApp {
                 Task::none()
             }
         }
+    }
+
+    /// Handle [`remote_page::Msg::SetSyncMode`] — store which way the folder syncs, then sync it that way.
+    pub(in crate::app) fn handle_set_sync_mode(
+        &mut self,
+        sd_id: SyncDirId,
+        mode: SyncMode,
+    ) -> Task<Message> {
+        let Some(dir) = self
+            .sync_dirs
+            .values_mut()
+            .flatten()
+            .find(|d| d.id == sd_id)
+        else {
+            return Task::none();
+        };
+        if dir.mode == mode {
+            return Task::none();
+        }
+        dir.mode = mode;
+        let remote_id = dir.remote_id;
+        let repo = self.repo.clone();
+        let engine = self.engine.clone();
+        Task::perform(
+            async move {
+                let line = match repo.set_sync_dir_mode(sd_id, mode).await {
+                    Ok(()) => tr::tr!("Mode changed to {}.", mode.label()),
+                    Err(err) => tr::tr!("⚠ Couldn't change the folder's mode: {}", err),
+                };
+                engine.send(Command::Log(sd_id, line));
+                engine.send(Command::Reload);
+                engine.send(Command::SyncNow(remote_id));
+                remote_id
+            },
+            |id| Message::Main(main_page::Msg::Selected(id)),
+        )
     }
 
     /// Handle [`remote_page::Msg::BrowseLocalPath`] — open the desktop's

@@ -16,7 +16,10 @@ use crate::{
     domain::{
         remote::{Remote, RemoteId, RemoteUsage},
         run_state::RunState,
-        sync::{Conflict, NestedFilter, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId},
+        sync::{
+            Conflict, NestedFilter, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId,
+            SyncMode,
+        },
     },
     icons::CLOUD_FOLDER_OPEN_OUTLINE,
     screens::{
@@ -31,6 +34,7 @@ use crate::{
     widgets::{
         bullet,
         icon::{icon, muted_icon, on_fill_icon, status_icon},
+        segmented::segmented,
         text,
     },
 };
@@ -88,9 +92,16 @@ pub enum Msg {
     OpenConflicts(SyncDirId),
     /// Compact layout: open the drawer with the remotes.
     OpenDrawer,
-    /// Compact layout: open / close the add-folder form, a dialog there.
+    /// Open / close the add-folder dialog.
     OpenAddFolder,
     CloseAddFolder,
+    /// The mode picked in the add-folder dialog.
+    PickAddMode(SyncMode),
+    /// Open / close a folder's settings dialog.
+    OpenFolderSettings(SyncDirId),
+    CloseFolderSettings,
+    /// Change which way a folder syncs.
+    SetSyncMode(SyncDirId, SyncMode),
 }
 
 /// What the user is about to delete, pending confirmation. Stored at the app level and rendered by [`confirm_delete_overlay`].
@@ -126,16 +137,13 @@ pub struct Page<'a> {
     /// The device has no network; nothing is scheduled until it has.
     pub device_offline: bool,
     pub dirs: Vec<Folder<'a>>,
-    pub draft_local: &'a str,
-    pub draft_remote: &'a str,
-    pub add_error: Option<&'a str>,
     /// Google Drive remote still on rclone's retiring shared OAuth client.
     pub shared_oauth_client: bool,
     /// Space at the provider, as last fetched at a pass end or when the page opened; `None` while unknown or the backend has no quota.
     pub usage: Option<RemoteUsage>,
     /// Shared files on their way to this remote; they decide the status line while there are any.
     pub uploads: Option<crate::engine::UploadStatus>,
-    /// Phone layout: a top bar with icon buttons, and the add-folder form behind a floating button.
+    /// Phone layout: a top bar with icon buttons.
     pub compact: bool,
 }
 
@@ -277,10 +285,10 @@ pub fn view<'a>(page: Page<'a>) -> Element<'a, Msg> {
     // ── Folders ─────────────────────────────────────────────────────────
     let mut folders = column![section_heading("Folders")].spacing(6);
     if page.dirs.is_empty() {
-        let hint = if compact {
+        let hint = if cfg!(target_os = "android") {
             "No folders yet. Tap + to add one."
         } else {
-            "No folders yet. Add one below to start syncing."
+            "No folders yet. Click + to add one."
         };
         folders = folders.push(
             container(text(hint).size(TEXT).style(theme::muted))
@@ -293,33 +301,26 @@ pub fn view<'a>(page: Page<'a>) -> Element<'a, Msg> {
         folders = folders.push(folder_card(remote, folder));
     }
     body = body.push(under_strip(&mut strip, folders));
-    if compact {
-        // Room for the floating button below the last folder.
-        body = body.push(Space::new().height(Length::Fixed(64.0)));
-        let fab = button(on_fill_icon(icondata::TbPlusOutline, 24.0))
+    // Room for the floating button below the last folder.
+    body = body.push(Space::new().height(Length::Fixed(64.0)));
+    let fab = tip_left(
+        button(on_fill_icon(icondata::TbPlusOutline, 24.0))
             .padding(16)
             .style(theme::fab)
-            .on_press(Msg::OpenAddFolder);
-        return stack![
-            frame(header, body, true),
-            container(fab)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .padding(16)
-                .align_right(Length::Fill)
-                .align_bottom(Length::Fill),
-        ]
-        .into();
-    }
-    body = body.push(add_folder_card(
-        remote,
-        page.draft_local,
-        page.draft_remote,
-        page.add_error,
-        false,
-    ));
-
-    frame(header, body, false)
+            .on_press(Msg::OpenAddFolder),
+        "Add a folder",
+    );
+    let fab_padding = if compact { 16.0 } else { PAGE_PADDING };
+    stack![
+        frame(header, body, compact),
+        container(fab)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(fab_padding)
+            .align_right(Length::Fill)
+            .align_bottom(Length::Fill),
+    ]
+    .into()
 }
 
 /// Top bar of the compact layout: the drawer button, the remote with its status, and the actions as icons.
@@ -384,22 +385,126 @@ fn compact_header<'a>(page: &Page<'a>) -> Element<'a, Msg> {
     .into()
 }
 
-/// The add-folder form as a dialog, for the compact layout.
+/// The add-folder dialog: the mode, and where the folder is on both sides.
 pub fn add_folder_dialog<'a>(
     remote: &'a Remote,
+    mode: SyncMode,
     draft_local: &'a str,
     draft_remote: &'a str,
     error: Option<&'a str>,
+    compact: bool,
 ) -> Element<'a, Msg> {
-    container(add_folder_card(
+    container(add_folder_form(
         remote,
+        mode,
         draft_local,
         draft_remote,
         error,
-        true,
+        compact,
     ))
-    .padding(COMPACT_PADDING)
-    .max_width(520)
+    .padding(if compact { 16 } else { 22 })
+    .max_width(620)
+    .style(theme::dialog)
+    .into()
+}
+
+/// The arrow standing for a mode: both ways, or from this device to the remote and back.
+pub fn mode_glyph(mode: SyncMode) -> icondata::Icon {
+    match mode {
+        SyncMode::TwoWay => icondata::TbArrowsLeftRightOutline,
+        SyncMode::Upload => icondata::TbArrowRightOutline,
+        SyncMode::Download => icondata::TbArrowLeftOutline,
+    }
+}
+
+/// The modes as a button group with what the chosen one does beneath, as the power mode in Preferences.
+fn mode_choice<'a>(
+    current: Option<SyncMode>,
+    on_pick: impl Fn(SyncMode) -> Msg,
+) -> Element<'a, Msg> {
+    let mut choice =
+        column![segmented(&SyncMode::ALL, SyncMode::label, current, on_pick)].spacing(10);
+    if let Some(mode) = current {
+        let mut points = column![].spacing(4);
+        for &point in mode.points() {
+            points = points.push(bullet(point));
+        }
+        choice = choice.push(points);
+    }
+    choice.into()
+}
+
+/// Settings of one sync folder, laid out like the remote's settings and Preferences: its mode and, on Android, the folders hidden from the gallery.
+pub fn folder_settings_dialog<'a>(sd: &'a SyncDir) -> Element<'a, Msg> {
+    let id = sd.id;
+    let mut rows = column![
+        column![
+            column![
+                text("Mode").size(TEXT),
+                text("Which way changes go between this device and the remote.")
+                    .size(CAPTION)
+                    .style(theme::muted)
+            ]
+            .spacing(2),
+            mode_choice(Some(sd.mode), move |mode| Msg::SetSyncMode(id, mode)),
+        ]
+        .spacing(10)
+        .padding([12, 14])
+    ];
+    if crate::services::nomedia::APPLIES {
+        rows = rows.push(rule::horizontal(1).style(theme::separator));
+        rows = rows.push(setting_row(
+            "Hidden folders",
+            "Sub-folders kept out of the gallery and other media apps.",
+            button(text("Hide…").size(TEXT))
+                .padding([6, 14])
+                .style(theme::button_secondary)
+                .on_press(Msg::BrowseHidden(id))
+                .into(),
+        ));
+    }
+    let card = container(
+        column![
+            text(format!("Settings for {}", fmt_home(&sd.local_path)))
+                .size(HEADING + 2.0)
+                .wrapping(Wrapping::WordOrGlyph),
+            container(rows)
+                .padding([2, 0])
+                .width(Length::Fill)
+                .style(theme::card),
+            row![
+                Space::new().width(Length::Fill),
+                button(text("Close").size(TEXT))
+                    .padding([6, 16])
+                    .style(theme::button_secondary)
+                    .on_press(Msg::CloseFolderSettings),
+            ],
+        ]
+        .spacing(16),
+    )
+    .padding(22)
+    .max_width(620)
+    .style(theme::dialog);
+    modal(card.into(), Some(Msg::CloseFolderSettings))
+}
+
+/// A labelled row as in the remote's settings.
+fn setting_row<'a>(title: &'a str, detail: &'a str, control: Element<'a, Msg>) -> Element<'a, Msg> {
+    row![
+        column![
+            text(title).size(TEXT),
+            text(detail)
+                .size(CAPTION)
+                .style(theme::muted)
+                .wrapping(Wrapping::WordOrGlyph)
+        ]
+        .spacing(2)
+        .width(Length::Fill),
+        control
+    ]
+    .spacing(16)
+    .padding([12, 14])
+    .align_y(Alignment::Center)
     .into()
 }
 
@@ -571,7 +676,7 @@ fn status_line(page: &Page<'_>) -> String {
         RunState::Paused => "Paused — automatic sync is off".to_owned(),
         RunState::Syncing(_) => status_label(page.state).to_owned(),
         _ if page.syncing => "Syncing…".to_owned(),
-        _ if page.dirs.is_empty() => format!("{NO_FOLDERS} — add one below to start syncing"),
+        _ if page.dirs.is_empty() => format!("{NO_FOLDERS} — add one with + to start syncing"),
         RunState::Held => "Held — the network is metered".to_owned(),
         RunState::Offline if page.device_offline => "Offline — waiting for a connection".to_owned(),
         RunState::Offline => next("Offline — couldn't reach the provider"),
@@ -693,7 +798,7 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
                 .size(TEXT)
                 .wrapping(Wrapping::WordOrGlyph),
             row![
-                muted_icon(icondata::TbArrowsLeftRightOutline, 12.0),
+                muted_icon(mode_glyph(sd.mode), 12.0),
                 text(format!("{}:{remote_display}", remote.name))
                     .size(CAPTION)
                     .style(theme::muted)
@@ -805,7 +910,7 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         .into()
 }
 
-/// The folder card's buttons, all square and of one size: on Android open in the file manager beside a 2 × 2 grid of hide and delete over exclusions and the log; on the desktop, without hide, all in one row.
+/// The folder card's buttons, all square and of one size: on Android open in the file manager beside a 2 × 2 grid of settings and delete over exclusions and the log; on the desktop all in one row, settings second.
 fn folder_actions<'a>(
     remote: &'a Remote,
     sd: &'a SyncDir,
@@ -875,21 +980,21 @@ fn folder_actions<'a>(
             .on_press(Msg::ToggleLog(sd.id)),
         "Activity log",
     );
-    if !crate::services::nomedia::APPLIES {
-        return row![open, exclusions, log, delete]
+    let settings = with_tip(
+        square(icon(icondata::TbSettingsOutline, icon_size).into())
+            .style(theme::button_toggle(false))
+            .on_press(Msg::OpenFolderSettings(sd.id)),
+        "Folder settings",
+    );
+    if !android {
+        return row![open, settings, exclusions, log, delete]
             .spacing(6)
             .align_y(Alignment::Center)
             .into();
     }
-    let hide = with_tip(
-        square(icon(icondata::TbEyeOffOutline, icon_size).into())
-            .style(theme::button_toggle(false))
-            .on_press(Msg::BrowseHidden(sd.id)),
-        "Hide from the gallery",
-    );
     row![
         open,
-        column![hide, exclusions].spacing(6),
+        column![settings, exclusions].spacing(6),
         column![delete, log].spacing(6)
     ]
     .spacing(6)
@@ -904,6 +1009,18 @@ fn with_tip<'a>(content: impl Into<Element<'a, Msg>>, tip: &'a str) -> Element<'
             .padding([4, 8])
             .style(theme::card),
         tooltip::Position::Top,
+    )
+    .into()
+}
+
+/// [`with_tip`] for the floating button in the corner, whose tip has room only to its left.
+fn tip_left<'a>(content: impl Into<Element<'a, Msg>>, tip: &'a str) -> Element<'a, Msg> {
+    tooltip(
+        content,
+        container(text(tip).size(CAPTION))
+            .padding([4, 8])
+            .style(theme::card),
+        tooltip::Position::Left,
     )
     .into()
 }
@@ -1155,8 +1272,10 @@ fn browse_button<'a>(
     .into()
 }
 
-fn add_folder_card<'a>(
+/// The add-folder dialog's second step: where the folder is on both sides.
+fn add_folder_form<'a>(
     remote: &'a Remote,
+    mode: SyncMode,
     draft_local: &'a str,
     draft_remote: &'a str,
     error: Option<&'a str>,
@@ -1181,6 +1300,24 @@ fn add_folder_card<'a>(
             .into()
         }
     };
+    // Like the other fields, but the label stays at the top beside the button group and its points.
+    let mode_field: Element<'a, Msg> = if compact {
+        column![
+            text("Mode").size(CAPTION).style(theme::muted),
+            mode_choice(Some(mode), Msg::PickAddMode)
+        ]
+        .spacing(4)
+        .into()
+    } else {
+        row![
+            container(text("Mode").size(TEXT))
+                .padding([6, 0])
+                .width(Length::Fixed(FORM_LABEL_WIDTH)),
+            mode_choice(Some(mode), Msg::PickAddMode)
+        ]
+        .spacing(ROW_SPACING)
+        .into()
+    };
     let local_example = if cfg!(target_os = "android") {
         "e.g. /storage/emulated/0/Documents"
     } else {
@@ -1188,7 +1325,8 @@ fn add_folder_card<'a>(
     };
 
     let mut col = column![
-        text("Add a folder").size(TEXT),
+        text("Add a folder").size(HEADING + 2.0),
+        mode_field,
         field(
             format!("On {}", crate::util::THIS_DEVICE),
             row![
@@ -1230,42 +1368,31 @@ fn add_folder_card<'a>(
             .into(),
         ),
     ]
-    .spacing(10);
+    .spacing(12);
 
     if let Some(err) = error {
         col = col.push(text(err).size(CAPTION).style(theme::danger_text));
     }
 
-    let mut buttons = row![
-        text("Missing folders are created on both sides.")
-            .size(CAPTION)
-            .style(theme::muted)
-            .width(Length::Fill)
-    ]
-    .spacing(ROW_SPACING)
-    .align_y(Alignment::Center);
-    if compact {
-        buttons = buttons.push(
+    col = col.push(
+        row![
+            text("Missing folders are created on both sides.")
+                .size(CAPTION)
+                .style(theme::muted)
+                .width(Length::Fill),
             button(text("Cancel").size(TEXT))
                 .padding([6, 14])
                 .style(theme::button_secondary)
                 .on_press(Msg::CloseAddFolder),
-        );
-    }
-    col = col.push(
-        buttons.push(
             button(text("Add folder").size(TEXT))
                 .padding([6, 14])
                 .style(theme::button_primary)
                 .on_press_maybe(can_add.then_some(Msg::AddSyncDir)),
-        ),
+        ]
+        .spacing(ROW_SPACING)
+        .align_y(Alignment::Center),
     );
-
-    container(col)
-        .padding([12, 14])
-        .width(Length::Fill)
-        .style(theme::card)
-        .into()
+    col.into()
 }
 
 /// Settings dialog of a remote, shown over the page like the Add remote dialog.
