@@ -483,28 +483,19 @@ impl SyncativeApp {
         let repo = self.repo.clone();
         let sd = self.all_known_sync_dirs.iter().find(|d| d.id == sd_id);
         let local_root = sd.map(|d| d.local_path.clone());
-        let auto: Vec<String> = sd
-            .map(|sd| {
-                remote_page_auto_excluded(sd, &self.all_known_sync_dirs)
-                    .into_iter()
-                    .map(|d| sd.relative(&d.remote_path).to_owned())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut auto: Vec<String> = Vec::new();
         // Where each nested folder's symlink belongs, to tell whether it is still there.
-        let link_places: HashMap<SyncDirId, (std::path::PathBuf, std::path::PathBuf)> = sd
-            .map(|sd| {
-                remote_page_auto_excluded(sd, &self.all_known_sync_dirs)
-                    .into_iter()
-                    .map(|d| {
-                        (
-                            d.id,
-                            (nested_link::location(sd, d), d.local_path.clone().into()),
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut link_places: HashMap<SyncDirId, (std::path::PathBuf, std::path::PathBuf)> =
+            HashMap::new();
+        if let Some(sd) = sd {
+            for d in remote_page_auto_excluded(sd, &self.all_known_sync_dirs) {
+                auto.push(sd.relative(&d.remote_path).to_owned());
+                link_places.insert(
+                    d.id,
+                    (nested_link::location(sd, d), d.local_path.clone().into()),
+                );
+            }
+        }
         Task::perform(
             async move {
                 change(repo.clone()).await;
@@ -518,7 +509,8 @@ impl SyncativeApp {
                             .is_some_and(|(at, target)| nested_link::points_to(at, target))
                 });
                 let mut counts = HashMap::new();
-                if let Some(root) = local_root {
+                // Without exclusions there is nothing to count, and no need to load every row of the folder.
+                if let Some(root) = local_root.filter(|_| !excls.is_empty() || !auto.is_empty()) {
                     let items = repo.list_sync_items(sd_id).await.unwrap_or_default();
                     for relative in excls.iter().map(|e| &e.remote_path).chain(&auto) {
                         let n = leftovers::count(&items, &format!("{root}/{relative}"));
