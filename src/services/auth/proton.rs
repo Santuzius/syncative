@@ -83,7 +83,7 @@ pub fn add_proton_drive_remote(
 
     router.register(
         name.to_owned(),
-        Arc::new(NativeProtonClient::for_remote(id, cred.uid)),
+        Arc::new(NativeProtonClient::new(cred.uid)),
     );
     Ok(id)
 }
@@ -102,7 +102,6 @@ pub fn reauth_proton_drive_remote(
     mailbox_password: &str,
     totp: &str,
     hv: Option<&HumanVerification>,
-    id: Option<RemoteId>,
     router: &ClientRouter,
 ) -> Result<(), String> {
     let params = login_params(username, password, mailbox_password, totp, hv);
@@ -110,11 +109,7 @@ pub fn reauth_proton_drive_remote(
 
     persist_session_to_keyring(name, &cred.uid)?;
 
-    let client = match id {
-        Some(id) => NativeProtonClient::for_remote(id, cred.uid),
-        None => NativeProtonClient::new(cred.uid),
-    };
-    router.register(name.to_owned(), Arc::new(client));
+    router.register(name.to_owned(), Arc::new(NativeProtonClient::new(cred.uid)));
     Ok(())
 }
 

@@ -6,6 +6,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::Path,
+    sync::Arc,
     time::SystemTime,
 };
 
@@ -31,7 +32,8 @@ pub(super) struct LocalEntry {
 /// Combined snapshot of the three views the planner reasons against:
 /// remote listing, local walk, and tracked DB rows.
 pub(super) struct Snapshot {
-    pub remote: HashMap<String, RemoteItem>,
+    /// Shared with the backend for the pass, see [`BackendClient::use_listing`].
+    pub remote: Arc<HashMap<String, RemoteItem>>,
     pub local: HashMap<String, LocalEntry>,
     pub db: HashMap<String, SyncItem>,
     /// Remote-key paths whose local walk hit an I/O error (read_dir,
@@ -140,7 +142,7 @@ impl Snapshot {
         let (local, walk_unreliable, walk_denied, local_links) = walk_local(sync_dir, &excluded_local_prefixes);
 
         Ok(Snapshot {
-            remote,
+            remote: Arc::new(remote),
             local,
             db,
             walk_unreliable,

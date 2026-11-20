@@ -91,9 +91,6 @@ type Session struct {
 	signatureAddress string
 	volumeID         string
 
-	// Listings answered from memory while the volume's event log shows no change (see events.go).
-	listings listingCache
-
 	// Caches — link metadata and decrypted keyrings. Populated
 	// lazily by getLink / linkKR / ListDirectory. Avoids redundant
 	// API round-trips during recursive listings where each folder
@@ -442,7 +439,6 @@ func LoadCredential(path string) (ReusableCredential, error) {
 // Close tears down the session's clients and wipes unlocked keyrings
 // from memory. Safe to call multiple times.
 func (s *Session) Close() {
-	s.stopSavingListings(false)
 	if s.userKR != nil {
 		s.userKR.ClearPrivateParams()
 		s.userKR = nil
@@ -461,7 +457,6 @@ func (s *Session) Close() {
 	s.rootLink = nil
 	s.linkCache = nil
 	s.krCache = nil
-	s.invalidateListings()
 	if s.c != nil {
 		s.c.Close()
 		s.c = nil
@@ -479,7 +474,6 @@ func (s *Session) Logout(ctx context.Context) error {
 		return nil
 	}
 	err := s.c.AuthDelete(ctx)
-	s.stopSavingListings(true)
 	s.Close()
 	return err
 }

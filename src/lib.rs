@@ -27,7 +27,7 @@ use crate::{
         client_router::ClientRouter,
         persistence::{
             self,
-            migrations::{celeste_to_syncative, legacy_config_dir, Migrator, MigratorTrait},
+            migrations::{celeste_to_syncative, legacy_config_dir, proton_listings_file, Migrator, MigratorTrait},
             repository::SeaOrmRepository,
         },
         proton::client::NativeProtonClient,
@@ -117,6 +117,7 @@ fn set_up() -> Option<Services> {
     }
 
     legacy_config_dir::run(&data_dir);
+    proton_listings_file::run(&data_dir);
     #[cfg(not(target_os = "android"))]
     celeste_to_syncative::move_autostart_entry();
     services::autostart::refresh();
@@ -339,14 +340,14 @@ fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
         if !services::network::online() {
             let reason = format!("Proton Drive session for '{}' not resumed yet (network is unreachable). Retrying automatically — no action needed.", remote.name);
             eprintln!("syncative: {reason}");
-            router.register(remote.name.clone(), Arc::new(PendingProtonClient::new(remote.id, remote.name.clone(), reason)));
+            router.register(remote.name.clone(), Arc::new(PendingProtonClient::new(remote.name.clone(), reason)));
             continue;
         }
         match crate::services::auth::resume_proton_session(&remote.name) {
             Ok(Some(cred)) => {
                 router.register(
                     remote.name.clone(),
-                    Arc::new(NativeProtonClient::for_remote(remote.id, cred.uid)),
+                    Arc::new(NativeProtonClient::new(cred.uid)),
                 );
                 eprintln!(
                     "syncative: native-proton session resumed for '{}'.",
@@ -393,7 +394,7 @@ fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
                 eprintln!("syncative: {reason}");
                 router.register(
                     remote.name.clone(),
-                    Arc::new(PendingProtonClient::new(remote.id, remote.name.clone(), reason)),
+                    Arc::new(PendingProtonClient::new(remote.name.clone(), reason)),
                 );
             }
         }

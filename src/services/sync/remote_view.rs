@@ -77,7 +77,19 @@ pub(super) fn build(
                 Err(Problem::Failed(err)) => return Err(err),
             }
         }
-        (Changes::Unknown { cursor }, _) => (by_path(list()?), Next::Listed { cursor }),
+        (Changes::Unknown { cursor }, usable) => {
+            // Backends with a change source list only now and then, so say why; the others list on every pass.
+            if cursor.is_some() {
+                let why = match (&stored, usable) {
+                    (_, Some(_)) => "the change source can't tell what changed",
+                    (None, None) => "no earlier pass matched the database",
+                    (Some(c), None) if c.filter != filter => "other parts of it are left out now",
+                    (Some(_), None) => "the last full listing is too old, or rows lack details",
+                };
+                eprintln!("sync: '{}' lists the remote folder: {why}.", sync_dir.remote_path);
+            }
+            (by_path(list()?), Next::Listed { cursor })
+        }
         // A backend answering without a cursor to compare against: nothing to rely on.
         (_, None) => (by_path(list()?), Next::Listed { cursor: None }),
     };
@@ -202,6 +214,10 @@ fn apply(
     let by_id = changes.iter().any(|c| matches!(c, RemoteChange::Item { .. } | RemoteChange::Gone(_)));
     if by_id {
         let root_id = root_id.ok_or_else(|| Problem::ListInstead("the backend named no ID for the folder".to_owned()))?;
+        // Rows from before IDs were recorded can't be matched to changes naming items by ID.
+        if items.values().any(|item| item.id.is_none()) {
+            return Err(Problem::ListInstead("the database lacks the provider's IDs".to_owned()));
+        }
         let mut paths: HashMap<String, String> = items.iter().filter_map(|(path, item)| Some((item.id.clone()?, path.clone()))).collect();
         for change in changes {
             match change {
@@ -310,11 +326,8 @@ impl Walk<'_> {
         for item in fresh {
             let old = items.get(&item.path).map(|old| (old.is_dir, old.tag.clone()));
             match old {
-                Some((true, old_tag)) if item.is_dir => {
-                    if item.tag.is_some() && item.tag != old_tag {
-                        self.refresh(items, &item.path, root)?;
-                    }
-                }
+                Some((true, old_tag)) if item.is_dir && item.tag.is_some() && item.tag != old_tag => self.refresh(items, &item.path, root)?,
+                Some((true, _)) if item.is_dir => {}
                 Some((true, _)) => remove_subtree(items, &item.path),
                 _ if item.is_dir => {
                     items.remove(&item.path);

@@ -12,9 +12,9 @@ package drive
 //      RevisionMetadata. For single-account usage (our case) the
 //      owner's default address keyring is always the correct
 //      verifier, which is what we pass.
-//   2. Child links fetched during listings are cached on the Session's
-//      linkCache so that recursive listings and subsequent getLink /
-//      linkKR calls hit the cache instead of re-fetching each link
+//   2. Folder links fetched during listings are cached on the Session's
+//      linkCache so that recursive listings and subsequent linkKR
+//      calls hit the cache instead of re-fetching each link
 //      individually.
 //
 // Bridge's original `folder.go::ListDirectory` filters out
@@ -101,14 +101,7 @@ func (s *Session) ListDirectory(ctx context.Context, folderLinkID string) ([]*En
 	if folderLinkID == "" {
 		folderLinkID = s.RootLinkID()
 	}
-	if out, ok := s.cachedListing(ctx, false, folderLinkID); ok {
-		return out, nil
-	}
-	out, err := s.listDirectory(ctx, folderLinkID)
-	if err == nil {
-		s.storeListing(false, folderLinkID, out)
-	}
-	return out, err
+	return s.listDirectory(ctx, folderLinkID)
 }
 
 func (s *Session) listDirectory(ctx context.Context, folderLinkID string) ([]*Entry, error) {
@@ -135,9 +128,10 @@ func (s *Session) listDirectory(ctx context.Context, folderLinkID string) ([]*En
 	out := make([]*Entry, 0, len(childrenLinks))
 	for i := range childrenLinks {
 		child := &childrenLinks[i]
-		// Cache every child's link metadata so recursive listings
-		// hit the cache instead of re-fetching each link individually.
-		s.linkCache[child.LinkID] = *child
+		// Folders' links are needed again for their keyrings; files' are fetched when a file is worked on, so a large folder doesn't stay in memory.
+		if child.Type == proton.LinkTypeFolder {
+			s.linkCache[child.LinkID] = *child
+		}
 		if child.State != proton.LinkStateActive {
 			continue
 		}
@@ -250,14 +244,7 @@ func (s *Session) ListRecursive(ctx context.Context, rootLinkID string) ([]*Entr
 	if rootLinkID == "" {
 		rootLinkID = s.RootLinkID()
 	}
-	if out, ok := s.cachedListing(ctx, true, rootLinkID); ok {
-		return out, nil
-	}
-	out, err := s.listRecursive(ctx, rootLinkID)
-	if err == nil {
-		s.storeListing(true, rootLinkID, out)
-	}
-	return out, err
+	return s.listRecursive(ctx, rootLinkID)
 }
 
 func (s *Session) listRecursive(ctx context.Context, rootLinkID string) ([]*Entry, error) {
@@ -346,10 +333,12 @@ func (s *Session) listRecursive(ctx context.Context, rootLinkID string) ([]*Entr
 
 	// ── Phase 2: sequential decrypt + path assembly ─────────────
 
-	// Cache all fetched links.
+	// Cache the folders' links, needed for their keyrings; files' are fetched when a file is worked on, so the tree doesn't stay in memory.
 	for _, children := range results {
 		for i := range children {
-			s.linkCache[children[i].LinkID] = children[i]
+			if children[i].Type == proton.LinkTypeFolder {
+				s.linkCache[children[i].LinkID] = children[i]
+			}
 		}
 	}
 

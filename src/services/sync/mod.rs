@@ -154,6 +154,10 @@ where
         }
     };
 
+    // The backend finds items by path in this pass's listing until the pass ends.
+    client.use_listing(&remote.name, Some(snapshot.remote.clone()));
+    let _listing_in_use = ListingInUse { client, remote: &remote.name };
+
     // A directory Syncative may not read hides everything below it, which would look deleted or never synced. Do nothing for this folder until a later pass can read it all.
     if let Some(dir) = &snapshot.walk_denied {
         eprintln!("sync: STOP for '{}' — not allowed to read '{dir}'; nothing is synced until a pass can read the whole folder.", sync_dir.local_path);
@@ -244,6 +248,18 @@ where
     }
     emit_state(RunState::Synced);
     Outcome::Synced
+}
+
+/// Takes the pass's listing back from the backend when the pass ends, whichever way.
+struct ListingInUse<'a> {
+    client: &'a dyn BackendClient,
+    remote: &'a str,
+}
+
+impl Drop for ListingInUse<'_> {
+    fn drop(&mut self) {
+        self.client.use_listing(self.remote, None);
+    }
 }
 
 /// What a pass is about to do, e.g. "To do: 2 to upload, 714 to compare." Bookkeeping actions are left out.

@@ -96,27 +96,13 @@ func (s *Session) CreateFolder(ctx context.Context, parentLinkID, name string) (
 		// return its link ID, making CreateFolder idempotent.
 		var apiErr *proton.APIError
 		if errors.As(err, &apiErr) && apiErr.Code == codeAlreadyExists {
-			// The cached listing missed it, so it is out of date.
-			s.invalidateListings()
 			existing, lookupErr := s.findChildByName(ctx, parentLink.LinkID, name, true)
 			if lookupErr == nil && existing != "" {
 				return existing, nil
 			}
 		}
-		s.invalidateListings()
 		return "", err
 	}
-	entry, err := s.Stat(ctx, res.ID)
-	if err != nil {
-		entry = nil
-	}
-	s.listingsChangedByUs(parentLink.LinkID, res.ID, entry, false)
-	s.listings.mu.Lock()
-	if s.listings.dirs != nil {
-		// A new folder is empty: listing it costs nothing.
-		s.listings.dirs[res.ID] = []*Entry{}
-	}
-	s.listings.mu.Unlock()
 	return res.ID, nil
 }
 

@@ -40,7 +40,6 @@ pub fn delete_remote(
         // (calling delete_config for a non-rclone remote would just
         // surface a "remote not found" error from librclone).
         auth::forget_proton_session(remote_name)?;
-        crate::infrastructure::proton::client::forget_listings(remote.id);
         return Ok(());
     }
     client.delete_config(remote_name)

@@ -8,6 +8,7 @@
 //! is revisited when the orchestrator actually needs `Arc<dyn Port>`s.
 
 use std::{
+    collections::HashMap,
     future::Future,
     pin::Pin,
     time::Duration,
@@ -282,4 +283,7 @@ pub trait BackendClient: Send + Sync {
     fn full_listing_every(&self, _remote: &str) -> Option<Duration> {
         Some(Duration::from_secs(60 * 60))
     }
+
+    /// The remote listing the running pass works with, so a backend that addresses items by ID (Proton) can find them by path without asking the provider; `None` when the pass ends.
+    fn use_listing(&self, _remote: &str, _listing: Option<Arc<HashMap<String, RemoteItem>>>) {}
 }

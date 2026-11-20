@@ -50,10 +50,8 @@ func (s *Session) TrashLink(ctx context.Context, linkID string) error {
 		return errors.New("link is not active")
 	}
 	if err := s.c.TrashChildren(ctx, s.mainShare.ShareID, link.ParentLinkID, linkID); err != nil {
-		s.invalidateListings()
 		return err
 	}
-	s.listingsChangedByUs(link.ParentLinkID, linkID, nil, true)
 	return nil
 }
 
@@ -74,9 +72,7 @@ func (s *Session) PermanentDeleteLink(ctx context.Context, linkID string) error 
 		return ErrLinkHasNoParent
 	}
 	if err := s.c.DeleteChildren(ctx, s.mainShare.ShareID, link.ParentLinkID, linkID); err != nil {
-		s.invalidateListings()
 		return err
 	}
-	s.listingsChangedByUs(link.ParentLinkID, linkID, nil, true)
 	return nil
 }

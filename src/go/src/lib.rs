@@ -244,22 +244,38 @@ pub mod proton {
         Ok(())
     }
 
-    /// Give session `uid` the file that keeps its listing cache between runs, and load it. Call right after login or resume, before the first listing.
-    pub fn set_listings_file(uid: &str, path: &Path) -> Result<(), String> {
-        invoke_raw(
-            |payload| unsafe { ffi::ProtonDrive_SetListingsFile(payload) },
-            &serde_json::json!({ "uid": uid, "path": path.to_string_lossy() }),
-        )?;
-        Ok(())
+    /// The cursor of the volume's event log as it stands now.
+    pub fn latest_event_id(uid: &str) -> Result<String, String> {
+        call_json::<_, String>(|payload| unsafe { ffi::ProtonDrive_LatestEventID(payload) }, &serde_json::json!({ "uid": uid }))
     }
 
-    /// Delete a listing cache file after its remote was removed; a session still saving to it stops.
-    pub fn forget_listings_file(path: &Path) -> Result<(), String> {
-        invoke_raw(
-            |payload| unsafe { ffi::ProtonDrive_ForgetListingsFile(payload) },
-            &serde_json::json!({ "path": path.to_string_lossy() }),
-        )?;
-        Ok(())
+    /// One link of the volume's event log as it is now (`drive.Change` in src/go/proton/drive/events.go).
+    #[derive(Debug, Clone, serde::Deserialize)]
+    pub struct Change {
+        pub link_id: String,
+        pub parent_link_id: String,
+        #[serde(default)]
+        pub name: String,
+        pub is_dir: bool,
+        pub mod_time_unix: i64,
+        /// Trashed or deleted, with everything below it.
+        pub gone: bool,
+    }
+
+    /// What [`changes_since`] found.
+    #[derive(Debug, Clone, serde::Deserialize)]
+    pub struct Changes {
+        /// Where the event log stands after these changes.
+        pub cursor: String,
+        /// The log can't be followed from the given cursor: list again, from `cursor`.
+        pub relist: bool,
+        #[serde(default)]
+        pub changes: Option<Vec<Change>>,
+    }
+
+    /// The links that changed after event `cursor`, in the log's order.
+    pub fn changes_since(uid: &str, cursor: &str) -> Result<Changes, String> {
+        call_json::<_, Changes>(|payload| unsafe { ffi::ProtonDrive_ChangesSince(payload) }, &serde_json::json!({ "uid": uid, "cursor": cursor }))
     }
 
     /// Close every connection to Proton after a network change: requests cut off by it fail at once instead of waiting for data that never comes, and their retries dial over the new network.

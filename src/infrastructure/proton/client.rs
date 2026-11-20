@@ -8,9 +8,7 @@
 //!   - One remote per Syncative instance. `remote` arg is accepted but only
 //!     logged — every call routes to the single native session this client was
 //!     constructed with.
-//!   - No cache. Each call walks root → target, listing each intermediate
-//!     folder. First-pass good-enough for a known small sync tree; later
-//!     optimise with a linkID cache keyed by remote_path.
+//!   - Paths become link IDs through the pass's own remote listing ([`BackendClient::use_listing`]), which carries every item's link ID, and the IDs of what the pass created; anything else walks from the deepest known folder, listing each folder below it.
 //!   - `ListFilter` is honoured (`All` / `Dirs` / `Files`). `recursive` is
 //!     implemented by in-Rust recursion over the native API's non-recursive
 //!     listings — the FFI surface doesn't yet carry a `recursive` flag.
@@ -22,7 +20,12 @@
 //!     rather than an rclone JSON body.
 //!   - `remote_type` returns the fixed string `"native-proton"`.
 
-use std::path::Path;
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use time::OffsetDateTime;
 
@@ -30,42 +33,53 @@ use syncative_go::proton as proton_ffi;
 
 use crate::domain::{
     ports::{BackendClient, Cancel, is_cancelled},
-    remote::{RemoteId, RemoteUsage},
-    sync::{FileDetails, ListFilter, RemoteItem},
+    remote::RemoteUsage,
+    sync::{Changes, FileDetails, ListFilter, RemoteChange, RemoteItem},
 };
-
-/// The file keeping the Proton listing cache of remote `id` between runs. Named by the ID, which stays when the remote is renamed.
-pub fn listings_file(id: RemoteId) -> std::path::PathBuf {
-    crate::util::get_data_dir().join("cache").join(format!("proton-listings-{}.json", id.0))
-}
-
-/// Deletes the listing cache of a removed remote: it holds decrypted file and folder names.
-pub fn forget_listings(id: RemoteId) {
-    if let Err(err) = proton_ffi::forget_listings_file(&listings_file(id)) {
-        eprintln!("syncative: could not remove the Proton listing cache: {err}");
-    }
-}
 
 /// Native ProtonDrive adapter. Owns the session UID the syncative-go
 /// layer returns from `ProtonDrive_Login` / `ProtonDrive_ResumeSession`.
 #[derive(Clone, Debug)]
 pub struct NativeProtonClient {
     uid: String,
+    /// Link IDs by path for the running pass; shared by the clones of one client.
+    known: Arc<Mutex<KnownIds>>,
+}
+
+#[derive(Debug, Default)]
+struct KnownIds {
+    /// The pass's remote listing, see [`BackendClient::use_listing`].
+    listing: Option<Arc<HashMap<String, RemoteItem>>>,
+    /// What the pass created (`Some`) or removed (`None`) since.
+    changed: HashMap<String, Option<String>>,
+}
+
+impl KnownIds {
+    /// `None` when the path's ID isn't known; `Some(None)` when the pass removed it.
+    fn id(&self, path: &str) -> Option<Option<String>> {
+        if let Some(changed) = self.changed.get(path) {
+            return Some(changed.clone());
+        }
+        self.listing.as_ref()?.get(path)?.id.clone().map(Some)
+    }
 }
 
 impl NativeProtonClient {
     /// Wrap a UID the caller already got from a `login` / `resume`
     /// call. The session must be registered on the Go side.
     pub fn new(uid: String) -> Self {
-        Self { uid }
+        Self { uid, known: Arc::default() }
     }
 
-    /// Like [`Self::new`], and the session keeps its listing cache in the file of remote `id` between runs.
-    pub fn for_remote(id: RemoteId, uid: String) -> Self {
-        if let Err(err) = proton_ffi::set_listings_file(&uid, &listings_file(id)) {
-            eprintln!("syncative: the Proton listing cache stays in memory only: {err}");
+    fn remember(&self, path: &str, id: Option<String>) {
+        if let Ok(mut known) = self.known.lock() {
+            known.changed.insert(path.trim_matches('/').to_owned(), id);
         }
-        Self::new(uid)
+    }
+
+    /// The cursor for the folder at `path` as the event log stands now: the latest event and the folder's link ID. `None` when the folder is missing.
+    fn fresh_cursor(&self, path: &str, event: String, cancel: &Cancel) -> Result<Option<String>, String> {
+        Ok(self.resolve_path(path, cancel)?.map(|root| format!("{event} {root}")))
     }
 
     pub fn uid(&self) -> &str {
@@ -96,11 +110,30 @@ impl NativeProtonClient {
     /// request indefinitely.
     fn resolve_path(&self, path: &str, cancel: &Cancel) -> Result<Option<String>, String> {
         let trimmed = path.trim_matches('/');
-        if trimmed.is_empty() {
-            return Ok(Some(proton_ffi::root_link_id(&self.uid)?));
+        // The deepest folder on the path whose ID is known, and how much of the path it covers.
+        let known = self.known.lock().ok().and_then(|known| {
+            let mut prefix = trimmed;
+            while !prefix.is_empty() {
+                match known.id(prefix) {
+                    Some(Some(id)) => return Some((id, prefix.len())),
+                    // Removed by this pass: nothing below it either.
+                    Some(None) if prefix == trimmed => return Some((String::new(), prefix.len())),
+                    _ => {}
+                }
+                prefix = prefix.rfind('/').map_or("", |i| &prefix[..i]);
+            }
+            None
+        });
+        let (mut current, covered) = match known {
+            Some((id, _)) if id.is_empty() => return Ok(None),
+            Some(found) => found,
+            None => (proton_ffi::root_link_id(&self.uid)?, 0),
+        };
+        let rest = trimmed[covered..].trim_start_matches('/');
+        if rest.is_empty() {
+            return Ok(Some(current));
         }
-        let mut current = proton_ffi::root_link_id(&self.uid)?;
-        for segment in trimmed.split('/') {
+        for segment in rest.split('/') {
             if is_cancelled(cancel) {
                 return Err("cancelled".to_owned());
             }
@@ -288,7 +321,10 @@ impl BackendClient for NativeProtonClient {
             use crate::infrastructure::translators::proton::ProtonTranslator;
             let (parent, name) = self.resolve_parent(path, cancel)?;
             match proton_ffi::create_folder(&self.uid, &parent, &name) {
-                Ok(_) => Ok(()),
+                Ok(id) => {
+                    self.remember(path, Some(id));
+                    Ok(())
+                }
                 Err(e) => match ProtonTranslator.classify(Operation::Mkdir, &e) {
                     BackendEvent::AlreadyExists => Ok(()),
                     _ => Err(e),
@@ -304,7 +340,9 @@ impl BackendClient for NativeProtonClient {
             let Some(link_id) = self.resolve_path(path, cancel)? else {
                 return Err(format!("path '{path}' not found on remote"));
             };
-            proton_ffi::trash_link(&self.uid, &link_id)
+            proton_ffi::trash_link(&self.uid, &link_id)?;
+            self.remember(path, None);
+            Ok(())
         })();
         self.checkpoint_session(remote);
         result
@@ -325,7 +363,8 @@ impl BackendClient for NativeProtonClient {
     ) -> Result<(), String> {
         let result = (|| -> Result<(), String> {
             let (parent, name) = self.resolve_parent(remote_path, cancel)?;
-            proton_ffi::upload_file(&self.uid, &parent, &name, Path::new(local_path))?;
+            let id = proton_ffi::upload_file(&self.uid, &parent, &name, Path::new(local_path))?;
+            self.remember(remote_path, Some(id));
             Ok(())
         })();
         self.checkpoint_session(remote);
@@ -363,6 +402,56 @@ impl BackendClient for NativeProtonClient {
         Ok(Some("native-proton".to_owned()))
     }
 
+    /// From the volume's event log. The cursor is the last event seen and the sync folder's link ID, so changes naming their folder by ID can be placed.
+    fn changes(&self, remote: &str, path: &str, cursor: Option<&str>, cancel: &Cancel) -> Result<Changes, String> {
+        let result = (|| -> Result<Changes, String> {
+            let Some((event, root)) = cursor.and_then(|c| c.split_once(' ')) else {
+                // Before the listing, so a change during it shows up next time.
+                let event = proton_ffi::latest_event_id(&self.uid)?;
+                return Ok(Changes::Unknown { cursor: self.fresh_cursor(path, event, cancel)? });
+            };
+            let found = proton_ffi::changes_since(&self.uid, event)?;
+            if found.relist {
+                return Ok(Changes::Unknown { cursor: self.fresh_cursor(path, found.cursor, cancel)? });
+            }
+            let changes = found.changes.unwrap_or_default();
+            if changes.is_empty() && found.cursor == event {
+                return Ok(Changes::None);
+            }
+            let changes = changes
+                .into_iter()
+                .map(|c| {
+                    if c.gone {
+                        RemoteChange::Gone(c.link_id)
+                    } else {
+                        RemoteChange::Item {
+                            id: c.link_id,
+                            parent_id: c.parent_link_id,
+                            name: c.name,
+                            is_dir: c.is_dir,
+                            mod_time: OffsetDateTime::from_unix_timestamp(c.mod_time_unix).unwrap_or(OffsetDateTime::UNIX_EPOCH),
+                        }
+                    }
+                })
+                .collect();
+            Ok(Changes::Some { cursor: format!("{} {root}", found.cursor), root_id: Some(root.to_owned()), changes })
+        })();
+        self.checkpoint_session(remote);
+        result
+    }
+
+    /// The event log misses nothing, and Proton asks clients not to walk the tree on a timer.
+    fn full_listing_every(&self, _remote: &str) -> Option<Duration> {
+        None
+    }
+
+    fn use_listing(&self, _remote: &str, listing: Option<Arc<HashMap<String, RemoteItem>>>) {
+        if let Ok(mut known) = self.known.lock() {
+            known.changed.clear();
+            known.listing = listing;
+        }
+    }
+
     /// The account-wide quota: one plan pools Mail, Drive and Calendar, so the numbers shown are the whole account's.
     fn usage(&self, remote: &str, _cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {
         let quota = proton_ffi::quota(&self.uid);
@@ -388,7 +477,6 @@ impl BackendClient for NativeProtonClient {
 /// [`NativeProtonClient`] the moment it succeeds. A genuine auth
 /// failure discovered on retry latches into the reauth message instead.
 pub struct PendingProtonClient {
-    remote_id: RemoteId,
     remote_name: String,
     state: std::sync::Mutex<PendingState>,
 }
@@ -411,9 +499,8 @@ enum PendingState {
 impl PendingProtonClient {
     /// `reason` is the initial startup failure, surfaced to callers
     /// until the first retry is due.
-    pub fn new(remote_id: RemoteId, remote_name: String, reason: String) -> Self {
+    pub fn new(remote_name: String, reason: String) -> Self {
         Self {
-            remote_id,
             remote_name,
             state: std::sync::Mutex::new(PendingState::Waiting {
                 last_attempt: None,
@@ -455,7 +542,7 @@ impl PendingProtonClient {
                     "syncative: native-proton session for '{}' resumed on retry.",
                     self.remote_name,
                 );
-                let client = NativeProtonClient::for_remote(self.remote_id, cred.uid);
+                let client = NativeProtonClient::new(cred.uid);
                 *state = PendingState::Live(client.clone());
                 Ok(client)
             }
@@ -567,6 +654,17 @@ impl BackendClient for PendingProtonClient {
     fn usage(&self, remote: &str, cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {
         self.resolve()?.usage(remote, cancel)
     }
+    fn changes(&self, remote: &str, path: &str, cursor: Option<&str>, cancel: &Cancel) -> Result<Changes, String> {
+        self.resolve()?.changes(remote, path, cursor, cancel)
+    }
+    fn full_listing_every(&self, _remote: &str) -> Option<Duration> {
+        None
+    }
+    fn use_listing(&self, remote: &str, listing: Option<Arc<HashMap<String, RemoteItem>>>) {
+        if let Ok(client) = self.resolve() {
+            client.use_listing(remote, listing);
+        }
+    }
 }
 
 /// Sentence every [`DisabledProtonClient`] reason ends with. The Proton
@@ -653,3 +751,4 @@ impl BackendClient for DisabledProtonClient {
         true
     }
 }
+

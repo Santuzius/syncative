@@ -95,13 +95,12 @@ func ProtonDrive_SetAppVersion(paramsJSON *C.char) *C.char {
 	return okResult(nil)
 }
 
-// ProtonDrive_SetListingsFile gives a session the file that keeps its listing cache between runs and loads it. Input `{"uid":"...","path":"..."}`; call right after login or resume, before the first listing.
+// ProtonDrive_LatestEventID returns the cursor of the volume's event log as it stands now. Input `{"uid":"..."}`; result data is the event ID.
 //
-//export ProtonDrive_SetListingsFile
-func ProtonDrive_SetListingsFile(paramsJSON *C.char) *C.char {
+//export ProtonDrive_LatestEventID
+func ProtonDrive_LatestEventID(paramsJSON *C.char) *C.char {
 	var p struct {
-		UID  string `json:"uid"`
-		Path string `json:"path"`
+		UID string `json:"uid"`
 	}
 	if err := json.Unmarshal([]byte(C.GoString(paramsJSON)), &p); err != nil {
 		return errResult(err)
@@ -110,22 +109,33 @@ func ProtonDrive_SetListingsFile(paramsJSON *C.char) *C.char {
 	if err != nil {
 		return errResult(err)
 	}
-	sess.SetListingsFile(p.Path)
-	return okResult(nil)
+	id, err := sess.LatestEventID(context.Background())
+	if err != nil {
+		return errResult(err)
+	}
+	return okResult(id)
 }
 
-// ProtonDrive_ForgetListingsFile deletes a listing cache file after its remote was removed, stopping any session that still saves to it. Input `{"path":"..."}`.
+// ProtonDrive_ChangesSince returns the links that changed after an event of the volume's event log. Input `{"uid":"...","cursor":"..."}`; result data is a `drive.Changes`.
 //
-//export ProtonDrive_ForgetListingsFile
-func ProtonDrive_ForgetListingsFile(paramsJSON *C.char) *C.char {
+//export ProtonDrive_ChangesSince
+func ProtonDrive_ChangesSince(paramsJSON *C.char) *C.char {
 	var p struct {
-		Path string `json:"path"`
+		UID    string `json:"uid"`
+		Cursor string `json:"cursor"`
 	}
 	if err := json.Unmarshal([]byte(C.GoString(paramsJSON)), &p); err != nil {
 		return errResult(err)
 	}
-	drive.ForgetListingsFile(p.Path)
-	return okResult(nil)
+	sess, err := drive.Lookup(p.UID)
+	if err != nil {
+		return errResult(err)
+	}
+	changes, err := sess.ChangesSince(context.Background(), p.Cursor)
+	if err != nil {
+		return errResult(err)
+	}
+	return okResult(changes)
 }
 
 // ProtonDrive_ResetConnections closes every connection to Proton after a network change, so cut-off requests fail at once and retry over the new network.

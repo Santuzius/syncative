@@ -2,6 +2,7 @@ pub use sea_orm_migration::prelude::*;
 
 pub mod celeste_to_syncative;
 pub mod legacy_config_dir;
+pub mod proton_listings_file;
 
 mod m20260419_000001_initial;
 mod m20260421_000001_exclusions;
