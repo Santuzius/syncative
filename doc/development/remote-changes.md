@@ -27,6 +27,11 @@ A sync pass needs the remote state of its folder. Listing it costs one request p
 | Google Drive, Dropbox | the provider's change-log token, asked once per pass through Syncative's rclone fork | the folders holding the paths it reported (`src/go/rclone/changes.go`) | one full listing: rclone names Drive's changes through the folders its backend has listed in this run |
 | Other rclone backends | none | | every pass lists |
 
+Google Drive and Dropbox:
+
+- Every sync folder of a remote asks with its own token. The answers stay in memory by the token they start from (the last 64), so all of them hear the same changes: Drive's backend names a renamed or moved folder's old path only once, since the fork then drops that folder from rclone's folder cache, where its old path would otherwise still lead to it.
+- The change query uses the backend that rclone's cache holds, the one the listings fill. Two callers can create a remote's backend at the same time; then the later one stays in the cache, and the first pass that sees the switch lists once.
+
 More than 64 folders to fetch, a folder without an ETag, the sync folder itself renamed or gone, or a Proton event that can't be read make the pass list in full.
 
 ## Paths and IDs

@@ -75,3 +75,42 @@ func TestChangesStartOverWhenTheCacheHoldsAnotherBackend(t *testing.T) {
 		t.Fatalf("replaced backend: %+v", replaced)
 	}
 }
+
+// renamingLog forgets a folder's old path once it has reported it, as Drive's backend does with its folder cache.
+type renamingLog struct {
+	fakeLog
+	reported bool
+}
+
+func (f *renamingLog) ChangesSince(_ context.Context, notify func(string, fs.EntryType), token string) (string, error) {
+	if token == "t" {
+		if !f.reported {
+			notify("Taxes", fs.EntryDirectory)
+		}
+		f.reported = true
+		notify("Taxes-renamed", fs.EntryDirectory)
+		return "tx", nil
+	}
+	return token, nil
+}
+
+// Every sync folder asking from the same cursor hears the same changes, though the backend could name an old path only once.
+func TestEveryFolderHearsTheSameChanges(t *testing.T) {
+	cache.Put("shared:", &renamingLog{fakeLog: fakeLog{name: "shared"}})
+	ctx := context.Background()
+	start, err := ChangesSince(ctx, "shared", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, folder := range []string{"Notes", "Taxes"} {
+		got, err := ChangesSince(ctx, "shared", start.Cursor)
+		if err != nil || !got.Known || len(got.Changes) != 2 || got.Changes[0].Path != "Taxes" {
+			t.Fatalf("%s: %+v %v", folder, got, err)
+		}
+	}
+	// From the newer cursor nothing is left.
+	later, _ := ChangesSince(ctx, "shared", strings.Replace(start.Cursor, ":t", ":tx", 1))
+	if !later.Known || len(later.Changes) != 0 {
+		t.Fatalf("later: %+v", later)
+	}
+}

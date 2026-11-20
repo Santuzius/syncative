@@ -46,7 +46,48 @@ var (
 	pinned = map[string]fs.Fs{}
 	// forgotten counts per remote how often its backend was dropped or replaced; the successor knows no folders yet.
 	forgotten = map[string]int{}
+	// answers holds per remote the change log's recent answers, see answerLog.
+	answers = map[string]*answerLog{}
 )
+
+// maxAnswers bounds the answers kept per remote; a cursor older than all of them is asked of the provider directly.
+const maxAnswers = 64
+
+// answer is what the change log reported after one cursor, and the cursor after that.
+type answer struct {
+	next    string
+	changes []Changed
+}
+
+// answerLog keeps a remote's recent answers by the cursor they start from. Every sync folder of a remote asks with its own cursor, and asking the provider again for the same stretch of its log would not give the same answer: the first answer updates the backend's folder cache (a renamed folder leaves it), so a later one could no longer name a folder's old path. Its mutex lets one query at a time go to the provider.
+type answerLog struct {
+	sync.Mutex
+	byCursor map[string]answer
+	order    []string
+}
+
+func (l *answerLog) add(cursor string, a answer) {
+	if _, ok := l.byCursor[cursor]; !ok {
+		l.order = append(l.order, cursor)
+	}
+	l.byCursor[cursor] = a
+	if len(l.order) > maxAnswers {
+		delete(l.byCursor, l.order[0])
+		l.order = l.order[1:]
+	}
+}
+
+// answersOf returns `remote`'s answer log, an empty one after its backend changed.
+func answersOf(remote string) *answerLog {
+	mu.Lock()
+	defer mu.Unlock()
+	l, ok := answers[remote]
+	if !ok {
+		l = &answerLog{byCursor: map[string]answer{}}
+		answers[remote] = l
+	}
+	return l
+}
 
 // cursorPrefix marks the cursors that the current backend of `remote` can follow.
 func cursorPrefix(remote string) string {
@@ -87,6 +128,7 @@ func backend(ctx context.Context, remote string) (fs.Fs, error) {
 		cache.Pin(f)
 	case before != f:
 		forgotten[remote]++
+		delete(answers, remote)
 	}
 	pinned[remote] = f
 	return f, nil
@@ -112,16 +154,34 @@ func ChangesSince(ctx context.Context, remote, cursor string) (Changes, error) {
 		return Changes{Supported: true, Cursor: prefix + start}, nil
 	}
 	out := Changes{Supported: true, Known: true}
+	l := answersOf(remote)
+	l.Lock()
+	defer l.Unlock()
+	// Answers given to another sync folder cover the log from this cursor on as far as they reach; the provider is asked only for the rest.
+	for range l.order {
+		a, ok := l.byCursor[cursor]
+		if !ok {
+			break
+		}
+		out.Changes = append(out.Changes, a.changes...)
+		cursor = a.next
+	}
+	token = strings.TrimPrefix(cursor, prefix)
+	var fresh []Changed
 	next, err := log.ChangesSince(ctx, func(path string, kind fs.EntryType) {
-		out.Changes = append(out.Changes, Changed{Path: path, IsDir: kind == fs.EntryDirectory})
+		fresh = append(fresh, Changed{Path: path, IsDir: kind == fs.EntryDirectory})
 	}, token)
 	if err != nil {
 		return Changes{}, fmt.Errorf("change log: %w", err)
 	}
 	if next == "" {
-		// The log gave no position to go on from: start over.
+		// The log gave no position to go on from: start over (without a cursor, which takes no lock).
 		return ChangesSince(ctx, remote, "")
 	}
+	if next != token {
+		l.add(cursor, answer{next: prefix + next, changes: fresh})
+	}
+	out.Changes = append(out.Changes, fresh...)
 	out.Cursor = prefix + next
 	return out, nil
 }
@@ -135,4 +195,5 @@ func Forget(remote string) {
 		delete(pinned, remote)
 	}
 	forgotten[remote]++
+	delete(answers, remote)
 }
