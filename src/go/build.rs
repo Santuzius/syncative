@@ -87,6 +87,8 @@ fn main() {
         .allowlist_function("SyncativeSaveConfig")
         .allowlist_function("ProtonDrive_Version")
         .allowlist_function("ProtonDrive_SetAppVersion")
+        .allowlist_function("ProtonDrive_BindRemote")
+        .allowlist_function("ProtonDrive_UnbindRemote")
         .allowlist_function("ProtonDrive_LatestEventID")
         .allowlist_function("ProtonDrive_ChangesSince")
         .allowlist_function("ProtonDrive_ResetConnections")

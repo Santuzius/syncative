@@ -24,7 +24,8 @@ use super::rpc::{self, BackendListFilter, BackendRemoteItem};
 
 #[derive(Clone)]
 pub struct LibrcloneClient {
-    rclone_config_path: PathBuf,
+    /// `None` for a client that never changes the config, see [`Self::for_backend_calls`].
+    rclone_config_path: Option<PathBuf>,
 }
 
 impl LibrcloneClient {
@@ -32,7 +33,16 @@ impl LibrcloneClient {
     /// to. After every mutation we read the file back from this path
     /// and sync the contents to the keyring.
     pub fn new(rclone_config_path: PathBuf) -> Self {
-        Self { rclone_config_path }
+        Self {
+            rclone_config_path: Some(rclone_config_path),
+        }
+    }
+
+    /// A client for the calls on a remote's files, for remotes whose config isn't in the rclone config file (Proton, see [`crate::infrastructure::proton::client::ProtonClient`]); it leaves the keyring's copy of the config alone.
+    pub fn for_backend_calls() -> Self {
+        Self {
+            rclone_config_path: None,
+        }
     }
 
     /// Push the current on-disk rclone config into the keyring. Logged
@@ -40,12 +50,15 @@ impl LibrcloneClient {
     /// already succeeded; failing the whole call because the keyring
     /// is unhappy would just leave them with a broken UI.
     fn sync_to_keyring(&self) {
-        let body = match std::fs::read_to_string(&self.rclone_config_path) {
+        let Some(path) = &self.rclone_config_path else {
+            return;
+        };
+        let body = match std::fs::read_to_string(path) {
             Ok(body) => body,
             Err(err) => {
                 eprintln!(
                     "syncative: rclone config keyring sync skipped — couldn't read {}: {err}",
-                    self.rclone_config_path.display(),
+                    path.display(),
                 );
                 return;
             }
@@ -62,7 +75,7 @@ fn map_item(item: BackendRemoteItem) -> RemoteItem {
         path: item.path,
         name: item.name,
         mod_time: item.mod_time,
-        id: None,
+        id: item.id.filter(|id| !id.is_empty()),
         tag: None,
     }
 }
@@ -72,6 +85,36 @@ fn map_filter(filter: ListFilter) -> BackendListFilter {
         ListFilter::All => BackendListFilter::All,
         ListFilter::Dirs => BackendListFilter::Dirs,
         ListFilter::Files => BackendListFilter::Files,
+    }
+}
+
+/// [`Changes`] from a log that names items by ID (Proton): each item as it is now, placed by the IDs the database recorded.
+fn changes_by_id(found: syncative_go::Changes, cursor: Option<&str>) -> Changes {
+    let items = found.items.unwrap_or_default();
+    if items.is_empty() && cursor == Some(found.cursor.as_str()) {
+        return Changes::None;
+    }
+    let changes = items
+        .into_iter()
+        .map(|c| {
+            if c.gone {
+                RemoteChange::Gone(c.id)
+            } else {
+                RemoteChange::Item {
+                    id: c.id,
+                    parent_id: c.parent_id,
+                    name: c.name,
+                    is_dir: c.is_dir,
+                    mod_time: time::OffsetDateTime::from_unix_timestamp(c.mod_time_unix)
+                        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH),
+                }
+            }
+        })
+        .collect();
+    Changes::Some {
+        cursor: found.cursor,
+        root_id: Some(found.root_id),
+        changes,
     }
 }
 
@@ -263,15 +306,19 @@ impl BackendClient for LibrcloneClient {
                 return Ok(Changes::Unknown { cursor: None });
             }
         }
-        // Backends with a change log (Google Drive, Dropbox): one request for what changed since the last pass.
-        let found = syncative_go::changes_since(remote, cursor.unwrap_or(""), cancel)?;
+        // Backends with a change log (Google Drive, Dropbox, Proton): one request for what changed since the last pass.
+        let found = syncative_go::changes_since(remote, path, cursor.unwrap_or(""), cancel)?;
         if !found.supported {
             return Ok(Changes::Unknown { cursor: None });
         }
         if !found.known {
+            // No cursor when the folder is missing: the listing tells what that means.
             return Ok(Changes::Unknown {
-                cursor: Some(found.cursor),
+                cursor: (!found.cursor.is_empty()).then_some(found.cursor),
             });
+        }
+        if found.by_id {
+            return Ok(changes_by_id(found, cursor));
         }
         let changed = found.changes.unwrap_or_default();
         // An empty answer with a new cursor: the log moved on outside the synced folders. Store where it stands, or every later pass would fetch those entries again.

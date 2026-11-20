@@ -5,6 +5,7 @@ package rclone
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -27,14 +28,47 @@ type Changed struct {
 	IsDir bool   `json:"is_dir"`
 }
 
+// ItemChange is one change of a log that names items by ID (Proton): the item as it is now.
+type ItemChange struct {
+	ID       string `json:"id"`
+	ParentID string `json:"parent_id"`
+	// Name in rclone's standard encoding, as listings give it.
+	Name        string `json:"name,omitempty"`
+	IsDir       bool   `json:"is_dir"`
+	ModTimeUnix int64  `json:"mod_time_unix"`
+	// Gone: trashed or deleted, with everything below it.
+	Gone bool `json:"gone"`
+}
+
+// ItemChanges is what an itemChangeLog found after an event.
+type ItemChanges struct {
+	// Next is where the log stands after these changes.
+	Next string
+	// Relist: the log can't be followed from the given event; Next is then the latest one.
+	Relist bool
+	Items  []ItemChange
+}
+
+// itemChangeLog is what Syncative's Proton backend (syncative/go/proton/rclonefs) offers: a log of items by ID, kept across restarts.
+type itemChangeLog interface {
+	// ChangesRoot returns the ID of folder `dir`; fs.ErrorDirNotFound when it is missing.
+	ChangesRoot(ctx context.Context, dir string) (string, error)
+	LatestItemEvent(ctx context.Context) (string, error)
+	ItemChangesSince(ctx context.Context, event string) (ItemChanges, error)
+}
+
 // Changes is what one query found.
 type Changes struct {
 	// Supported: the backend has a change log; without one the rest is empty.
 	Supported bool `json:"supported"`
-	// Known: Changes holds everything after the given cursor. False for a cursor of an earlier run or none; Cursor then starts from now.
+	// Known: Changes holds everything after the given cursor. False for a cursor of an earlier run or none; Cursor then starts from now ("" when the folder is missing).
 	Known   bool      `json:"known"`
 	Cursor  string    `json:"cursor"`
 	Changes []Changed `json:"changes"`
+	// ByID: the log names items by ID; Items replaces Changes, and RootID is the ID of the folder asked about.
+	ByID   bool         `json:"by_id,omitempty"`
+	RootID string       `json:"root_id,omitempty"`
+	Items  []ItemChange `json:"items,omitempty"`
 }
 
 // run tells this process's cursors from those of an earlier one: Drive names a change's path through the folders its backend has listed, so after a restart (or Forget) the change log can't be followed until a listing has filled that cache again.
@@ -134,11 +168,14 @@ func backend(ctx context.Context, remote string) (fs.Fs, error) {
 	return f, nil
 }
 
-// ChangesSince asks `remote`'s change log what changed after `cursor` (from an earlier call; "" for none).
-func ChangesSince(ctx context.Context, remote, cursor string) (Changes, error) {
+// ChangesSince asks `remote`'s change log what changed after `cursor` (from an earlier call; "" for none) for the sync folder at `dir`.
+func ChangesSince(ctx context.Context, remote, dir, cursor string) (Changes, error) {
 	f, err := backend(ctx, remote)
 	if err != nil {
 		return Changes{}, err
+	}
+	if log, ok := f.(itemChangeLog); ok {
+		return itemChangesSince(ctx, log, dir, cursor)
 	}
 	log, ok := f.(changeLog)
 	if !ok {
@@ -176,7 +213,7 @@ func ChangesSince(ctx context.Context, remote, cursor string) (Changes, error) {
 	}
 	if next == "" {
 		// The log gave no position to go on from: start over (without a cursor, which takes no lock).
-		return ChangesSince(ctx, remote, "")
+		return ChangesSince(ctx, remote, dir, "")
 	}
 	if next != token {
 		l.add(cursor, answer{next: prefix + next, changes: fresh})
@@ -184,6 +221,37 @@ func ChangesSince(ctx context.Context, remote, cursor string) (Changes, error) {
 	out.Changes = append(out.Changes, fresh...)
 	out.Cursor = prefix + next
 	return out, nil
+}
+
+// itemChangesSince is ChangesSince for a log by ID. Its cursor is the last event seen and the ID of the folder at `dir`, so changes naming their folder by ID can be placed; it stays valid across restarts.
+func itemChangesSince(ctx context.Context, log itemChangeLog, dir, cursor string) (Changes, error) {
+	fresh := func(event string) (Changes, error) {
+		root, err := log.ChangesRoot(ctx, dir)
+		if errors.Is(err, fs.ErrorDirNotFound) {
+			return Changes{Supported: true, ByID: true}, nil
+		}
+		if err != nil {
+			return Changes{}, err
+		}
+		return Changes{Supported: true, ByID: true, Cursor: event + " " + root, RootID: root}, nil
+	}
+	event, root, ok := strings.Cut(cursor, " ")
+	if !ok || event == "" || root == "" {
+		// Before the listing, so a change during it shows up next time.
+		latest, err := log.LatestItemEvent(ctx)
+		if err != nil {
+			return Changes{}, err
+		}
+		return fresh(latest)
+	}
+	found, err := log.ItemChangesSince(ctx, event)
+	if err != nil {
+		return Changes{}, fmt.Errorf("change log: %w", err)
+	}
+	if found.Relist {
+		return fresh(found.Next)
+	}
+	return Changes{Supported: true, Known: true, ByID: true, Cursor: found.Next + " " + root, RootID: root, Items: found.Items}, nil
 }
 
 // Forget drops `remote`'s backend, e.g. after its config was replaced or deleted; the next call creates it anew.

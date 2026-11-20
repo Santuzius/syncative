@@ -110,8 +110,7 @@ func (s *Session) change(ctx context.Context, raw json.RawMessage) (Change, bool
 		return Change{}, false, fmt.Errorf("event %s names no link", string(raw[:min(len(raw), 80)]))
 	}
 	// Keyrings and metadata are fetched anew when next needed: a moved link's key is now encrypted to its new folder.
-	delete(s.linkCache, link.LinkID)
-	delete(s.krCache, link.LinkID)
+	s.forgetLink(link.LinkID)
 	if ev.EventType == proton.LinkEventDelete || link.State != proton.LinkStateActive {
 		return Change{LinkID: link.LinkID, ParentLinkID: link.ParentLinkID, Gone: true}, true, nil
 	}
@@ -127,7 +126,7 @@ func (s *Session) change(ctx context.Context, raw json.RawMessage) (Change, bool
 		return Change{}, false, err
 	}
 	if link.Type == proton.LinkTypeFolder {
-		s.linkCache[link.LinkID] = link
+		s.cacheLink(link)
 	}
 	entry := entryFromLink(&link, name)
 	return Change{LinkID: link.LinkID, ParentLinkID: link.ParentLinkID, Name: name, IsDir: entry.IsDir, ModTimeUnix: entry.ModTimeUnix}, true, nil

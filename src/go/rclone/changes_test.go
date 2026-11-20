@@ -35,25 +35,25 @@ func TestChangesFollowTheLogUntilTheBackendIsForgotten(t *testing.T) {
 	cache.Put("fake:", log)
 	ctx := context.Background()
 
-	first, err := ChangesSince(ctx, "fake", "")
+	first, err := ChangesSince(ctx, "fake", "", "")
 	if err != nil || !first.Supported || first.Known {
 		t.Fatalf("first: %+v %v", first, err)
 	}
 	log.changes = append(log.changes, "a/b.txt")
-	next, err := ChangesSince(ctx, "fake", first.Cursor)
+	next, err := ChangesSince(ctx, "fake", "", first.Cursor)
 	if err != nil || !next.Known || len(next.Changes) != 1 || next.Changes[0].Path != "a/b.txt" {
 		t.Fatalf("next: %+v %v", next, err)
 	}
-	if quiet, _ := ChangesSince(ctx, "fake", next.Cursor); !quiet.Known || len(quiet.Changes) != 0 {
+	if quiet, _ := ChangesSince(ctx, "fake", "", next.Cursor); !quiet.Known || len(quiet.Changes) != 0 {
 		t.Fatalf("quiet: %+v", quiet)
 	}
 
 	// An earlier run's cursor, or one from before Forget, can't be followed.
-	if old, _ := ChangesSince(ctx, "fake", "earlier.0:t"); old.Known {
+	if old, _ := ChangesSince(ctx, "fake", "", "earlier.0:t"); old.Known {
 		t.Fatalf("earlier run: %+v", old)
 	}
 	Forget("fake")
-	if after, _ := ChangesSince(ctx, "fake", next.Cursor); after.Known {
+	if after, _ := ChangesSince(ctx, "fake", "", next.Cursor); after.Known {
 		t.Fatalf("after Forget: %+v", after)
 	}
 }
@@ -62,16 +62,16 @@ func TestChangesFollowTheLogUntilTheBackendIsForgotten(t *testing.T) {
 func TestChangesStartOverWhenTheCacheHoldsAnotherBackend(t *testing.T) {
 	cache.Put("twice:", &fakeLog{name: "twice"})
 	ctx := context.Background()
-	first, err := ChangesSince(ctx, "twice", "")
+	first, err := ChangesSince(ctx, "twice", "", "")
 	if err != nil || first.Known {
 		t.Fatalf("first: %+v %v", first, err)
 	}
-	if same, _ := ChangesSince(ctx, "twice", first.Cursor); !same.Known {
+	if same, _ := ChangesSince(ctx, "twice", "", first.Cursor); !same.Known {
 		t.Fatalf("same backend: %+v", same)
 	}
 
 	cache.Put("twice:", &fakeLog{name: "twice"})
-	if replaced, _ := ChangesSince(ctx, "twice", first.Cursor); replaced.Known {
+	if replaced, _ := ChangesSince(ctx, "twice", "", first.Cursor); replaced.Known {
 		t.Fatalf("replaced backend: %+v", replaced)
 	}
 }
@@ -98,19 +98,77 @@ func (f *renamingLog) ChangesSince(_ context.Context, notify func(string, fs.Ent
 func TestEveryFolderHearsTheSameChanges(t *testing.T) {
 	cache.Put("shared:", &renamingLog{fakeLog: fakeLog{name: "shared"}})
 	ctx := context.Background()
-	start, err := ChangesSince(ctx, "shared", "")
+	start, err := ChangesSince(ctx, "shared", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, folder := range []string{"Notes", "Taxes"} {
-		got, err := ChangesSince(ctx, "shared", start.Cursor)
+		got, err := ChangesSince(ctx, "shared", "", start.Cursor)
 		if err != nil || !got.Known || len(got.Changes) != 2 || got.Changes[0].Path != "Taxes" {
 			t.Fatalf("%s: %+v %v", folder, got, err)
 		}
 	}
 	// From the newer cursor nothing is left.
-	later, _ := ChangesSince(ctx, "shared", strings.Replace(start.Cursor, ":t", ":tx", 1))
+	later, _ := ChangesSince(ctx, "shared", "", strings.Replace(start.Cursor, ":t", ":tx", 1))
 	if !later.Known || len(later.Changes) != 0 {
 		t.Fatalf("later: %+v", later)
+	}
+}
+
+// itemLog is a backend with a change log by ID, like Proton's.
+type itemLog struct {
+	fs.Fs
+	events []ItemChange
+	relist bool
+}
+
+func (f *itemLog) Name() string { return "items" }
+func (f *itemLog) Root() string { return "" }
+
+func (f *itemLog) ChangesRoot(_ context.Context, dir string) (string, error) {
+	if dir == "Missing" {
+		return "", fs.ErrorDirNotFound
+	}
+	return "id-" + dir, nil
+}
+
+func (f *itemLog) LatestItemEvent(context.Context) (string, error) {
+	return strings.Repeat("e", len(f.events)+1), nil
+}
+
+func (f *itemLog) ItemChangesSince(_ context.Context, event string) (ItemChanges, error) {
+	latest := strings.Repeat("e", len(f.events)+1)
+	if f.relist {
+		return ItemChanges{Next: latest, Relist: true}, nil
+	}
+	return ItemChanges{Next: latest, Items: f.events[len(event)-1:]}, nil
+}
+
+func TestChangesByIDKeepTheFolderInTheCursor(t *testing.T) {
+	log := &itemLog{}
+	cache.Put("items:", log)
+	ctx := context.Background()
+
+	first, err := ChangesSince(ctx, "items", "Notes", "")
+	if err != nil || first.Known || first.Cursor != "e id-Notes" || first.RootID != "id-Notes" {
+		t.Fatalf("first query: %+v, %v", first, err)
+	}
+	log.events = append(log.events, ItemChange{ID: "a", ParentID: "id-Notes", Name: "a.txt"})
+	next, err := ChangesSince(ctx, "items", "Notes", first.Cursor)
+	if err != nil || !next.Known || !next.ByID || len(next.Items) != 1 || next.Cursor != "ee id-Notes" {
+		t.Fatalf("after a change: %+v, %v", next, err)
+	}
+	// The cursor stays valid for a new backend, as Proton's log outlives a restart.
+	Forget("items")
+	cache.Put("items:", log)
+	if again, _ := ChangesSince(ctx, "items", "Notes", next.Cursor); !again.Known || len(again.Items) != 0 {
+		t.Fatalf("after a restart: %+v", again)
+	}
+	log.relist = true
+	if relist, _ := ChangesSince(ctx, "items", "Notes", next.Cursor); relist.Known || relist.Cursor != "ee id-Notes" {
+		t.Fatalf("relist: %+v", relist)
+	}
+	if missing, _ := ChangesSince(ctx, "items", "Missing", ""); missing.Cursor != "" || missing.Known {
+		t.Fatalf("missing folder: %+v", missing)
 	}
 }

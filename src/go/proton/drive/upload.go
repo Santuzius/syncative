@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"syncative/go/proton/extras"
@@ -66,9 +67,6 @@ const (
 // first-sync against a non-empty remote tree from re-pushing the
 // content of every byte-identical file.
 func (s *Session) UploadFile(ctx context.Context, parentLinkID, name, srcPath string) (string, error) {
-	if parentLinkID == "" {
-		parentLinkID = s.RootLinkID()
-	}
 	file, err := os.Open(srcPath)
 	if err != nil {
 		return "", err
@@ -78,19 +76,25 @@ func (s *Session) UploadFile(ctx context.Context, parentLinkID, name, srcPath st
 	if err != nil {
 		return "", err
 	}
-	modTime := stat.ModTime()
+	return s.Upload(ctx, parentLinkID, name, file, stat.ModTime(), func() (string, error) { return sha1OfFile(srcPath) })
+}
 
-	linkID, revisionID, sessionKey, nodeKR, err := s.createFileDraft(ctx, parentLinkID, name, srcPath)
+// Upload is UploadFile for content from a reader: `modTime` goes into the revision's extended attributes, and `localSHA1`, when not nil, gives the SHA-1 of the content for the hash-first short-circuit. It is asked before `in` is read.
+func (s *Session) Upload(ctx context.Context, parentLinkID, name string, in io.Reader, modTime time.Time, localSHA1 func() (string, error)) (string, error) {
+	if parentLinkID == "" {
+		parentLinkID = s.RootLinkID()
+	}
+	linkID, revisionID, sessionKey, nodeKR, err := s.createFileDraft(ctx, parentLinkID, name, localSHA1)
 	if err != nil {
 		return "", err
 	}
 	if revisionID == "" {
 		// Hash-first short-circuit: the existing active revision
-		// already holds content byte-identical to srcPath.
+		// already holds content byte-identical to the upload.
 		return linkID, nil
 	}
 
-	manifest, fileSize, blockSizes, sha1Hex, err := s.uploadBlocks(ctx, sessionKey, nodeKR, file, linkID, revisionID)
+	manifest, fileSize, blockSizes, sha1Hex, err := s.uploadBlocks(ctx, sessionKey, nodeKR, in, linkID, revisionID)
 	if err != nil {
 		// Best-effort draft cleanup. If this fails we swallow — the
 		// CreateRevision path will retry the user's next upload and
@@ -146,7 +150,7 @@ func (s *Session) cleanupNonActiveRevisions(ctx context.Context, fileLinkID, kee
 // returned so the caller can encrypt blocks with the right key
 // material. Returns (linkID, revisionID, fileSessionKey, fileNodeKR).
 //
-// `srcPath` is consulted only for the active-conflict hash-first
+// `localSHA1` is consulted only for the active-conflict hash-first
 // short-circuit: when the existing active revision's XAttr SHA-1
 // matches the local file's SHA-1, createFileDraft returns
 // `(existingLinkID, "", nil, nil, nil)` to signal "no upload needed".
@@ -154,7 +158,8 @@ func (s *Session) cleanupNonActiveRevisions(ctx context.Context, fileLinkID, kee
 // new-revision path, so the short-circuit is always opportunistic.
 func (s *Session) createFileDraft(
 	ctx context.Context,
-	parentLinkID, name, srcPath string,
+	parentLinkID, name string,
+	localSHA1 func() (string, error),
 ) (string, string, *crypto.SessionKey, *crypto.KeyRing, error) {
 	parentLink, err := s.getLink(ctx, parentLinkID)
 	if err != nil {
@@ -186,7 +191,7 @@ func (s *Session) createFileDraft(
 	// fallback (`findAnyChildFileByName`) handles it.
 	if preExisting, _ := s.findActiveChildFileByName(ctx, parentLink.LinkID, name); preExisting != nil {
 		log.Printf("[proton-native] pre-flight found active link for %q: linkID=%s — skipping CreateFile", name, preExisting.LinkID)
-		return s.reconcileExistingFileLink(ctx, &parentLink, parentNodeKR, parentHashKey, preExisting, name, srcPath)
+		return s.reconcileExistingFileLink(ctx, &parentLink, parentNodeKR, parentHashKey, preExisting, name, localSHA1)
 	}
 
 	nodeKey, nodePassphraseEnc, nodePassphraseSig, err := generateNodeKeys(parentNodeKR, s.defaultAddrKR)
@@ -259,7 +264,7 @@ func (s *Session) createFileDraft(
 
 	log.Printf("[proton-native] found conflicting file: linkID=%s state=%d type=%d", existingLink.LinkID, existingLink.State, existingLink.Type)
 
-	return s.reconcileExistingFileLink(ctx, &parentLink, parentNodeKR, parentHashKey, existingLink, name, srcPath)
+	return s.reconcileExistingFileLink(ctx, &parentLink, parentNodeKR, parentHashKey, existingLink, name, localSHA1)
 }
 
 // reconcileExistingFileLink produces the `(linkID, revisionID,
@@ -291,7 +296,8 @@ func (s *Session) reconcileExistingFileLink(
 	parentNodeKR *crypto.KeyRing,
 	parentHashKey []byte,
 	existingLink *proton.Link,
-	name, srcPath string,
+	name string,
+	localSHA1 func() (string, error),
 ) (string, string, *crypto.SessionKey, *crypto.KeyRing, error) {
 	// ---- Draft ghost: DeleteChildren works for this state ----
 	if existingLink.State == proton.LinkStateDraft {
@@ -299,8 +305,7 @@ func (s *Session) reconcileExistingFileLink(
 		if delErr := s.c.DeleteChildren(ctx, s.mainShare.ShareID, existingLink.ParentLinkID, existingLink.LinkID); delErr != nil {
 			return "", "", nil, nil, delErr
 		}
-		delete(s.linkCache, existingLink.LinkID)
-		delete(s.krCache, existingLink.LinkID)
+		s.forgetLink(existingLink.LinkID)
 		return s.createFreshFileDraft(ctx, parentLink, parentNodeKR, parentHashKey, name)
 	}
 
@@ -322,7 +327,7 @@ func (s *Session) reconcileExistingFileLink(
 	// decrypt failure, hash I/O error) falls through to the normal
 	// new-revision handling.
 	if existingLink.State == proton.LinkStateActive {
-		if skip := s.contentAlreadyMatches(ctx, existingLink, parentNodeKR, srcPath); skip {
+		if skip := s.contentAlreadyMatches(ctx, existingLink, parentNodeKR, localSHA1); skip {
 			log.Printf("[proton-native] content-hash match for %q — skipping upload, reusing linkID=%s", name, existingLink.LinkID)
 			return existingLink.LinkID, "", nil, nil, nil
 		}
@@ -452,6 +457,8 @@ func (s *Session) findActiveChildFileByName(ctx context.Context, parentLinkID, n
 // session, same ghost) stay silent so the sync log doesn't fill with
 // the same warning every pass while the user resolves the block.
 func (s *Session) warnGhostBlocker(linkID, name string, state proton.LinkState) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
 	if s.warnedGhosts == nil {
 		s.warnedGhosts = make(map[string]struct{})
 	}
@@ -573,8 +580,7 @@ func (s *Session) handleRevisionConflict(ctx context.Context, link *proton.Link)
 				return "", false, err
 			}
 			// Invalidate cache for this link.
-			delete(s.linkCache, linkID)
-			delete(s.krCache, linkID)
+			s.forgetLink(linkID)
 			return "", true, nil
 		}
 
@@ -783,16 +789,16 @@ func (s *Session) commitRevision(
 
 // contentAlreadyMatches returns true when the active revision of
 // `link` carries a decrypted XAttr SHA-1 equal to the SHA-1 of
-// `srcPath`'s contents. Returns false on any error — the caller
+// the content localSHA1 hashes. Returns false on any error — the caller
 // treats that as "no signal", so a failed hash check never blocks
 // the normal upload path.
 func (s *Session) contentAlreadyMatches(
 	ctx context.Context,
 	link *proton.Link,
 	parentNodeKR *crypto.KeyRing,
-	srcPath string,
+	localSHA1 func() (string, error),
 ) bool {
-	if link == nil || link.FileProperties == nil {
+	if localSHA1 == nil || link == nil || link.FileProperties == nil {
 		return false
 	}
 	revID := link.FileProperties.ActiveRevision.ID
@@ -818,11 +824,11 @@ func (s *Session) contentAlreadyMatches(
 	if remoteSHA1 == "" {
 		return false
 	}
-	localSHA1, err := sha1OfFile(srcPath)
+	local, err := localSHA1()
 	if err != nil {
 		return false
 	}
-	return localSHA1 == remoteSHA1
+	return strings.EqualFold(local, remoteSHA1)
 }
 
 // sha1OfFile streams `path`'s contents through SHA-1 and returns the

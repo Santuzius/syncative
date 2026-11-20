@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 
@@ -94,10 +95,13 @@ type Session struct {
 	// Caches — link metadata and decrypted keyrings. Populated
 	// lazily by getLink / linkKR / ListDirectory. Avoids redundant
 	// API round-trips during recursive listings where each folder
-	// requires walking the parent keyring chain. Single-threaded per
-	// session so no locking needed.
+	// requires walking the parent keyring chain. Guarded by cacheMu:
+	// rclone calls the backend from several goroutines at once.
+	cacheMu   sync.Mutex
 	linkCache map[string]proton.Link
 	krCache   map[string]*crypto.KeyRing
+	// attrCache holds the decrypted extended attributes of file revisions by revision ID.
+	attrCache map[string]*FileAttrs
 
 	// Set of ghost link IDs we've already warned about this session.
 	// Trashed / deleted links that block an upload can't be removed
@@ -213,6 +217,7 @@ func Login(ctx context.Context, p LoginParams) (*Session, error) {
 		addrs:         addrs,
 		linkCache:     make(map[string]proton.Link),
 		krCache:       make(map[string]*crypto.KeyRing),
+		attrCache:     make(map[string]*FileAttrs),
 		warnedGhosts:  make(map[string]struct{}),
 	}
 	sess.registerAuthHandler()
@@ -245,6 +250,7 @@ func Resume(ctx context.Context, cred ReusableCredential) (*Session, error) {
 		SaltedKeyPass: cred.SaltedKeyPass,
 		linkCache:     make(map[string]proton.Link),
 		krCache:       make(map[string]*crypto.KeyRing),
+		attrCache:     make(map[string]*FileAttrs),
 		warnedGhosts:  make(map[string]struct{}),
 	}
 	// Attach the refresh callback before the first API call. On resume
@@ -455,8 +461,11 @@ func (s *Session) Close() {
 	s.defaultAddrKR = nil
 	s.mainShare = nil
 	s.rootLink = nil
+	s.cacheMu.Lock()
 	s.linkCache = nil
 	s.krCache = nil
+	s.attrCache = nil
+	s.cacheMu.Unlock()
 	if s.c != nil {
 		s.c.Close()
 		s.c = nil
@@ -507,10 +516,52 @@ func Lookup(uid string) (*Session, error) {
 	return s, nil
 }
 
-// Unregister removes a session from the registry. Does NOT call
+// Unregister removes a session from the registry, and the remotes bound to it. Does NOT call
 // Close() — caller is responsible for cleanup.
 func Unregister(uid string) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
 	delete(registry, uid)
+	for remote, bound := range remotes {
+		if bound == uid {
+			delete(remotes, remote)
+		}
+	}
+}
+
+// remotes maps the names of Syncative's Proton remotes to the UID of their session, for the rclone backend, which is asked by remote name. Guarded by registryMu.
+var remotes = make(map[string]string)
+
+// BindRemote makes `remote` use the registered session `uid`, replacing an earlier one, whose UID it returns ("" for none).
+func BindRemote(remote, uid string) string {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	before := remotes[remote]
+	remotes[remote] = uid
+	return before
+}
+
+// UnbindRemote drops the session of `remote`; the session itself stays registered.
+func UnbindRemote(remote string) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	delete(remotes, remote)
+}
+
+// ErrRemoteNotSignedIn is the error of a Proton remote without a session, e.g. one not resumed yet.
+var ErrRemoteNotSignedIn = errors.New("Proton Drive remote is not signed in")
+
+// ForRemote returns the session bound to `remote`.
+func ForRemote(remote string) (*Session, error) {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	uid, ok := remotes[remote]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRemoteNotSignedIn, remote)
+	}
+	s, ok := registry[uid]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRemoteNotSignedIn, remote)
+	}
+	return s, nil
 }

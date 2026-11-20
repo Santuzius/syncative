@@ -217,6 +217,9 @@ pub struct BackendRemoteItem {
     /// -1 when the backend doesn't know it.
     #[serde(rename = "Size", default)]
     pub size: i64,
+    /// The provider's ID, from backends that have one (Proton's link ID, Google Drive's file ID).
+    #[serde(rename = "ID", default)]
+    pub id: Option<String>,
     /// Only filled when requested (see [`sync::details`]); keys are rclone hash names such as `sha1`.
     #[serde(rename = "Hashes", default)]
     pub hashes: std::collections::HashMap<String, String>,

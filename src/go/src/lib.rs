@@ -191,20 +191,43 @@ pub struct Changes {
     pub cursor: String,
     #[serde(default)]
     pub changes: Option<Vec<Changed>>,
+    /// The log names items by ID (Proton): `items` replaces `changes`, and `root_id` is the ID of the folder asked about.
+    #[serde(default)]
+    pub by_id: bool,
+    #[serde(default)]
+    pub root_id: String,
+    #[serde(default)]
+    pub items: Option<Vec<ItemChange>>,
 }
 
-/// Asks the change log of the rclone remote `remote` (name without colon) what changed after `cursor` (from an earlier call; `""` for none): one request. The first call creates the backend, which may go over the network; setting `cancel` makes it give up.
+/// One change of a log by ID, see [`Changes::by_id`]: the item as it is now (`rclone.ItemChange` in src/go/rclone/changes.go).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ItemChange {
+    pub id: String,
+    pub parent_id: String,
+    #[serde(default)]
+    pub name: String,
+    pub is_dir: bool,
+    pub mod_time_unix: i64,
+    /// Trashed or deleted, with everything below it.
+    pub gone: bool,
+}
+
+/// Asks the change log of the rclone remote `remote` (name without colon) what changed after `cursor` (from an earlier call; `""` for none) for the sync folder at `dir`: one request. The first call creates the backend, which may go over the network; setting `cancel` makes it give up.
 pub fn changes_since(
     remote: &str,
+    dir: &str,
     cursor: &str,
     cancel: &std::sync::atomic::AtomicBool,
 ) -> Result<Changes, String> {
     let c_remote = CString::new(remote).map_err(|e| e.to_string())?;
+    let c_dir = CString::new(dir).map_err(|e| e.to_string())?;
     let c_cursor = CString::new(cursor).map_err(|e| e.to_string())?;
     let flag = cancel.as_ptr() as *mut std::os::raw::c_uchar;
     let json = unsafe {
         take_string(ffi::RcloneChanges(
             c_remote.as_ptr() as *mut c_char,
+            c_dir.as_ptr() as *mut c_char,
             c_cursor.as_ptr() as *mut c_char,
             flag,
         ))
@@ -286,6 +309,23 @@ pub mod proton {
             &serde_json::json!({ "version": version }),
         )?;
         Ok(())
+    }
+
+    /// Make the rclone remote `remote` reach Proton through the registered session `uid`, so rclone calls on it use that session.
+    pub fn bind_remote(uid: &str, remote: &str) -> Result<(), String> {
+        invoke_raw(
+            |payload| unsafe { ffi::ProtonDrive_BindRemote(payload) },
+            &serde_json::json!({ "uid": uid, "remote": remote }),
+        )?;
+        Ok(())
+    }
+
+    /// Undo [`bind_remote`], e.g. when the remote is removed.
+    pub fn unbind_remote(remote: &str) {
+        let _ = invoke_raw(
+            |payload| unsafe { ffi::ProtonDrive_UnbindRemote(payload) },
+            &serde_json::json!({ "remote": remote }),
+        );
     }
 
     /// The cursor of the volume's event log as it stands now.

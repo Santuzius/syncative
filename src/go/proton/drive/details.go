@@ -58,6 +58,6 @@ func (s *Session) refreshLink(ctx context.Context, linkID string) (proton.Link, 
 	if err != nil {
 		return link, err
 	}
-	s.linkCache[linkID] = link
+	s.cacheLink(link)
 	return link, nil
 }

@@ -271,8 +271,7 @@ func (s *Session) PurgeLinks(ctx context.Context, parentLinkID string, linkIDs [
 		return err
 	}
 	for _, id := range linkIDs {
-		delete(s.linkCache, id)
-		delete(s.krCache, id)
+		s.forgetLink(id)
 	}
 	return nil
 }

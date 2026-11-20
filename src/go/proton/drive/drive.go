@@ -93,7 +93,7 @@ func (s *Session) bootstrapDrive(ctx context.Context) error {
 	s.volumeID = volumeID
 	// Seed the caches with the root link so the first listing
 	// doesn't need to re-fetch it.
-	s.linkCache[rootLink.LinkID] = rootLink
+	s.cacheLink(rootLink)
 	return nil
 }
 
@@ -101,7 +101,7 @@ func (s *Session) bootstrapDrive(ctx context.Context) error {
 // result. For the root link the parent KR is the main share KR;
 // otherwise we walk the parent chain (also cached).
 func (s *Session) linkKR(ctx context.Context, link *proton.Link) (*crypto.KeyRing, error) {
-	if cached, ok := s.krCache[link.LinkID]; ok {
+	if cached, ok := s.cachedKR(link.LinkID); ok {
 		return cached, nil
 	}
 	var parentKR *crypto.KeyRing
@@ -118,7 +118,7 @@ func (s *Session) linkKR(ctx context.Context, link *proton.Link) (*crypto.KeyRin
 	if err != nil {
 		return nil, err
 	}
-	s.krCache[link.LinkID] = kr
+	s.cacheKR(link.LinkID, kr)
 	return kr, nil
 }
 
@@ -129,7 +129,7 @@ func (s *Session) linkKRByID(ctx context.Context, linkID string) (*crypto.KeyRin
 	if linkID == "" {
 		return s.mainShareKR, nil
 	}
-	if cached, ok := s.krCache[linkID]; ok {
+	if cached, ok := s.cachedKR(linkID); ok {
 		return cached, nil
 	}
 	link, err := s.getLink(ctx, linkID)
@@ -143,13 +143,55 @@ func (s *Session) linkKRByID(ctx context.Context, linkID string) (*crypto.KeyRin
 // available. Every link fetched from the API is cached so subsequent
 // keyring-chain walks don't re-fetch the same link.
 func (s *Session) getLink(ctx context.Context, linkID string) (proton.Link, error) {
-	if cached, ok := s.linkCache[linkID]; ok {
+	if cached, ok := s.cachedLink(linkID); ok {
 		return cached, nil
 	}
 	link, err := s.c.GetLink(ctx, s.mainShare.ShareID, linkID)
 	if err != nil {
 		return link, err
 	}
-	s.linkCache[linkID] = link
+	s.cacheLink(link)
 	return link, nil
+}
+
+// cachedLink returns the cached metadata of `linkID`.
+func (s *Session) cachedLink(linkID string) (proton.Link, bool) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	link, ok := s.linkCache[linkID]
+	return link, ok
+}
+
+// cacheLink stores `link`'s metadata.
+func (s *Session) cacheLink(link proton.Link) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if s.linkCache != nil {
+		s.linkCache[link.LinkID] = link
+	}
+}
+
+// cachedKR returns the cached node keyring of `linkID`.
+func (s *Session) cachedKR(linkID string) (*crypto.KeyRing, bool) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	kr, ok := s.krCache[linkID]
+	return kr, ok
+}
+
+// cacheKR stores the node keyring of `linkID`.
+func (s *Session) cacheKR(linkID string, kr *crypto.KeyRing) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if s.krCache != nil {
+		s.krCache[linkID] = kr
+	}
+}
+
+// forgetLink drops what the caches hold for `linkID`, so it is fetched anew when next needed.
+func (s *Session) forgetLink(linkID string) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	delete(s.linkCache, linkID)
+	delete(s.krCache, linkID)
 }

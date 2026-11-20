@@ -25,6 +25,9 @@ import (
 	_ "github.com/rclone/rclone/backend/pcloud"
 	_ "github.com/rclone/rclone/backend/webdav"
 
+	// Proton Drive through Syncative's own client, see src/go/proton/rclonefs.
+	_ "syncative/go/proton/rclonefs"
+
 	_ "github.com/rclone/rclone/fs/operations"
 	_ "github.com/rclone/rclone/fs/sync"
 )
@@ -68,13 +71,13 @@ func RcloneRPCCancellable(method *C.char, input *C.char, cancelled *C.uchar) (re
 	return result
 }
 
-// RcloneChanges asks the change log of the rclone remote `remote` (name without colon) what changed after `cursor` ("" for none); see rclone.ChangesSince. Returns JSON, `{"supported":…,"known":…,"cursor":…,"changes":[{"path":…,"is_dir":…}]}` or `{"error":…}`. Free the result with RcloneFreeString.
+// RcloneChanges asks the change log of the rclone remote `remote` (name without colon) what changed after `cursor` ("" for none) for the sync folder at `dir`; see rclone.ChangesSince. Returns JSON, `{"supported":…,"known":…,"cursor":…,"changes":[{"path":…,"is_dir":…}]}` (with `by_id`, `root_id` and `items` for Proton) or `{"error":…}`. Free the result with RcloneFreeString.
 //
 //export RcloneChanges
-func RcloneChanges(remote *C.char, cursor *C.char, cancelled *C.uchar) *C.char {
+func RcloneChanges(remote *C.char, dir *C.char, cursor *C.char, cancelled *C.uchar) *C.char {
 	ctx, stop := rclone.CancelledBy((*uint8)(unsafe.Pointer(cancelled)))
 	defer stop()
-	changes, err := rclone.ChangesSince(ctx, C.GoString(remote), C.GoString(cursor))
+	changes, err := rclone.ChangesSince(ctx, C.GoString(remote), C.GoString(dir), C.GoString(cursor))
 	var out []byte
 	if err != nil {
 		out, _ = json.Marshal(map[string]string{"error": err.Error()})

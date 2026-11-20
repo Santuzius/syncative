@@ -36,7 +36,7 @@
 
 ## Files
 - Helper scripts go into `scripts/`, temporary files into `temp/` (ignored by git) or `/tmp`.
-- The Go code in `src/go/` is grouped by provider: `proton/` (`api`, `extras`, `drive`) and `rclone/`. The files directly in `src/go/` hold the C entry points for Rust, because cgo needs those in `package main`.
+- The Go code in `src/go/` is grouped by provider: `proton/` (`api`, `extras`, `drive`, and `rclonefs`, which makes `drive` an rclone backend) and `rclone/`. The files directly in `src/go/` hold the C entry points for Rust, because cgo needs those in `package main`.
 - **`src/go/proton/api/` is read-only.** It is the `ProtonMail/go-proton-api` submodule and must keep tracking upstream unchanged. Syncative's additions live in the sibling package `src/go/proton/extras/`:
   - Methods on upstream types become free functions taking the type as a parameter.
   - Fields the upstream types lack are parsed from the raw JSON there.

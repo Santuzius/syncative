@@ -8,11 +8,16 @@ import "C"
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"reflect"
 
 	"syncative/go/proton/drive"
+	"syncative/go/proton/rclonefs"
+	"syncative/go/rclone"
 
 	"github.com/ProtonMail/go-proton-api"
+	"github.com/rclone/rclone/fs"
+	"github.com/rclone/rclone/fs/cache"
 )
 
 // Calls are shaped as "takes one JSON string, returns one JSON string".
@@ -164,6 +169,52 @@ func ProtonDrive_Login(paramsJSON *C.char) *C.char {
 	}
 	drive.Register(sess)
 	return okResult(sess.AsCredential())
+}
+
+// ProtonDrive_BindRemote makes the rclone remote `remote` reach Proton through the registered session `uid` (backend rclonefs). Input `{"uid":"...","remote":"..."}`. The remote is defined through the environment (RCLONE_CONFIG_<NAME>_TYPE), so it never enters the rclone config file, which holds no Proton credentials either.
+//
+//export ProtonDrive_BindRemote
+func ProtonDrive_BindRemote(paramsJSON *C.char) *C.char {
+	var p struct {
+		UID    string `json:"uid"`
+		Remote string `json:"remote"`
+	}
+	if err := json.Unmarshal([]byte(C.GoString(paramsJSON)), &p); err != nil {
+		return errResult(err)
+	}
+	if _, err := drive.Lookup(p.UID); err != nil {
+		return errResult(err)
+	}
+	if err := os.Setenv(fs.ConfigToEnv(p.Remote, "type"), rclonefs.TypeName); err != nil {
+		return errResult(err)
+	}
+	if before := drive.BindRemote(p.Remote, p.UID); before != "" && before != p.UID {
+		// Another sign-in, possibly another account: its folder IDs start over.
+		dropBackend(p.Remote)
+	}
+	return okResult(nil)
+}
+
+// ProtonDrive_UnbindRemote undoes ProtonDrive_BindRemote, e.g. when the remote is removed. Input `{"remote":"..."}`.
+//
+//export ProtonDrive_UnbindRemote
+func ProtonDrive_UnbindRemote(paramsJSON *C.char) *C.char {
+	var p struct {
+		Remote string `json:"remote"`
+	}
+	if err := json.Unmarshal([]byte(C.GoString(paramsJSON)), &p); err != nil {
+		return errResult(err)
+	}
+	drive.UnbindRemote(p.Remote)
+	dropBackend(p.Remote)
+	_ = os.Unsetenv(fs.ConfigToEnv(p.Remote, "type"))
+	return okResult(nil)
+}
+
+// dropBackend removes `remote`'s backend from rclone's cache, so the next call creates it anew.
+func dropBackend(remote string) {
+	rclone.Forget(remote)
+	cache.ClearConfig(remote)
 }
 
 // ProtonDrive_Logout revokes the session on Proton's side and tears

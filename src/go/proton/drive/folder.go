@@ -130,7 +130,7 @@ func (s *Session) listDirectory(ctx context.Context, folderLinkID string) ([]*En
 		child := &childrenLinks[i]
 		// Folders' links are needed again for their keyrings; files' are fetched when a file is worked on, so a large folder doesn't stay in memory.
 		if child.Type == proton.LinkTypeFolder {
-			s.linkCache[child.LinkID] = *child
+			s.cacheLink(*child)
 		}
 		if child.State != proton.LinkStateActive {
 			continue
@@ -204,7 +204,7 @@ func (s *Session) ListAllChildren(ctx context.Context, folderLinkID string) ([]*
 	out := make([]*DumpEntry, 0, len(childrenLinks))
 	for i := range childrenLinks {
 		child := &childrenLinks[i]
-		s.linkCache[child.LinkID] = *child
+		s.cacheLink(*child)
 
 		name, err := child.GetName(folderKR, s.defaultAddrKR)
 		if err != nil {
@@ -337,7 +337,7 @@ func (s *Session) listRecursive(ctx context.Context, rootLinkID string) ([]*Entr
 	for _, children := range results {
 		for i := range children {
 			if children[i].Type == proton.LinkTypeFolder {
-				s.linkCache[children[i].LinkID] = children[i]
+				s.cacheLink(children[i])
 			}
 		}
 	}
