@@ -5,7 +5,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex, OnceLock},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use tokio::sync::{mpsc, watch};
@@ -242,7 +242,10 @@ fn spawn(
     Handle { tx, snapshot, logs }
 }
 
-/// The engine loop: sleeps until an input arrives or a remote is due, handles everything that is ready, starts due passes and publishes one snapshot per round.
+/// The shortest time between two snapshots. A pass logs a line per file, and each snapshot makes the window rebuild and redraw.
+const SNAPSHOT_GAP: Duration = Duration::from_millis(100);
+
+/// The engine loop: sleeps until an input arrives or a remote is due, handles everything that is ready, starts due passes and publishes a snapshot per round, at most one per [`SNAPSHOT_GAP`].
 async fn run(
     mut core: Core,
     mut rx: mpsc::UnboundedReceiver<Input>,
@@ -253,18 +256,28 @@ async fn run(
         core.handle(input).await;
     }
     let mut busy = false;
+    let mut published: Option<Instant> = None;
     loop {
-        core.start_due(Instant::now());
-        let snapshot = Arc::new(core.snapshot());
-        if busy == (snapshot.syncing.is_empty() && !snapshot.uploads.values().any(|u| u.active)) {
+        let now = Instant::now();
+        core.start_due(now);
+        if busy != core.busy() {
             busy = !busy;
             busy_changed(busy);
         }
-        snapshot_tx.send_replace(snapshot);
-        if let Some(status) = core.take_status_change() {
+        // The round's changes wait for the next snapshot when the last one is too recent.
+        let next_snapshot = published.map(|at| at + SNAPSHOT_GAP).filter(|&at| at > now);
+        if next_snapshot.is_none() {
+            snapshot_tx.send_replace(Arc::new(core.snapshot()));
+            published = Some(now);
+        }
+        // Only Android shows the status from here; the desktop tray reads the snapshots.
+        if cfg!(target_os = "android")
+            && let Some(status) = core.take_status_change()
+        {
             status_changed(&status);
         }
-        let input = match core.next_due() {
+        let wake = core.next_due().into_iter().chain(next_snapshot).min();
+        let input = match wake {
             Some(at) => tokio::select! {
                 input = rx.recv() => input,
                 () = tokio::time::sleep_until(at.into()) => continue,

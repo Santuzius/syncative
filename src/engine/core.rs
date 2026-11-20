@@ -755,6 +755,11 @@ impl Core {
         self.log_version += 1;
     }
 
+    /// Whether a pass or an upload of shared files is running.
+    pub fn busy(&self) -> bool {
+        !self.syncing.is_empty() || self.uploads.iter().any(|j| j.active)
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             state: self.state.clone(),
