@@ -142,8 +142,8 @@ pub struct Snapshot {
     pub pass_lines: HashMap<SyncDirId, String>,
     /// Newest problem (⚠) line per folder, apart from conflicts, which have their own row.
     pub problems: HashMap<SyncDirId, String>,
-    /// Bumped with every log line; the folder logs themselves are in [`Handle::logs`].
-    pub log_version: u64,
+    /// Per folder, bumped with every line of its log; the logs themselves are in [`Handle::logs`].
+    pub log_versions: HashMap<SyncDirId, u64>,
     /// Bumped when the conflict lists change.
     pub conflicts_version: u64,
     /// Bumped when a pass ends.

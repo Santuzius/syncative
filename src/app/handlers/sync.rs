@@ -16,12 +16,15 @@ impl SyncativeApp {
             self.conflicts = self.snapshot.conflicts.clone();
             self.follow_conflict_dialog();
         }
-        if old.log_version != self.snapshot.log_version {
-            let open: Vec<_> = self.sync_dir_log_content.keys().copied().collect();
-            for sd_id in open {
-                let content = self.build_log_content(sd_id);
-                self.sync_dir_log_content.insert(sd_id, content);
-            }
+        let changed_logs: Vec<_> = self
+            .sync_dir_log_content
+            .keys()
+            .copied()
+            .filter(|id| old.log_versions.get(id) != self.snapshot.log_versions.get(id))
+            .collect();
+        for sd_id in changed_logs {
+            let content = self.build_log_content(sd_id);
+            self.sync_dir_log_content.insert(sd_id, content);
         }
         // A pass can create leftovers (a synced sub-folder that now belongs to another folder) or record new files under an exclusion.
         if old.passes_finished != self.snapshot.passes_finished {

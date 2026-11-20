@@ -98,7 +98,7 @@ pub(crate) struct Core {
     pass_lines: HashMap<SyncDirId, String>,
     problems: HashMap<SyncDirId, String>,
     logs: Logs,
-    log_version: u64,
+    log_versions: HashMap<SyncDirId, u64>,
     conflicts_version: u64,
     passes_finished: u64,
     last_status: Option<TrayStatus>,
@@ -141,7 +141,7 @@ impl Core {
             pass_lines: HashMap::new(),
             problems: HashMap::new(),
             logs,
-            log_version: 0,
+            log_versions: HashMap::new(),
             conflicts_version: 0,
             passes_finished: 0,
             last_status: None,
@@ -387,6 +387,7 @@ impl Core {
             let mut logs = self.logs.lock().unwrap();
             for id in &gone {
                 logs.remove(id);
+                self.log_versions.remove(id);
                 self.pass_lines.remove(id);
                 self.problems.remove(id);
                 if self.conflicts.remove(id).is_some() {
@@ -396,7 +397,6 @@ impl Core {
                     dirs.remove(id);
                 }
             }
-            self.log_version += 1;
         }
         self.remotes = remotes;
         self.sync_dirs = sync_dirs;
@@ -752,7 +752,7 @@ impl Core {
         while lines.len() > MAX_LOG_LINES {
             lines.pop_front();
         }
-        self.log_version += 1;
+        *self.log_versions.entry(sync_dir_id).or_default() += 1;
     }
 
     /// Whether a pass or an upload of shared files is running.
@@ -768,7 +768,7 @@ impl Core {
             conflicts: self.conflicts.clone(),
             pass_lines: self.pass_lines.clone(),
             problems: self.problems.clone(),
-            log_version: self.log_version,
+            log_versions: self.log_versions.clone(),
             conflicts_version: self.conflicts_version,
             passes_finished: self.passes_finished,
             offline: self.offline,
