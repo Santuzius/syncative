@@ -138,13 +138,24 @@ impl BackendClient for ClientRouter {
     fn usage(&self, remote: &str, cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {
         self.pick(remote).usage(remote, cancel)
     }
-    fn changes(&self, remote: &str, path: &str, cursor: Option<&str>, cancel: &Cancel) -> Result<Changes, String> {
+    fn changes(
+        &self,
+        remote: &str,
+        path: &str,
+        cursor: Option<&str>,
+        cancel: &Cancel,
+    ) -> Result<Changes, String> {
         self.pick(remote).changes(remote, path, cursor, cancel)
     }
     fn full_listing_every(&self, remote: &str) -> Option<Duration> {
         self.pick(remote).full_listing_every(remote)
     }
-    fn folder_tags(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<Option<HashMap<String, String>>, String> {
+    fn folder_tags(
+        &self,
+        remote: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<HashMap<String, String>>, String> {
         self.pick(remote).folder_tags(remote, path, cancel)
     }
     fn use_listing(&self, remote: &str, listing: Option<Arc<HashMap<String, RemoteItem>>>) {

@@ -9,8 +9,8 @@
 use std::fmt;
 
 use iced::{
-    widget::{pick_list, text::Shaping},
     Element,
+    widget::{pick_list, text::Shaping},
 };
 
 use crate::domain::remote::Interval;

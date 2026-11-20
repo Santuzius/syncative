@@ -14,7 +14,10 @@
 /// the path data and only need a flat fill.
 pub fn svg_document(icon: icondata::Icon, color: &str) -> String {
     let view_box = icon.view_box.unwrap_or("0 0 24 24");
-    let fill = icon.fill.unwrap_or("currentColor").replace("currentColor", color);
+    let fill = icon
+        .fill
+        .unwrap_or("currentColor")
+        .replace("currentColor", color);
     let stroke = icon.stroke.unwrap_or("none").replace("currentColor", color);
     let stroke_width = icon.stroke_width.unwrap_or("1");
     let stroke_linecap = icon.stroke_linecap.unwrap_or("butt");

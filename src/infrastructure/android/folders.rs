@@ -1,11 +1,11 @@
 //! The folder picker: `Bridge.pickFolder` opens Android's document picker on the activity and answers through `nativeFolderPicked` with a file path, or `null` when cancelled or when the choice has no path (e.g. a cloud provider's folder). Without "All files access" it opens that setting instead and answers `null`.
 
-use std::sync::{mpsc, Mutex};
+use std::sync::{Mutex, mpsc};
 use std::time::Duration;
 
 use jni::{
-    objects::{JClass, JString},
     JNIEnv,
+    objects::{JClass, JString},
 };
 
 use super::{bridge, with_context};
@@ -26,14 +26,24 @@ pub fn pick() -> Option<String> {
         return None;
     }
 
-    receiver.recv_timeout(Duration::from_secs(30 * 60)).ok().flatten()
+    receiver
+        .recv_timeout(Duration::from_secs(30 * 60))
+        .ok()
+        .flatten()
 }
 
 #[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeFolderPicked(mut env: JNIEnv, _: JClass, path: JString) {
-    let path = if path.is_null() { None } else { env.get_string(&path).ok().map(String::from) };
+extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeFolderPicked(
+    mut env: JNIEnv,
+    _: JClass,
+    path: JString,
+) {
+    let path = if path.is_null() {
+        None
+    } else {
+        env.get_string(&path).ok().map(String::from)
+    };
     if let Some(sender) = ANSWER.lock().ok().and_then(|mut answer| answer.take()) {
         let _ = sender.send(path);
     }
 }
-

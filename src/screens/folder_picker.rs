@@ -4,7 +4,9 @@ use iced::{
     Element, Length,
     widget::{column, container},
 };
-use iced_fabi::{ActionButton, ActionPlacement, Browser, BuiltInColumn, BuiltInTool, Mode, Pick, Selection};
+use iced_fabi::{
+    ActionButton, ActionPlacement, Browser, BuiltInColumn, BuiltInTool, Mode, Pick, Selection,
+};
 
 use crate::{
     domain::{
@@ -63,13 +65,26 @@ pub struct Picker {
 
 impl Picker {
     /// A picker over `base`: for the text fields one folder, the one open when confirming, without boxes; for hiding any number of folders, with `preselected` (paths below `base`) ticked.
-    pub fn new(target: Target, generation: u64, source: Source, base: &str, preselected: Vec<String>) -> Self {
+    pub fn new(
+        target: Target,
+        generation: u64,
+        source: Source,
+        base: &str,
+        preselected: Vec<String>,
+    ) -> Self {
         let fallback = match &source {
             Source::Remote(name) => name.as_str(),
             Source::Local => "/",
         };
-        let label = base.rsplit('/').find(|name| !name.is_empty()).unwrap_or(fallback);
-        let pick = if matches!(target, Target::Hidden(_)) { Pick::Folders } else { Pick::Folder };
+        let label = base
+            .rsplit('/')
+            .find(|name| !name.is_empty())
+            .unwrap_or(fallback);
+        let pick = if matches!(target, Target::Hidden(_)) {
+            Pick::Folders
+        } else {
+            Pick::Folder
+        };
         let mut browser = Browser::picker(label, pick);
         if pick == Pick::Folder {
             // Opening the folder and confirming is the whole choice; boxes would only offer a second way to the same answer.
@@ -81,13 +96,26 @@ impl Picker {
         // Folders carry no size.
         browser.hide_column(BuiltInColumn::Size);
         // `""` is the root: a hidden sync folder itself, ticked like any other.
-        let preselected: Vec<String> = preselected.iter().map(|path| crate::util::strip_slashes(path.trim())).collect();
+        let preselected: Vec<String> = preselected
+            .iter()
+            .map(|path| crate::util::strip_slashes(path.trim()))
+            .collect();
         browser.select_paths(&preselected);
         let base = match source {
             Source::Remote(_) => crate::util::strip_slashes(base),
             Source::Local => base.trim_end_matches('/').to_owned(),
         };
-        Self { target, generation, source, base, initial: preselected, browser, cancel: cancel_never(), error: None, subtitle: None }
+        Self {
+            target,
+            generation,
+            source,
+            base,
+            initial: preselected,
+            browser,
+            cancel: cancel_never(),
+            error: None,
+            subtitle: None,
+        }
     }
 
     /// The full path of a folder below the root (`path_of` of the browser): on a remote relative to the drive, locally absolute.
@@ -102,7 +130,8 @@ impl Picker {
 
 /// Why a remote can't take `name` as a folder directly inside the open one; `None` when it can. A slash or a dot name would land somewhere else than the open folder.
 pub fn folder_name_problem(name: &str) -> Option<String> {
-    (name.contains('/') || name.contains('\\') || name == "." || name == "..").then(|| format!("\"{name}\" can't be a folder name."))
+    (name.contains('/') || name.contains('\\') || name == "." || name == "..")
+        .then(|| format!("\"{name}\" can't be a folder name."))
 }
 
 #[derive(Debug, Clone)]
@@ -130,7 +159,14 @@ pub fn view(picker: &Picker, full_screen: bool) -> Element<'_, Msg> {
     let mut action = ActionButton::new(confirm, Msg::Confirm).placement(ActionPlacement::Footer);
     match picker.target {
         // The root is the synced folder itself, which can't exclude itself.
-        Target::Exclusion(_) => action = action.when(|browser| browser.picked().first().is_some_and(|path| !path.is_empty())),
+        Target::Exclusion(_) => {
+            action = action.when(|browser| {
+                browser
+                    .picked()
+                    .first()
+                    .is_some_and(|path| !path.is_empty())
+            })
+        }
         // Unticking every hidden folder is an answer too.
         Target::Hidden(_) => action = action.when(|_| true),
         Target::AddFolder | Target::Share => {}
@@ -144,7 +180,11 @@ pub fn view(picker: &Picker, full_screen: bool) -> Element<'_, Msg> {
         .text_size(TEXT)
         .font(theme::UI_FONT)
         .scrollbar(theme::slim_scrollbar(), theme::scrollbar)
-        .height(if full_screen { Length::Fill } else { Length::Fixed(CABINET_HEIGHT) });
+        .height(if full_screen {
+            Length::Fill
+        } else {
+            Length::Fixed(CABINET_HEIGHT)
+        });
     if matches!(picker.source, Source::Remote(_)) {
         cabinet = cabinet.tool(BuiltInTool::CreateFolder);
     }
@@ -157,14 +197,28 @@ pub fn view(picker: &Picker, full_screen: bool) -> Element<'_, Msg> {
         );
     }
     if let Some(subtitle) = picker.subtitle.as_ref().filter(|_| !full_screen) {
-        heading = heading.push(text(subtitle.clone()).size(TEXT).style(theme::muted).wrapping(iced::widget::text::Wrapping::WordOrGlyph));
+        heading = heading.push(
+            text(subtitle.clone())
+                .size(TEXT)
+                .style(theme::muted)
+                .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
+        );
     }
     if let Some(error) = &picker.error {
-        heading = heading.push(text(error.clone()).size(TEXT).style(theme::danger_text).wrapping(iced::widget::text::Wrapping::WordOrGlyph));
+        heading = heading.push(
+            text(error.clone())
+                .size(TEXT)
+                .style(theme::danger_text)
+                .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
+        );
     }
     let content = column![container(heading).padding([14, 16]), cabinet];
     if full_screen {
-        return container(content).width(Length::Fill).height(Length::Fill).style(theme::page).into();
+        return container(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(theme::page)
+            .into();
     }
     container(content)
         .width(Length::Fill)
@@ -181,9 +235,21 @@ mod tests {
     /// A hidden sync folder itself is stored as `""` and comes back ticked; it covers the folders below it.
     #[test]
     fn a_hidden_sync_folder_itself_stays_ticked() {
-        let picker = Picker::new(Target::Hidden(SyncDirId(1)), 1, Source::Local, "/sdcard/Pictures", vec!["".to_owned(), "Raw".to_owned()]);
+        let picker = Picker::new(
+            Target::Hidden(SyncDirId(1)),
+            1,
+            Source::Local,
+            "/sdcard/Pictures",
+            vec!["".to_owned(), "Raw".to_owned()],
+        );
         assert_eq!(picker.browser.selected_paths(), [""]);
-        let picker = Picker::new(Target::Hidden(SyncDirId(1)), 1, Source::Local, "/sdcard/Pictures", vec!["Raw".to_owned()]);
+        let picker = Picker::new(
+            Target::Hidden(SyncDirId(1)),
+            1,
+            Source::Local,
+            "/sdcard/Pictures",
+            vec!["Raw".to_owned()],
+        );
         assert_eq!(picker.browser.selected_paths(), ["Raw"]);
     }
 

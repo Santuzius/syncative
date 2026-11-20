@@ -3,24 +3,39 @@
 use std::path::PathBuf;
 
 use jni::{
+    JNIEnv,
     objects::{JClass, JObjectArray, JString, JValue},
     sys::jint,
-    JNIEnv,
 };
 
 use super::{bridge, with_context};
 use crate::services::share::{self, Incoming};
 
 #[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeShareStarted(mut env: JNIEnv, _: JClass, folder: JString, count: jint) {
+extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeShareStarted(
+    mut env: JNIEnv,
+    _: JClass,
+    folder: JString,
+    count: jint,
+) {
     let Ok(folder) = env.get_string(&folder).map(String::from) else {
         return;
     };
-    share::push(Incoming::Started { folder: PathBuf::from(folder), count: count.max(0) as usize, copies: true });
+    share::push(Incoming::Started {
+        folder: PathBuf::from(folder),
+        count: count.max(0) as usize,
+        copies: true,
+    });
 }
 
 #[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeShareReady(mut env: JNIEnv, _: JClass, folder: JString, paths: JObjectArray, error: JString) {
+extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeShareReady(
+    mut env: JNIEnv,
+    _: JClass,
+    folder: JString,
+    paths: JObjectArray,
+    error: JString,
+) {
     let Ok(folder) = env.get_string(&folder).map(String::from) else {
         return;
     };
@@ -34,8 +49,16 @@ extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeShareReady(mu
             files.push(PathBuf::from(String::from(path)));
         }
     }
-    let error = if error.is_null() { None } else { env.get_string(&error).ok().map(String::from) };
-    share::push(Incoming::Ready { folder: PathBuf::from(folder), files, error });
+    let error = if error.is_null() {
+        None
+    } else {
+        env.get_string(&error).ok().map(String::from)
+    };
+    share::push(Incoming::Ready {
+        folder: PathBuf::from(folder),
+        files,
+        error,
+    });
 }
 
 /// Back to the app the files came from.
@@ -52,7 +75,12 @@ pub fn toast(text: &str) {
     with_context(|env, context| {
         let class = bridge(env, context)?;
         let text = env.new_string(text)?;
-        env.call_static_method(class, "toast", "(Landroid/content/Context;Ljava/lang/String;)V", &[JValue::Object(context), JValue::Object(&text)])?;
+        env.call_static_method(
+            class,
+            "toast",
+            "(Landroid/content/Context;Ljava/lang/String;)V",
+            &[JValue::Object(context), JValue::Object(&text)],
+        )?;
         Ok(())
     });
 }

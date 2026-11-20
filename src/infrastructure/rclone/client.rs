@@ -56,12 +56,19 @@ impl LibrcloneClient {
 
     /// Fails while the provider can't be reached; one small request unless it answered within [`REACHED_WITHIN`]. A backend without `about` counts as reached.
     fn check_reachable(&self, remote: &str, cancel: &Cancel) -> Result<(), String> {
-        let recent = self.reached.lock().ok().and_then(|reached| reached.get(remote).copied()).is_some_and(|at| at.elapsed() < REACHED_WITHIN);
+        let recent = self
+            .reached
+            .lock()
+            .ok()
+            .and_then(|reached| reached.get(remote).copied())
+            .is_some_and(|at| at.elapsed() < REACHED_WITHIN);
         if recent {
             return Ok(());
         }
         match rpc::sync::about(remote, cancel) {
-            Err(err) if crate::infrastructure::translators::is_offline(&err.error) => Err(err.error),
+            Err(err) if crate::infrastructure::translators::is_offline(&err.error) => {
+                Err(err.error)
+            }
             _ => {
                 self.mark_reached(remote);
                 Ok(())
@@ -174,8 +181,7 @@ impl BackendClient for LibrcloneClient {
         remote_path: &str,
         cancel: &Cancel,
     ) -> Result<(), String> {
-        rpc::sync::copy_to_remote(local_path, remote, remote_path, cancel)
-            .map_err(|err| err.error)
+        rpc::sync::copy_to_remote(local_path, remote, remote_path, cancel).map_err(|err| err.error)
     }
 
     fn copy_to_local(
@@ -269,15 +275,27 @@ impl BackendClient for LibrcloneClient {
             .filter(|m| !m.is_empty())
     }
 
-    fn changes(&self, remote: &str, path: &str, cursor: Option<&str>, cancel: &Cancel) -> Result<Changes, String> {
+    fn changes(
+        &self,
+        remote: &str,
+        path: &str,
+        cursor: Option<&str>,
+        cancel: &Cancel,
+    ) -> Result<Changes, String> {
         // Nextcloud and ownCloud: the folder's ETag changes with everything below it, and those of its subfolders show which branch changed.
         match syncative_go::folder_tags(remote, path, 0, cancel) {
             Ok(Some(tags)) => {
                 self.mark_reached(remote);
                 return Ok(match cursor {
                     Some(before) if before == tags.tag => Changes::None,
-                    Some(_) => Changes::Some { cursor: tags.tag, root_id: None, changes: vec![RemoteChange::Folder(path.to_owned())] },
-                    None => Changes::Unknown { cursor: Some(tags.tag) },
+                    Some(_) => Changes::Some {
+                        cursor: tags.tag,
+                        root_id: None,
+                        changes: vec![RemoteChange::Folder(path.to_owned())],
+                    },
+                    None => Changes::Unknown {
+                        cursor: Some(tags.tag),
+                    },
                 });
             }
             Ok(None) => {}
@@ -309,10 +327,19 @@ impl BackendClient for LibrcloneClient {
                 std::iter::once(RemoteChange::Folder(parent)).chain(own)
             })
             .collect();
-        Ok(Changes::Some { cursor: now, root_id: None, changes })
+        Ok(Changes::Some {
+            cursor: now,
+            root_id: None,
+            changes,
+        })
     }
 
-    fn folder_tags(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<Option<HashMap<String, String>>, String> {
+    fn folder_tags(
+        &self,
+        remote: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<HashMap<String, String>>, String> {
         Ok(syncative_go::folder_tags(remote, path, 1, cancel)?.map(|tags| tags.children))
     }
 

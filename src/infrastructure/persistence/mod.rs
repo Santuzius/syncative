@@ -15,8 +15,7 @@ pub async fn has_legacy_migrations(db: &DatabaseConnection) -> bool {
     let table_exists = db
         .query_one(Statement::from_string(
             DatabaseBackend::Sqlite,
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='seaql_migrations'"
-                .to_owned(),
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='seaql_migrations'".to_owned(),
         ))
         .await
         .ok()

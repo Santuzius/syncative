@@ -1,8 +1,6 @@
 //! Sync-dir CRUD against `sync_dirs`.
 
-use sea_orm::{
-    ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, QueryFilter,
-};
+use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, QueryFilter};
 
 use crate::domain::{
     ports::{BoxFuture, RepositoryError},
@@ -11,7 +9,8 @@ use crate::domain::{
 };
 
 use super::super::models::{
-    SyncDirExclusionsColumn, SyncDirExclusionsEntity, SyncDirsActiveModel, SyncDirsColumn, SyncDirsEntity, SyncItemsColumn, SyncItemsEntity,
+    SyncDirExclusionsColumn, SyncDirExclusionsEntity, SyncDirsActiveModel, SyncDirsColumn,
+    SyncDirsEntity, SyncItemsColumn, SyncItemsEntity,
 };
 use super::{map_err, map_sync_dir};
 
@@ -34,9 +33,16 @@ pub(super) fn remote_cursor(
     sync_dir: SyncDirId,
 ) -> BoxFuture<'_, Result<Option<RemoteCursor>, RepositoryError>> {
     Box::pin(async move {
-        let row = SyncDirsEntity::find_by_id(sync_dir.0).one(db).await.map_err(map_err)?;
+        let row = SyncDirsEntity::find_by_id(sync_dir.0)
+            .one(db)
+            .await
+            .map_err(map_err)?;
         Ok(row.and_then(|row| {
-            Some(RemoteCursor { cursor: row.remote_cursor?, listed_at: row.remote_listed_at?, filter: row.remote_filter.unwrap_or_default() })
+            Some(RemoteCursor {
+                cursor: row.remote_cursor?,
+                listed_at: row.remote_listed_at?,
+                filter: row.remote_filter.unwrap_or_default(),
+            })
         }))
     })
 }
@@ -58,7 +64,10 @@ pub(super) fn set_remote_cursor(
             remote_filter: ActiveValue::Set(filter),
             ..Default::default()
         };
-        SyncDirsEntity::update(active).exec(db).await.map_err(map_err)?;
+        SyncDirsEntity::update(active)
+            .exec(db)
+            .await
+            .map_err(map_err)?;
         Ok(())
     })
 }
@@ -133,8 +142,10 @@ pub(super) fn cascade_delete_sync_dir(
                 .exec(db)
                 .await
                 .map_err(map_err)?;
-            super::hidden_folders::delete_hidden_folders(db, crate::domain::sync::SyncDirId(sd.id)).await?;
-            super::nested_filters::delete_nested_filters(db, crate::domain::sync::SyncDirId(sd.id)).await?;
+            super::hidden_folders::delete_hidden_folders(db, crate::domain::sync::SyncDirId(sd.id))
+                .await?;
+            super::nested_filters::delete_nested_filters(db, crate::domain::sync::SyncDirId(sd.id))
+                .await?;
             sd.delete(db).await.map_err(map_err)?;
         }
         Ok(())

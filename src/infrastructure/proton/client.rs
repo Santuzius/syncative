@@ -68,7 +68,10 @@ impl NativeProtonClient {
     /// Wrap a UID the caller already got from a `login` / `resume`
     /// call. The session must be registered on the Go side.
     pub fn new(uid: String) -> Self {
-        Self { uid, known: Arc::default() }
+        Self {
+            uid,
+            known: Arc::default(),
+        }
     }
 
     fn remember(&self, path: &str, id: Option<String>) {
@@ -78,8 +81,15 @@ impl NativeProtonClient {
     }
 
     /// The cursor for the folder at `path` as the event log stands now: the latest event and the folder's link ID. `None` when the folder is missing.
-    fn fresh_cursor(&self, path: &str, event: String, cancel: &Cancel) -> Result<Option<String>, String> {
-        Ok(self.resolve_path(path, cancel)?.map(|root| format!("{event} {root}")))
+    fn fresh_cursor(
+        &self,
+        path: &str,
+        event: String,
+        cancel: &Cancel,
+    ) -> Result<Option<String>, String> {
+        Ok(self
+            .resolve_path(path, cancel)?
+            .map(|root| format!("{event} {root}")))
     }
 
     pub fn uid(&self) -> &str {
@@ -403,16 +413,26 @@ impl BackendClient for NativeProtonClient {
     }
 
     /// From the volume's event log. The cursor is the last event seen and the sync folder's link ID, so changes naming their folder by ID can be placed.
-    fn changes(&self, remote: &str, path: &str, cursor: Option<&str>, cancel: &Cancel) -> Result<Changes, String> {
+    fn changes(
+        &self,
+        remote: &str,
+        path: &str,
+        cursor: Option<&str>,
+        cancel: &Cancel,
+    ) -> Result<Changes, String> {
         let result = (|| -> Result<Changes, String> {
             let Some((event, root)) = cursor.and_then(|c| c.split_once(' ')) else {
                 // Before the listing, so a change during it shows up next time.
                 let event = proton_ffi::latest_event_id(&self.uid)?;
-                return Ok(Changes::Unknown { cursor: self.fresh_cursor(path, event, cancel)? });
+                return Ok(Changes::Unknown {
+                    cursor: self.fresh_cursor(path, event, cancel)?,
+                });
             };
             let found = proton_ffi::changes_since(&self.uid, event)?;
             if found.relist {
-                return Ok(Changes::Unknown { cursor: self.fresh_cursor(path, found.cursor, cancel)? });
+                return Ok(Changes::Unknown {
+                    cursor: self.fresh_cursor(path, found.cursor, cancel)?,
+                });
             }
             let changes = found.changes.unwrap_or_default();
             if changes.is_empty() && found.cursor == event {
@@ -429,12 +449,17 @@ impl BackendClient for NativeProtonClient {
                             parent_id: c.parent_link_id,
                             name: c.name,
                             is_dir: c.is_dir,
-                            mod_time: OffsetDateTime::from_unix_timestamp(c.mod_time_unix).unwrap_or(OffsetDateTime::UNIX_EPOCH),
+                            mod_time: OffsetDateTime::from_unix_timestamp(c.mod_time_unix)
+                                .unwrap_or(OffsetDateTime::UNIX_EPOCH),
                         }
                     }
                 })
                 .collect();
-            Ok(Changes::Some { cursor: format!("{} {root}", found.cursor), root_id: Some(root.to_owned()), changes })
+            Ok(Changes::Some {
+                cursor: format!("{} {root}", found.cursor),
+                root_id: Some(root.to_owned()),
+                changes,
+            })
         })();
         self.checkpoint_session(remote);
         result
@@ -654,7 +679,13 @@ impl BackendClient for PendingProtonClient {
     fn usage(&self, remote: &str, cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {
         self.resolve()?.usage(remote, cancel)
     }
-    fn changes(&self, remote: &str, path: &str, cursor: Option<&str>, cancel: &Cancel) -> Result<Changes, String> {
+    fn changes(
+        &self,
+        remote: &str,
+        path: &str,
+        cursor: Option<&str>,
+        cancel: &Cancel,
+    ) -> Result<Changes, String> {
         self.resolve()?.changes(remote, path, cursor, cancel)
     }
     fn full_listing_every(&self, _remote: &str) -> Option<Duration> {
@@ -751,4 +782,3 @@ impl BackendClient for DisabledProtonClient {
         true
     }
 }
-

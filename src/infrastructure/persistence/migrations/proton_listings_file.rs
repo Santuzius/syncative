@@ -3,7 +3,9 @@
 use std::path::Path;
 
 pub fn run(data_dir: &Path) {
-    let Ok(entries) = std::fs::read_dir(data_dir.join("cache")) else { return };
+    let Ok(entries) = std::fs::read_dir(data_dir.join("cache")) else {
+        return;
+    };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -11,7 +13,10 @@ pub fn run(data_dir: &Path) {
             continue;
         }
         if let Err(err) = std::fs::remove_file(entry.path()) {
-            eprintln!("syncative: could not remove the old Proton listing cache {}: {err}", entry.path().display());
+            eprintln!(
+                "syncative: could not remove the old Proton listing cache {}: {err}",
+                entry.path().display()
+            );
         }
     }
 }

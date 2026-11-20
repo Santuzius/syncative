@@ -93,6 +93,8 @@ mod tests {
 
     #[test]
     fn plain_network_errors_are_not_auth_failures() {
-        assert!(!RcloneTranslator.is_auth_failure("dial tcp: lookup www.googleapis.com: no such host"));
+        assert!(
+            !RcloneTranslator.is_auth_failure("dial tcp: lookup www.googleapis.com: no such host")
+        );
     }
 }

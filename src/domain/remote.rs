@@ -99,7 +99,10 @@ pub struct Remote {
 impl Remote {
     /// The name as the window shows it: with the beta mark (🧪) for a provider that's a beta feature.
     pub fn title(&self) -> String {
-        crate::services::beta::marked(&self.name, self.provider_kind.is_some_and(ProviderKind::is_beta))
+        crate::services::beta::marked(
+            &self.name,
+            self.provider_kind.is_some_and(ProviderKind::is_beta),
+        )
     }
 }
 
@@ -233,12 +236,25 @@ mod tests {
     fn the_beta_mark_follows_the_provider_kind() {
         let nextcloud = remote_with(Some(ProviderKind::Nextcloud), Interval::FifteenSeconds);
         assert_eq!(nextcloud.name, "Remote");
-        assert_eq!(nextcloud.title(), if ProviderKind::Nextcloud.is_beta() { "Remote 🧪" } else { "Remote" });
+        assert_eq!(
+            nextcloud.title(),
+            if ProviderKind::Nextcloud.is_beta() {
+                "Remote 🧪"
+            } else {
+                "Remote"
+            }
+        );
         for kind in [ProviderKind::ProtonDrive, ProviderKind::GDrive] {
             assert!(!kind.is_beta());
-            assert_eq!(remote_with(Some(kind), Interval::FifteenSeconds).title(), "Remote");
+            assert_eq!(
+                remote_with(Some(kind), Interval::FifteenSeconds).title(),
+                "Remote"
+            );
         }
-        assert_eq!(remote_with(None, Interval::FifteenSeconds).title(), "Remote");
+        assert_eq!(
+            remote_with(None, Interval::FifteenSeconds).title(),
+            "Remote"
+        );
     }
 
     #[test]

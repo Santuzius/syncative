@@ -14,10 +14,20 @@ pub fn read() -> Option<Mode> {
     let conn = Connection::new_session().ok()?;
     let proxy = conn.with_proxy(DESTINATION, PATH, Duration::from_secs(2));
     // `ReadOne` came with version 2 of the interface; `Read`, which wraps the value in a second variant, is what older portals such as Ubuntu 22.04's offer.
-    let value = match proxy.method_call::<(Variant<u32>,), _, _, _>(INTERFACE, "ReadOne", ("org.freedesktop.appearance", "color-scheme")) {
+    let value = match proxy.method_call::<(Variant<u32>,), _, _, _>(
+        INTERFACE,
+        "ReadOne",
+        ("org.freedesktop.appearance", "color-scheme"),
+    ) {
         Ok((Variant(value),)) => value,
         Err(_) => {
-            let (Variant(Variant(value)),): (Variant<Variant<u32>>,) = proxy.method_call(INTERFACE, "Read", ("org.freedesktop.appearance", "color-scheme")).ok()?;
+            let (Variant(Variant(value)),): (Variant<Variant<u32>>,) = proxy
+                .method_call(
+                    INTERFACE,
+                    "Read",
+                    ("org.freedesktop.appearance", "color-scheme"),
+                )
+                .ok()?;
             value
         }
     };

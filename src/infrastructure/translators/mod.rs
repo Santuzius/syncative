@@ -43,7 +43,11 @@ mod tests {
         ] {
             assert!(is_offline(msg), "{msg}");
         }
-        for msg in ["object not found", "googleapi: Error 403: Rate Limit Exceeded", "unexpected EOF"] {
+        for msg in [
+            "object not found",
+            "googleapi: Error 403: Rate Limit Exceeded",
+            "unexpected EOF",
+        ] {
             assert!(!is_offline(msg), "{msg}");
         }
     }

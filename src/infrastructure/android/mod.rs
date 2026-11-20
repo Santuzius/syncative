@@ -10,9 +10,9 @@ pub mod share;
 use std::sync::{Mutex, OnceLock};
 
 use jni::{
-    objects::{GlobalRef, JClass, JObject, JValue},
-    sys::{jboolean, JNI_TRUE},
     JNIEnv, JavaVM,
+    objects::{GlobalRef, JClass, JObject, JValue},
+    sys::{JNI_TRUE, jboolean},
 };
 
 use crate::services::power::Conditions;
@@ -25,10 +25,21 @@ static CONTEXT: OnceLock<(JavaVM, GlobalRef)> = OnceLock::new();
 
 /// Called by `SyncativeApplication.onCreate`, first thing in every process, after it has pointed the XDG and temp directories at the app's private storage (from Java, so the Go runtime sees them too).
 #[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_SyncativeApplication_nativeInit(env: JNIEnv, _: JClass, application: JObject) {
+extern "system" fn Java_io_github_santuzius_syncative_SyncativeApplication_nativeInit(
+    env: JNIEnv,
+    _: JClass,
+    application: JObject,
+) {
     // sqlx logs every query and wgpu its whole adapter at info level.
-    let filter = android_logger::FilterBuilder::new().parse("info,sqlx=warn,wgpu_core=error,wgpu_hal=error,iced_wgpu=warn,iced_winit=warn").build();
-    android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Info).with_tag("syncative").with_filter(filter));
+    let filter = android_logger::FilterBuilder::new()
+        .parse("info,sqlx=warn,wgpu_core=error,wgpu_hal=error,iced_wgpu=warn,iced_winit=warn")
+        .build();
+    android_logger::init_once(
+        android_logger::Config::default()
+            .with_max_level(log::LevelFilter::Info)
+            .with_tag("syncative")
+            .with_filter(filter),
+    );
     std::panic::set_hook(Box::new(|info| log::error!("{info}")));
     match (env.get_java_vm(), env.new_global_ref(application)) {
         (Ok(vm), Ok(application)) => {
@@ -40,21 +51,32 @@ extern "system" fn Java_io_github_santuzius_syncative_SyncativeApplication_nativ
 
 /// Called by `SyncService.onCreate`: starts the sync engine without a GUI, unless it already runs.
 #[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeStartEngine(_: JNIEnv, _: JClass) {
+extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeStartEngine(
+    _: JNIEnv,
+    _: JClass,
+) {
     // Setting up opens the database and resumes sessions over the network; keep that off the service's main thread.
     std::thread::spawn(crate::start_engine);
 }
 
 /// Called by `SyncService` when "Sync all now" in its notification is tapped.
 #[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeSyncAll(_: JNIEnv, _: JClass) {
+extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeSyncAll(
+    _: JNIEnv,
+    _: JClass,
+) {
     if let Some(engine) = crate::engine::get() {
         engine.send(crate::engine::Command::SyncAll);
     }
 }
 
 /// The screen, the charger and the battery saver, as `SyncService` last reported them; whether the network is metered is kept in [`crate::services::network`].
-static CONDITIONS: Mutex<Conditions> = Mutex::new(Conditions { screen_off: false, charging: false, battery_saver: false, metered: false });
+static CONDITIONS: Mutex<Conditions> = Mutex::new(Conditions {
+    screen_off: false,
+    charging: false,
+    battery_saver: false,
+    metered: false,
+});
 
 /// What the power mode currently goes by, apart from a metered network ([`crate::services::power::conditions`] adds that).
 pub fn conditions() -> Conditions {
@@ -63,39 +85,65 @@ pub fn conditions() -> Conditions {
 
 /// Called by `SyncService` when the screen goes off or on, the charger is plugged in or out, or Android's battery saver toggles: the power mode decides how often to sync (see [`crate::services::power`]).
 #[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeConditions(_: JNIEnv, _: JClass, screen_off: jboolean, charging: jboolean, battery_saver: jboolean) {
+extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeConditions(
+    _: JNIEnv,
+    _: JClass,
+    screen_off: jboolean,
+    charging: jboolean,
+    battery_saver: jboolean,
+) {
     if let Ok(mut conditions) = CONDITIONS.lock() {
-        *conditions = Conditions { screen_off: screen_off == JNI_TRUE, charging: charging == JNI_TRUE, battery_saver: battery_saver == JNI_TRUE, ..*conditions };
+        *conditions = Conditions {
+            screen_off: screen_off == JNI_TRUE,
+            charging: charging == JNI_TRUE,
+            battery_saver: battery_saver == JNI_TRUE,
+            ..*conditions
+        };
     }
     crate::services::power::apply();
 }
 
 /// Called by `Bridge.watchNetwork` in every process when the default network changes and whether it is metered: Preferences may hold syncing on metered networks.
 #[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeMetered(_: JNIEnv, _: JClass, metered: jboolean) {
+extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeMetered(
+    _: JNIEnv,
+    _: JClass,
+    metered: jboolean,
+) {
     crate::services::network::set_metered(metered == JNI_TRUE);
 }
 
 /// Called by `Bridge.watchNetwork` in every process when the device gets or loses a network below any VPN.
 #[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeOnline(_: JNIEnv, _: JClass, online: jboolean) {
+extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeOnline(
+    _: JNIEnv,
+    _: JClass,
+    online: jboolean,
+) {
     crate::services::network::set_online(online == JNI_TRUE);
 }
 
-
 /// Called by `Bridge.watchNetwork` in every process when the default network switches: connections opened over the old one may hang without ever failing.
 #[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeNetworkChanged(_: JNIEnv, _: JClass) {
+extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeNetworkChanged(
+    _: JNIEnv,
+    _: JClass,
+) {
     log::info!("network changed");
     syncative_go::proton::reset_connections();
 }
-
 
 /// Whether Android leaves Syncative out of battery optimization, so it may keep running in the background.
 pub fn ignores_battery_optimizations() -> bool {
     with_context(|env, context| {
         let class = bridge(env, context)?;
-        env.call_static_method(class, "ignoresBatteryOptimizations", "(Landroid/content/Context;)Z", &[JValue::Object(context)])?.z()
+        env.call_static_method(
+            class,
+            "ignoresBatteryOptimizations",
+            "(Landroid/content/Context;)Z",
+            &[JValue::Object(context)],
+        )?
+        .z()
     })
     .unwrap_or(true)
 }
@@ -104,7 +152,12 @@ pub fn ignores_battery_optimizations() -> bool {
 pub fn ask_to_ignore_battery_optimizations() {
     with_context(|env, context| {
         let class = bridge(env, context)?;
-        env.call_static_method(class, "askToIgnoreBatteryOptimizations", "(Landroid/content/Context;)V", &[JValue::Object(context)])?;
+        env.call_static_method(
+            class,
+            "askToIgnoreBatteryOptimizations",
+            "(Landroid/content/Context;)V",
+            &[JValue::Object(context)],
+        )?;
         Ok(())
     });
 }
@@ -113,7 +166,13 @@ pub fn ask_to_ignore_battery_optimizations() {
 pub fn has_storage_access() -> bool {
     with_context(|env, context| {
         let class = bridge(env, context)?;
-        env.call_static_method(class, "hasStorageAccess", "(Landroid/content/Context;)Z", &[JValue::Object(context)])?.z()
+        env.call_static_method(
+            class,
+            "hasStorageAccess",
+            "(Landroid/content/Context;)Z",
+            &[JValue::Object(context)],
+        )?
+        .z()
     })
     .unwrap_or(true)
 }
@@ -122,7 +181,12 @@ pub fn has_storage_access() -> bool {
 pub fn ask_for_storage_access() {
     with_context(|env, context| {
         let class = bridge(env, context)?;
-        env.call_static_method(class, "askForStorageAccessFrom", "(Landroid/content/Context;)V", &[JValue::Object(context)])?;
+        env.call_static_method(
+            class,
+            "askForStorageAccessFrom",
+            "(Landroid/content/Context;)V",
+            &[JValue::Object(context)],
+        )?;
         Ok(())
     });
 }
@@ -131,7 +195,12 @@ pub fn ask_for_storage_access() {
 pub fn run_in_background(on: bool) {
     with_context(|env, context| {
         let class = bridge(env, context)?;
-        env.call_static_method(class, "runInBackground", "(Landroid/content/Context;Z)V", &[JValue::Object(context), JValue::Bool(on.into())])?;
+        env.call_static_method(
+            class,
+            "runInBackground",
+            "(Landroid/content/Context;Z)V",
+            &[JValue::Object(context), JValue::Bool(on.into())],
+        )?;
         Ok(())
     });
 }
@@ -141,13 +210,20 @@ pub fn open_folder(path: &str) {
     with_context(|env, context| {
         let class = bridge(env, context)?;
         let path = env.new_string(path)?;
-        env.call_static_method(class, "openFolder", "(Landroid/content/Context;Ljava/lang/String;)V", &[JValue::Object(context), JValue::Object(&path)])?;
+        env.call_static_method(
+            class,
+            "openFolder",
+            "(Landroid/content/Context;Ljava/lang/String;)V",
+            &[JValue::Object(context), JValue::Object(&path)],
+        )?;
         Ok(())
     });
 }
 
 /// Runs `f` with a JNI environment and the Application context, attaching the current thread to the Java VM first. Logs Java exceptions instead of leaving them pending.
-pub fn with_context<T>(f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<T>) -> Option<T> {
+pub fn with_context<T>(
+    f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<T>,
+) -> Option<T> {
     let (vm, application) = CONTEXT.get()?;
     let mut env = vm.attach_current_thread_permanently().ok()?;
 
@@ -165,10 +241,22 @@ pub fn with_context<T>(f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Res
 }
 
 /// Loads [`BRIDGE`] through the app's class loader; `FindClass` on a native thread only sees system classes.
-fn bridge<'local>(env: &mut JNIEnv<'local>, context: &JObject) -> jni::errors::Result<JClass<'local>> {
-    let loader = env.call_method(context, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?.l()?;
+fn bridge<'local>(
+    env: &mut JNIEnv<'local>,
+    context: &JObject,
+) -> jni::errors::Result<JClass<'local>> {
+    let loader = env
+        .call_method(context, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?
+        .l()?;
     let name = env.new_string(BRIDGE)?;
-    let class = env.call_method(&loader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;", &[JValue::Object(&name)])?.l()?;
+    let class = env
+        .call_method(
+            &loader,
+            "loadClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;",
+            &[JValue::Object(&name)],
+        )?
+        .l()?;
     Ok(JClass::from(class))
 }
 
@@ -178,7 +266,16 @@ pub fn notify(title: &str, text: &str) {
         let class = bridge(env, context)?;
         let title = env.new_string(title)?;
         let text = env.new_string(text)?;
-        env.call_static_method(class, "notify", "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)V", &[JValue::Object(context), JValue::Object(&title), JValue::Object(&text)])?;
+        env.call_static_method(
+            class,
+            "notify",
+            "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)V",
+            &[
+                JValue::Object(context),
+                JValue::Object(&title),
+                JValue::Object(&text),
+            ],
+        )?;
         Ok(())
     });
 }
@@ -187,7 +284,12 @@ pub fn notify(title: &str, text: &str) {
 pub fn keep_awake(awake: bool) {
     with_context(|env, context| {
         let class = bridge(env, context)?;
-        env.call_static_method(class, "keepAwake", "(Landroid/content/Context;Z)V", &[JValue::Object(context), JValue::Bool(awake.into())])?;
+        env.call_static_method(
+            class,
+            "keepAwake",
+            "(Landroid/content/Context;Z)V",
+            &[JValue::Object(context), JValue::Bool(awake.into())],
+        )?;
         Ok(())
     });
 }
@@ -197,7 +299,12 @@ pub fn open_url(url: &str) {
     with_context(|env, context| {
         let class = bridge(env, context)?;
         let url = env.new_string(url)?;
-        env.call_static_method(class, "openUrl", "(Landroid/content/Context;Ljava/lang/String;)V", &[JValue::Object(context), JValue::Object(&url)])?;
+        env.call_static_method(
+            class,
+            "openUrl",
+            "(Landroid/content/Context;Ljava/lang/String;)V",
+            &[JValue::Object(context), JValue::Object(&url)],
+        )?;
         Ok(())
     });
 }
@@ -208,7 +315,16 @@ pub fn show_sync_status(text: &str, since_millis: i64) {
     with_context(|env, context| {
         let class = bridge(env, context)?;
         let text = env.new_string(text)?;
-        env.call_static_method(class, "showSyncStatus", "(Landroid/content/Context;Ljava/lang/String;J)V", &[JValue::Object(context), JValue::Object(&text), JValue::Long(since_millis)])?;
+        env.call_static_method(
+            class,
+            "showSyncStatus",
+            "(Landroid/content/Context;Ljava/lang/String;J)V",
+            &[
+                JValue::Object(context),
+                JValue::Object(&text),
+                JValue::Long(since_millis),
+            ],
+        )?;
         Ok(())
     });
 }

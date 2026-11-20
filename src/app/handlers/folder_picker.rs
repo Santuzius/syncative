@@ -40,13 +40,18 @@ impl SyncativeApp {
     /// Handle [`remote_page::Msg::BrowseHidden`](crate::screens::remote_page::Msg::BrowseHidden) — read the folder's hidden folders, then open the picker with them ticked.
     pub(in crate::app) fn handle_browse_hidden(&mut self, sd_id: SyncDirId) -> Task<Message> {
         let repo = self.repo.clone();
-        Task::perform(async move { repo.list_hidden_folders(sd_id).await.unwrap_or_default() }, move |hidden| {
-            Message::HiddenFoldersLoaded(sd_id, hidden)
-        })
+        Task::perform(
+            async move { repo.list_hidden_folders(sd_id).await.unwrap_or_default() },
+            move |hidden| Message::HiddenFoldersLoaded(sd_id, hidden),
+        )
     }
 
     /// Handle [`Message::HiddenFoldersLoaded`].
-    pub(in crate::app) fn handle_hidden_folders_loaded(&mut self, sd_id: SyncDirId, hidden: Vec<String>) -> Task<Message> {
+    pub(in crate::app) fn handle_hidden_folders_loaded(
+        &mut self,
+        sd_id: SyncDirId,
+        hidden: Vec<String>,
+    ) -> Task<Message> {
         let Some(dir) = self.sync_dir(sd_id) else {
             return Task::none();
         };
@@ -54,9 +59,21 @@ impl SyncativeApp {
         self.open_picker(Target::Hidden(sd_id), Source::Local, &base, hidden)
     }
 
-    pub(in crate::app) fn open_picker(&mut self, target: Target, source: Source, base: &str, preselected: Vec<String>) -> Task<Message> {
+    pub(in crate::app) fn open_picker(
+        &mut self,
+        target: Target,
+        source: Source,
+        base: &str,
+        preselected: Vec<String>,
+    ) -> Task<Message> {
         self.folder_picker_generation += 1;
-        let mut picker = Picker::new(target, self.folder_picker_generation, source, base, preselected);
+        let mut picker = Picker::new(
+            target,
+            self.folder_picker_generation,
+            source,
+            base,
+            preselected,
+        );
         let outcome = picker.browser.open();
         let task = self.list_for_picker(&picker, outcome);
         self.folder_picker = Some(picker);
@@ -64,7 +81,10 @@ impl SyncativeApp {
     }
 
     /// Handle [`Message::FolderPicker`].
-    pub(in crate::app) fn handle_folder_picker_msg(&mut self, msg: folder_picker::Msg) -> Task<Message> {
+    pub(in crate::app) fn handle_folder_picker_msg(
+        &mut self,
+        msg: folder_picker::Msg,
+    ) -> Task<Message> {
         match msg {
             folder_picker::Msg::Cabinet(event) => {
                 let Some(picker) = self.folder_picker.as_mut() else {
@@ -88,23 +108,30 @@ impl SyncativeApp {
                 match picker.target {
                     Target::AddFolder => {
                         if let Some(id) = self.selected {
-                            self.sync_dir_drafts.entry(id).or_default().1 = picked.into_iter().next().unwrap_or_default();
+                            self.sync_dir_drafts.entry(id).or_default().1 =
+                                picked.into_iter().next().unwrap_or_default();
                         }
                         Task::none()
                     }
                     Target::Exclusion(sd_id) => {
-                        self.draft_exclusion.insert(sd_id, picked.into_iter().next().unwrap_or_default());
+                        self.draft_exclusion
+                            .insert(sd_id, picked.into_iter().next().unwrap_or_default());
                         Task::none()
                     }
                     Target::Hidden(sd_id) => {
                         picked.sort();
                         self.save_hidden_folders(sd_id, picker.base, picker.initial, picked)
                     }
-                    Target::Share => self.save_share_in(picked.into_iter().next().unwrap_or_default()),
+                    Target::Share => {
+                        self.save_share_in(picked.into_iter().next().unwrap_or_default())
+                    }
                 }
             }
             folder_picker::Msg::Cancel => {
-                if self.close_folder_picker().is_some_and(|picker| picker.target == Target::Share) {
+                if self
+                    .close_folder_picker()
+                    .is_some_and(|picker| picker.target == Target::Share)
+                {
                     return self.share_folder_cancelled();
                 }
                 Task::none()
@@ -113,7 +140,13 @@ impl SyncativeApp {
     }
 
     /// Store the hidden folders and bring the `.nomedia` files in line right away instead of at the next pass: new ones get theirs, unticked ones lose theirs.
-    fn save_hidden_folders(&self, sd_id: SyncDirId, local_root: String, before: Vec<String>, after: Vec<String>) -> Task<Message> {
+    fn save_hidden_folders(
+        &self,
+        sd_id: SyncDirId,
+        local_root: String,
+        before: Vec<String>,
+        after: Vec<String>,
+    ) -> Task<Message> {
         let repo = self.repo.clone();
         Task::perform(
             async move {
@@ -142,13 +175,20 @@ impl SyncativeApp {
         id: NodeId,
         result: Result<Vec<Entry>, String>,
     ) -> Task<Message> {
-        let Some(picker) = self.folder_picker.as_mut().filter(|p| p.generation == generation) else {
+        let Some(picker) = self
+            .folder_picker
+            .as_mut()
+            .filter(|p| p.generation == generation)
+        else {
             return Task::none();
         };
         match result {
             Ok(entries) => picker.browser.set_children(id, entries),
             Err(err) => {
-                eprintln!("syncative: could not list {}: {err}", picker.full_path(&picker.browser.path_of(id)));
+                eprintln!(
+                    "syncative: could not list {}: {err}",
+                    picker.full_path(&picker.browser.path_of(id))
+                );
                 picker.browser.load_failed(id);
             }
         }
@@ -168,13 +208,26 @@ impl SyncativeApp {
             return Task::none();
         }
         let parent_path = picker.full_path(&picker.browser.path_of(parent));
-        let path = if parent_path.is_empty() { name.clone() } else { format!("{parent_path}/{name}") };
-        let (router, cancel, generation) = (self.rclone.clone(), picker.cancel.clone(), picker.generation);
+        let path = if parent_path.is_empty() {
+            name.clone()
+        } else {
+            format!("{parent_path}/{name}")
+        };
+        let (router, cancel, generation) = (
+            self.rclone.clone(),
+            picker.cancel.clone(),
+            picker.generation,
+        );
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
                     router.mkdir(&remote, &path, &cancel)?;
-                    Ok(remote_folders(router.as_ref(), &remote, &parent_path, &cancel))
+                    Ok(remote_folders(
+                        router.as_ref(),
+                        &remote,
+                        &parent_path,
+                        &cancel,
+                    ))
                 })
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()))
@@ -191,7 +244,11 @@ impl SyncativeApp {
         name: String,
         result: Result<Result<Vec<Entry>, String>, String>,
     ) -> Task<Message> {
-        let Some(picker) = self.folder_picker.as_mut().filter(|p| p.generation == generation) else {
+        let Some(picker) = self
+            .folder_picker
+            .as_mut()
+            .filter(|p| p.generation == generation)
+        else {
             return Task::none();
         };
         match result {
@@ -207,7 +264,12 @@ impl SyncativeApp {
                     return task;
                 };
                 let new_folder = picker.browser.node(parent).and_then(|node| {
-                    node.children.iter().copied().find(|id| picker.browser.node(*id).is_some_and(|child| child.name == name))
+                    node.children.iter().copied().find(|id| {
+                        picker
+                            .browser
+                            .node(*id)
+                            .is_some_and(|child| child.name == name)
+                    })
                 });
                 let Some(new_folder) = new_folder else {
                     return task;
@@ -241,27 +303,39 @@ impl SyncativeApp {
         let generation = picker.generation;
         let listing: Box<dyn FnOnce() -> Result<Vec<Entry>, String> + Send> = match &picker.source {
             Source::Remote(remote) => {
-                let (router, remote, cancel) = (self.rclone.clone(), remote.clone(), picker.cancel.clone());
+                let (router, remote, cancel) =
+                    (self.rclone.clone(), remote.clone(), picker.cancel.clone());
                 Box::new(move || remote_folders(router.as_ref(), &remote, &path, &cancel))
             }
             Source::Local => Box::new(move || local_folders(Path::new(&path))),
         };
         Task::perform(
-            async move { tokio::task::spawn_blocking(listing).await.unwrap_or_else(|e| Err(e.to_string())) },
+            async move {
+                tokio::task::spawn_blocking(listing)
+                    .await
+                    .unwrap_or_else(|e| Err(e.to_string()))
+            },
             move |result| Message::FolderListed(generation, id, result),
         )
     }
 }
 
 /// The folders directly inside `path` on a remote.
-fn remote_folders(backend: &dyn BackendClient, remote: &str, path: &str, cancel: &Cancel) -> Result<Vec<Entry>, String> {
-    backend.list(remote, path, false, ListFilter::Dirs, cancel).map(|items| {
-        items
-            .into_iter()
-            .filter(|item| item.is_dir)
-            .map(|item| Entry::folder(item.name).modified(item.mod_time.unix_timestamp()))
-            .collect()
-    })
+fn remote_folders(
+    backend: &dyn BackendClient,
+    remote: &str,
+    path: &str,
+    cancel: &Cancel,
+) -> Result<Vec<Entry>, String> {
+    backend
+        .list(remote, path, false, ListFilter::Dirs, cancel)
+        .map(|items| {
+            items
+                .into_iter()
+                .filter(|item| item.is_dir)
+                .map(|item| Entry::folder(item.name).modified(item.mod_time.unix_timestamp()))
+                .collect()
+        })
 }
 
 /// The folders directly inside `dir` on this device; one without a subfolder of its own is marked empty, so the tree shows it without an expand caret.
@@ -272,7 +346,11 @@ fn local_folders(dir: &Path) -> Result<Vec<Entry>, String> {
         .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
         .map(|entry| {
             let entry_name = entry.file_name().to_string_lossy().into_owned();
-            let modified = entry.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(UNIX_EPOCH).ok());
+            let modified = entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok());
             let mut folder = Entry::folder(entry_name);
             if let Some(time) = modified {
                 folder = folder.modified(time.as_secs() as i64);
@@ -288,7 +366,9 @@ fn local_folders(dir: &Path) -> Result<Vec<Entry>, String> {
 /// Whether `dir` holds at least one folder; unreadable counts as yes, so the picker still offers to open it and shows the error there.
 fn has_subfolder(dir: &Path) -> bool {
     match std::fs::read_dir(dir) {
-        Ok(read) => read.flatten().any(|entry| entry.file_type().is_ok_and(|t| t.is_dir())),
+        Ok(read) => read
+            .flatten()
+            .any(|entry| entry.file_type().is_ok_and(|t| t.is_dir())),
         Err(_) => true,
     }
 }

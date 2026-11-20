@@ -23,8 +23,8 @@ use std::{
     io::{BufRead, BufReader},
     os::fd::{FromRawFd, IntoRawFd, OwnedFd},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
     },
     thread,
     time::Instant,
@@ -57,7 +57,19 @@ pub fn detailed() -> bool {
 
 /// Whether a line is worth the system log without the detailed log: errors, warnings, conflicts, sign-in and rate-limit trouble.
 fn is_problem(line: &str) -> bool {
-    const MARKERS: [&str; 11] = ["error", "warn", "fail", "could not", "couldn't", "panic", "denied", "expired", "too many requests", "rate limit", "reauth"];
+    const MARKERS: [&str; 11] = [
+        "error",
+        "warn",
+        "fail",
+        "could not",
+        "couldn't",
+        "panic",
+        "denied",
+        "expired",
+        "too many requests",
+        "rate limit",
+        "reauth",
+    ];
     // Every pass summary counts `conflict=0`; only the conflict lines themselves are shouted.
     let lower = line.to_lowercase();
     line.contains("CONFLICT") || MARKERS.iter().any(|m| lower.contains(m))
@@ -72,7 +84,10 @@ pub fn clear() {
 pub fn dump() -> String {
     let handle = handle();
     let guard = handle.inner.lock().unwrap();
-    guard.iter().map(|l| format!("{} {}\n", l.at, l.text.trim_end())).collect()
+    guard
+        .iter()
+        .map(|l| format!("{} {}\n", l.at, l.text.trim_end()))
+        .collect()
 }
 
 #[derive(Clone)]
@@ -126,12 +141,9 @@ pub fn install() -> CaptureHandle {
 /// Retrieve the handle installed by [`install`]. Returns an empty-buffer
 /// handle if install was never called (unit tests).
 pub fn handle() -> CaptureHandle {
-    GLOBAL
-        .get()
-        .cloned()
-        .unwrap_or_else(|| CaptureHandle {
-            inner: Arc::new(Mutex::new(VecDeque::new())),
-        })
+    GLOBAL.get().cloned().unwrap_or_else(|| CaptureHandle {
+        inner: Arc::new(Mutex::new(VecDeque::new())),
+    })
 }
 
 fn install_inner() -> Result<CaptureHandle, String> {
@@ -139,7 +151,10 @@ fn install_inner() -> Result<CaptureHandle, String> {
     // through to the user's terminal.
     let saved = unsafe { libc::dup(libc::STDERR_FILENO) };
     if saved < 0 {
-        return Err(format!("dup(stderr) failed: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "dup(stderr) failed: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     let saved_stderr = unsafe { OwnedFd::from_raw_fd(saved) };
 
@@ -147,7 +162,10 @@ fn install_inner() -> Result<CaptureHandle, String> {
     let mut fds = [0i32; 2];
     let rc = unsafe { libc::pipe(fds.as_mut_ptr()) };
     if rc != 0 {
-        return Err(format!("pipe() failed: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "pipe() failed: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     let read_fd = unsafe { OwnedFd::from_raw_fd(fds[0]) };
     let write_fd = unsafe { OwnedFd::from_raw_fd(fds[1]) };
@@ -172,11 +190,7 @@ fn install_inner() -> Result<CaptureHandle, String> {
     Ok(CaptureHandle { inner: ring })
 }
 
-fn reader_loop(
-    read_fd: OwnedFd,
-    saved_stderr: OwnedFd,
-    ring: Arc<Mutex<VecDeque<CapturedLine>>>,
-) {
+fn reader_loop(read_fd: OwnedFd, saved_stderr: OwnedFd, ring: Arc<Mutex<VecDeque<CapturedLine>>>) {
     let file = std::fs::File::from(read_fd);
     let mut reader = BufReader::new(file);
     #[cfg(not(target_os = "android"))]
@@ -267,8 +281,12 @@ mod tests {
 
     #[test]
     fn only_problems_reach_the_system_log_by_default() {
-        assert!(!is_problem("sync: plan for remote='GoogleDrive' dir='' — snapshot(db=1, listing=1, walk=1, walk_unreliable=0); actions(upload=0, download=0, delete_local=0, delete_remote=0, conflict=0, clear_db_row=0, record_db_row=0)."));
-        assert!(!is_problem("sync: RECORD 'a' — present on both sides but untracked; tracking it from now on."));
+        assert!(!is_problem(
+            "sync: plan for remote='GoogleDrive' dir='' — snapshot(db=1, listing=1, walk=1, walk_unreliable=0); actions(upload=0, download=0, delete_local=0, delete_remote=0, conflict=0, clear_db_row=0, record_db_row=0)."
+        ));
+        assert!(!is_problem(
+            "sync: RECORD 'a' — present on both sides but untracked; tracking it from now on."
+        ));
         assert!(is_problem("2026/10/10 ERROR : x: Failed to copy"));
         assert!(is_problem("sync: could not record 'a': not found"));
         assert!(is_problem("WARN[0003] Too many requests"));

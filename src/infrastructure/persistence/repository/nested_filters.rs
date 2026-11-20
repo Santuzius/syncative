@@ -9,21 +9,39 @@ use crate::domain::{
     sync::{NestedFilter, SyncDirId},
 };
 
-use super::super::models::{SyncDirNestedFiltersActiveModel, SyncDirNestedFiltersColumn, SyncDirNestedFiltersEntity};
+use super::super::models::{
+    SyncDirNestedFiltersActiveModel, SyncDirNestedFiltersColumn, SyncDirNestedFiltersEntity,
+};
 use super::map_err;
 
-pub(super) fn list_nested_filters(db: &DatabaseConnection, sync_dir: SyncDirId) -> BoxFuture<'_, Result<HashMap<SyncDirId, NestedFilter>, RepositoryError>> {
+pub(super) fn list_nested_filters(
+    db: &DatabaseConnection,
+    sync_dir: SyncDirId,
+) -> BoxFuture<'_, Result<HashMap<SyncDirId, NestedFilter>, RepositoryError>> {
     Box::pin(async move {
         let rows = SyncDirNestedFiltersEntity::find()
             .filter(SyncDirNestedFiltersColumn::SyncDirId.eq(sync_dir.0))
             .all(db)
             .await
             .map_err(map_err)?;
-        Ok(rows.into_iter().filter_map(|m| Some((SyncDirId(m.nested_sync_dir_id), NestedFilter::parse(&m.filter)?))).collect())
+        Ok(rows
+            .into_iter()
+            .filter_map(|m| {
+                Some((
+                    SyncDirId(m.nested_sync_dir_id),
+                    NestedFilter::parse(&m.filter)?,
+                ))
+            })
+            .collect())
     })
 }
 
-pub(super) fn set_nested_filter(db: &DatabaseConnection, sync_dir: SyncDirId, nested: SyncDirId, filter: Option<NestedFilter>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+pub(super) fn set_nested_filter(
+    db: &DatabaseConnection,
+    sync_dir: SyncDirId,
+    nested: SyncDirId,
+    filter: Option<NestedFilter>,
+) -> BoxFuture<'_, Result<(), RepositoryError>> {
     Box::pin(async move {
         SyncDirNestedFiltersEntity::delete_many()
             .filter(SyncDirNestedFiltersColumn::SyncDirId.eq(sync_dir.0))
@@ -38,16 +56,26 @@ pub(super) fn set_nested_filter(db: &DatabaseConnection, sync_dir: SyncDirId, ne
                 filter: ActiveValue::Set(filter.as_str().to_owned()),
                 ..Default::default()
             };
-            SyncDirNestedFiltersEntity::insert(active).exec(db).await.map_err(map_err)?;
+            SyncDirNestedFiltersEntity::insert(active)
+                .exec(db)
+                .await
+                .map_err(map_err)?;
         }
         Ok(())
     })
 }
 
 /// Drop the filters the sync_dir has and those other sync_dirs have for it; they refer to it, so SQLite refuses to delete it before them.
-pub(super) async fn delete_nested_filters(db: &DatabaseConnection, sync_dir: SyncDirId) -> Result<(), RepositoryError> {
+pub(super) async fn delete_nested_filters(
+    db: &DatabaseConnection,
+    sync_dir: SyncDirId,
+) -> Result<(), RepositoryError> {
     SyncDirNestedFiltersEntity::delete_many()
-        .filter(Condition::any().add(SyncDirNestedFiltersColumn::SyncDirId.eq(sync_dir.0)).add(SyncDirNestedFiltersColumn::NestedSyncDirId.eq(sync_dir.0)))
+        .filter(
+            Condition::any()
+                .add(SyncDirNestedFiltersColumn::SyncDirId.eq(sync_dir.0))
+                .add(SyncDirNestedFiltersColumn::NestedSyncDirId.eq(sync_dir.0)),
+        )
         .exec(db)
         .await
         .map_err(map_err)?;

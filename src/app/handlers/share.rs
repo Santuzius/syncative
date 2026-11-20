@@ -18,13 +18,25 @@ impl SyncativeApp {
     /// Handle [`Message::ShareIncoming`]. A new share replaces one that waits for the user's choice.
     pub(in crate::app) fn handle_share_incoming(&mut self, incoming: Incoming) -> Task<Message> {
         match incoming {
-            Incoming::Started { folder, count, copies } => {
+            Incoming::Started {
+                folder,
+                count,
+                copies,
+            } => {
                 self.drop_share();
                 self.drawer_open = false;
                 self.share = Some(Share::new(folder, count, copies));
                 Task::none()
             }
-            Incoming::Ready { folder, files, error } if self.share.as_ref().is_some_and(|s| s.folder == folder && s.step == Step::Preparing) => {
+            Incoming::Ready {
+                folder,
+                files,
+                error,
+            } if self
+                .share
+                .as_ref()
+                .is_some_and(|s| s.folder == folder && s.step == Step::Preparing) =>
+            {
                 let Some(share) = self.share.as_mut() else {
                     return Task::none();
                 };
@@ -57,7 +69,14 @@ impl SyncativeApp {
 
     /// The accounts the share screen offers.
     pub(in crate::app) fn share_accounts(&self) -> Vec<share::Account> {
-        self.remotes.iter().map(|remote| share::Account { id: remote.id, title: remote.title(), state: self.display_state(remote) }).collect()
+        self.remotes
+            .iter()
+            .map(|remote| share::Account {
+                id: remote.id,
+                title: remote.title(),
+                state: self.display_state(remote),
+            })
+            .collect()
     }
 
     /// Handle [`Message::Share`].
@@ -69,7 +88,12 @@ impl SyncativeApp {
     }
 
     fn choose_share_account(&mut self, id: crate::domain::remote::RemoteId) -> Task<Message> {
-        let Some((name, title)) = self.remotes.iter().find(|r| r.id == id).map(|r| (r.name.clone(), r.title())) else {
+        let Some((name, title)) = self
+            .remotes
+            .iter()
+            .find(|r| r.id == id)
+            .map(|r| (r.name.clone(), r.title()))
+        else {
             return Task::none();
         };
         let Some(share) = self.share.as_mut() else {
@@ -101,15 +125,32 @@ impl SyncativeApp {
         let Some(share) = self.share.as_mut() else {
             return Task::none();
         };
-        let Some(remote) = share.remote.and_then(|id| self.remotes.iter().find(|r| r.id == id)) else {
+        let Some(remote) = share
+            .remote
+            .and_then(|id| self.remotes.iter().find(|r| r.id == id))
+        else {
             return Task::none();
         };
-        match shared::queue_upload(&crate::util::get_data_dir(), &share.folder, share.copies, &share.files, remote.id, &folder) {
+        match shared::queue_upload(
+            &crate::util::get_data_dir(),
+            &share.folder,
+            share.copies,
+            &share.files,
+            remote.id,
+            &folder,
+        ) {
             Ok(dir) => {
                 self.engine.send(Command::Upload(dir));
-                let place = if folder.is_empty() { remote.title() } else { format!("{} › {}", remote.title(), folder.replace('/', " › ")) };
+                let place = if folder.is_empty() {
+                    remote.title()
+                } else {
+                    format!("{} › {}", remote.title(), folder.replace('/', " › "))
+                };
                 #[cfg(target_os = "android")]
-                crate::infrastructure::android::share::toast(&format!("Saving {} in {place}", share.what()));
+                crate::infrastructure::android::share::toast(&format!(
+                    "Saving {} in {place}",
+                    share.what()
+                ));
                 // The desktop window stays open: its page shows the upload.
                 #[cfg(not(target_os = "android"))]
                 {
@@ -119,7 +160,8 @@ impl SyncativeApp {
                 self.close_share()
             }
             Err(err) => {
-                share.step = Step::Failed(format!("Could not keep the files for their upload: {err}"));
+                share.step =
+                    Step::Failed(format!("Could not keep the files for their upload: {err}"));
                 Task::none()
             }
         }
@@ -138,7 +180,11 @@ impl SyncativeApp {
 
     /// Forget the open share: close its picker and delete its copies, unless they went to the uploads.
     fn drop_share(&mut self) {
-        if self.folder_picker.as_ref().is_some_and(|p| p.target == Target::Share) {
+        if self
+            .folder_picker
+            .as_ref()
+            .is_some_and(|p| p.target == Target::Share)
+        {
             self.close_folder_picker();
         }
         if let Some(share) = self.share.take().filter(|s| s.copies) {

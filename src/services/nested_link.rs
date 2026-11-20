@@ -1,6 +1,9 @@
 //! The symbolic link a sync folder can hold in place of a sub-folder that is also synced as its own folder (`NestedFilter::Symlink`): it points to that folder's local copy, so the files show in both places but are synced once.
 
-use std::{fs, io, path::{Path, PathBuf}};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use crate::{domain::sync::SyncDir, services::sync::local_names};
 
@@ -9,7 +12,9 @@ pub const APPLIES: bool = !cfg!(target_os = "android");
 
 /// Where `parent` holds `nested` locally.
 pub fn location(parent: &SyncDir, nested: &SyncDir) -> PathBuf {
-    Path::new(&parent.local_path).join(&*local_names::to_local(parent.relative(&nested.remote_path)))
+    Path::new(&parent.local_path).join(&*local_names::to_local(
+        parent.relative(&nested.remote_path),
+    ))
 }
 
 /// Put a link to `target` at `at`. An empty folder there gives way; anything else stays and makes it fail.
@@ -19,12 +24,24 @@ pub fn make(at: &Path, target: &Path) -> Result<(), String> {
     }
     match fs::symlink_metadata(at) {
         Ok(meta) if meta.is_dir() => {
-            if fs::read_dir(at).map_err(|e| e.to_string())?.next().is_some() {
-                return Err(tr::tr!("{} isn't empty. Delete what is left there first.", crate::util::fmt_home(&at.to_string_lossy())));
+            if fs::read_dir(at)
+                .map_err(|e| e.to_string())?
+                .next()
+                .is_some()
+            {
+                return Err(tr::tr!(
+                    "{} isn't empty. Delete what is left there first.",
+                    crate::util::fmt_home(&at.to_string_lossy())
+                ));
             }
             fs::remove_dir(at).map_err(|e| e.to_string())?;
         }
-        Ok(_) => return Err(tr::tr!("{} already exists.", crate::util::fmt_home(&at.to_string_lossy()))),
+        Ok(_) => {
+            return Err(tr::tr!(
+                "{} already exists.",
+                crate::util::fmt_home(&at.to_string_lossy())
+            ));
+        }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.to_string()),
     }
@@ -44,7 +61,8 @@ pub fn remove(at: &Path, target: &Path) -> Result<(), String> {
 
 /// Whether the link at `at` is there and points to `target`.
 pub fn points_to(at: &Path, target: &Path) -> bool {
-    fs::symlink_metadata(at).is_ok_and(|m| m.file_type().is_symlink()) && fs::read_link(at).is_ok_and(|t| t == target)
+    fs::symlink_metadata(at).is_ok_and(|m| m.file_type().is_symlink())
+        && fs::read_link(at).is_ok_and(|t| t == target)
 }
 
 #[cfg(test)]

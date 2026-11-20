@@ -13,12 +13,12 @@ use iced::{
 use iced_storage_bar::storage_bar;
 
 use crate::{
-    icons::CLOUD_FOLDER_OPEN_OUTLINE,
     domain::{
         remote::{Remote, RemoteId, RemoteUsage},
         run_state::RunState,
         sync::{Conflict, NestedFilter, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId},
     },
+    icons::CLOUD_FOLDER_OPEN_OUTLINE,
     screens::{
         main_page::{NO_FOLDERS, status_label},
         settings,
@@ -551,7 +551,11 @@ fn status_line(page: &Page<'_>) -> String {
         None => prefix.to_owned(),
     };
     if let Some(upload) = &page.uploads {
-        let (files, wait) = if upload.files == 1 { ("1 shared file".to_owned(), "waits") } else { (format!("{} shared files", upload.files), "wait") };
+        let (files, wait) = if upload.files == 1 {
+            ("1 shared file".to_owned(), "waits")
+        } else {
+            (format!("{} shared files", upload.files), "wait")
+        };
         return match page.state {
             RunState::AuthNeeded => format!("Not signed in — {files} {wait} to be saved"),
             RunState::Offline => format!("Offline — {files} {wait} to be saved"),
@@ -658,7 +662,12 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
             .latest_line
             .unwrap_or(status_label(folder.state))
             .to_owned(),
-        _ if conflict_note.is_some() && links == folder.conflicts.len() => if links == 1 { "Decide what to do with the link" } else { "Decide what to do with the links" }.to_owned(),
+        _ if conflict_note.is_some() && links == folder.conflicts.len() => if links == 1 {
+            "Decide what to do with the link"
+        } else {
+            "Decide what to do with the links"
+        }
+        .to_owned(),
         _ if conflict_note.is_some() => "Choose which version to keep".to_owned(),
         // The status icon already shows the warning sign that starts the log line.
         RunState::Warning | RunState::Error => folder
@@ -695,7 +704,14 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         ]
         .spacing(2)
         .width(Length::Fill),
-        folder_actions(remote, sd, &remote_display, excluded, folder.exclusions_open, folder.log.is_some()),
+        folder_actions(
+            remote,
+            sd,
+            &remote_display,
+            excluded,
+            folder.exclusions_open,
+            folder.log.is_some()
+        ),
     ]
     .spacing(10)
     .align_y(Alignment::Center);
@@ -731,12 +747,19 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
 
     let undecided = folder.nested.iter().filter(|(_, f)| f.is_none()).count();
     if undecided > 0 {
-        let note = if undecided == 1 { "1 folder inside is also synced as its own folder".to_owned() } else { format!("{undecided} folders inside are also synced as their own folders") };
+        let note = if undecided == 1 {
+            "1 folder inside is also synced as its own folder".to_owned()
+        } else {
+            format!("{undecided} folders inside are also synced as their own folders")
+        };
         card = card.push(
             container(
                 row![
                     icon(icondata::TbFoldersOutline, 16.0),
-                    text(note).size(TEXT).wrapping(Wrapping::WordOrGlyph).width(Length::Fill),
+                    text(note)
+                        .size(TEXT)
+                        .wrapping(Wrapping::WordOrGlyph)
+                        .width(Length::Fill),
                     button(text("Resolve…").size(TEXT))
                         .padding([5, 12])
                         .style(theme::button_secondary)
@@ -793,20 +816,34 @@ fn folder_actions<'a>(
 ) -> Element<'a, Msg> {
     let android = cfg!(target_os = "android");
     let (size, icon_size) = if android { (40.0, 18.0) } else { (32.0, 16.0) };
-    let square = |content: Element<'a, Msg>| button(container(content).center(Length::Fixed(size))).padding(0);
+    let square = |content: Element<'a, Msg>| {
+        button(container(content).center(Length::Fixed(size))).padding(0)
+    };
     let open = with_tip(
         square(icon(icondata::TbFolderOpenOutline, icon_size + 2.0).into())
             .style(theme::button_toggle(false))
-            .on_press_maybe(crate::util::can_open_folder(&sd.local_path).then(|| Msg::OpenFolder(sd.local_path.clone()))),
+            .on_press_maybe(
+                crate::util::can_open_folder(&sd.local_path)
+                    .then(|| Msg::OpenFolder(sd.local_path.clone())),
+            ),
         "Open in the file manager",
     );
     // A count too wide for the square widens the button instead of overflowing it.
     let count_fits = excluded < if android { 100 } else { 10 };
-    let exclusions_content = row![icon(icondata::TbFilterOutline, icon_size), text(excluded.to_string()).size(CAPTION)].spacing(3).align_y(Alignment::Center);
+    let exclusions_content = row![
+        icon(icondata::TbFilterOutline, icon_size),
+        text(excluded.to_string()).size(CAPTION)
+    ]
+    .spacing(3)
+    .align_y(Alignment::Center);
     let exclusions = with_tip(
-        if count_fits { square(exclusions_content.into()) } else { button(container(exclusions_content).center_y(Length::Fixed(size))).padding([0, 8]) }
-            .style(theme::button_toggle(exclusions_open))
-            .on_press(Msg::ToggleExclusions(sd.id)),
+        if count_fits {
+            square(exclusions_content.into())
+        } else {
+            button(container(exclusions_content).center_y(Length::Fixed(size))).padding([0, 8])
+        }
+        .style(theme::button_toggle(exclusions_open))
+        .on_press(Msg::ToggleExclusions(sd.id)),
         "Filters",
     );
     let delete = with_tip(
@@ -816,13 +853,20 @@ fn folder_actions<'a>(
                 .center(Length::Fixed((size * 0.6).round()))
                 .style(|theme: &iced::Theme| container::Style {
                     background: Some(theme::tones(theme).danger_fill.into()),
-                    border: iced::Border { radius: 4.0.into(), ..Default::default() },
+                    border: iced::Border {
+                        radius: 4.0.into(),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 })
                 .into(),
         )
         .style(theme::button_toggle(false))
-            .on_press(Msg::RequestDeleteSyncDir(sd.local_path.clone(), sd.remote_path.clone(), format!("{}:{remote_display}", remote.name))),
+        .on_press(Msg::RequestDeleteSyncDir(
+            sd.local_path.clone(),
+            sd.remote_path.clone(),
+            format!("{}:{remote_display}", remote.name),
+        )),
         "Remove from sync",
     );
     let log = with_tip(
@@ -832,7 +876,10 @@ fn folder_actions<'a>(
         "Activity log",
     );
     if !crate::services::nomedia::APPLIES {
-        return row![open, exclusions, log, delete].spacing(6).align_y(Alignment::Center).into();
+        return row![open, exclusions, log, delete]
+            .spacing(6)
+            .align_y(Alignment::Center)
+            .into();
     }
     let hide = with_tip(
         square(icon(icondata::TbEyeOffOutline, icon_size).into())
@@ -840,10 +887,14 @@ fn folder_actions<'a>(
             .on_press(Msg::BrowseHidden(sd.id)),
         "Hide from the gallery",
     );
-    row![open, column![hide, exclusions].spacing(6), column![delete, log].spacing(6)]
-        .spacing(6)
-        .align_y(Alignment::Center)
-        .into()
+    row![
+        open,
+        column![hide, exclusions].spacing(6),
+        column![delete, log].spacing(6)
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center)
+    .into()
 }
 
 fn with_tip<'a>(content: impl Into<Element<'a, Msg>>, tip: &'a str) -> Element<'a, Msg> {
@@ -908,17 +959,25 @@ fn exclusion_panel<'a>(
     for &(desc, filter) in nested {
         let relative = sd.relative(&desc.remote_path);
         let choose = |f: NestedFilter| Msg::SetNestedFilter(sd.id, desc.id, Some(f));
-        let kind_icon = |glyph: icondata::Icon, tip: &'a str| with_tip(muted_icon(glyph, 14.0), tip);
+        let kind_icon =
+            |glyph: icondata::Icon, tip: &'a str| with_tip(muted_icon(glyph, 14.0), tip);
         let head = match filter {
             None => kind_icon(icondata::TbFolderOutline, "Left out until you choose"),
             Some(NestedFilter::Exclude) => kind_icon(icondata::TbFolderOffOutline, "Excluded"),
-            Some(NestedFilter::Symlink) => kind_icon(icondata::TbFolderSymlinkOutline, "Symlink to its own folder"),
-            Some(NestedFilter::SyncInBoth) => kind_icon(icondata::TbFoldersOutline, "Synced in both"),
+            Some(NestedFilter::Symlink) => kind_icon(
+                icondata::TbFolderSymlinkOutline,
+                "Symlink to its own folder",
+            ),
+            Some(NestedFilter::SyncInBoth) => {
+                kind_icon(icondata::TbFoldersOutline, "Synced in both")
+            }
         };
         let mut line = row![
             head,
             text(relative.to_owned()).size(CAPTION).width(Length::Fill),
-            text("synced as its own folder").size(CAPTION).style(theme::muted),
+            text("synced as its own folder")
+                .size(CAPTION)
+                .style(theme::muted),
         ]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -940,27 +999,78 @@ fn exclusion_panel<'a>(
         }
         if filter.is_none() {
             let choice = |glyph: icondata::Icon, label: &'a str, msg: Msg| {
-                button(row![icon(glyph, 14.0), text(label).size(CAPTION)].spacing(4).align_y(Alignment::Center))
-                    .padding([4, 8])
-                    .style(theme::button_secondary)
-                    .on_press(msg)
+                button(
+                    row![icon(glyph, 14.0), text(label).size(CAPTION)]
+                        .spacing(4)
+                        .align_y(Alignment::Center),
+                )
+                .padding([4, 8])
+                .style(theme::button_secondary)
+                .on_press(msg)
             };
             let mut choices = row![].spacing(6).align_y(Alignment::Center);
             if crate::services::nested_link::APPLIES {
-                choices = choices.push(choice(icondata::TbFolderSymlinkOutline, "Add symlink", choose(NestedFilter::Symlink)));
+                choices = choices.push(choice(
+                    icondata::TbFolderSymlinkOutline,
+                    "Add symlink",
+                    choose(NestedFilter::Symlink),
+                ));
             }
             choices = choices
-                .push(choice(icondata::TbFoldersOutline, "Sync in both", choose(NestedFilter::SyncInBoth)))
-                .push(choice(icondata::TbFolderOffOutline, "Exclude", choose(NestedFilter::Exclude)));
-            let mut entry = column![line, container(choices).padding(iced::Padding { left: 22.0, ..Default::default() })].spacing(4);
+                .push(choice(
+                    icondata::TbFoldersOutline,
+                    "Sync in both",
+                    choose(NestedFilter::SyncInBoth),
+                ))
+                .push(choice(
+                    icondata::TbFolderOffOutline,
+                    "Exclude",
+                    choose(NestedFilter::Exclude),
+                ));
+            let mut entry = column![
+                line,
+                container(choices).padding(iced::Padding {
+                    left: 22.0,
+                    ..Default::default()
+                })
+            ]
+            .spacing(4);
             if let Some((_, why)) = nested_problem.filter(|(id, _)| *id == desc.id) {
-                entry = entry.push(container(text(why).size(CAPTION).style(theme::danger_text).wrapping(Wrapping::WordOrGlyph)).padding(iced::Padding { left: 22.0, ..Default::default() }));
+                entry = entry.push(
+                    container(
+                        text(why)
+                            .size(CAPTION)
+                            .style(theme::danger_text)
+                            .wrapping(Wrapping::WordOrGlyph),
+                    )
+                    .padding(iced::Padding {
+                        left: 22.0,
+                        ..Default::default()
+                    }),
+                );
             }
             list = list.push(entry);
             continue;
         }
         match nested_problem.filter(|(id, _)| *id == desc.id) {
-            Some((_, why)) => list = list.push(column![line, container(text(why).size(CAPTION).style(theme::danger_text).wrapping(Wrapping::WordOrGlyph)).padding(iced::Padding { left: 22.0, ..Default::default() })].spacing(4)),
+            Some((_, why)) => {
+                list = list.push(
+                    column![
+                        line,
+                        container(
+                            text(why)
+                                .size(CAPTION)
+                                .style(theme::danger_text)
+                                .wrapping(Wrapping::WordOrGlyph)
+                        )
+                        .padding(iced::Padding {
+                            left: 22.0,
+                            ..Default::default()
+                        })
+                    ]
+                    .spacing(4),
+                )
+            }
             None => list = list.push(line),
         }
     }
@@ -985,11 +1095,7 @@ fn exclusion_panel<'a>(
     }
 
     if nested.is_empty() && custom_excl.is_empty() {
-        list = list.push(
-            text("No filters.")
-                .size(CAPTION)
-                .style(theme::muted),
-        );
+        list = list.push(text("No filters.").size(CAPTION).style(theme::muted));
     }
 
     let sd_id = sd.id;
@@ -1001,7 +1107,12 @@ fn exclusion_panel<'a>(
             .padding(6)
             .size(CAPTION)
             .style(theme::input),
-        browse_button(CLOUD_FOLDER_OPEN_OUTLINE, CAPTION, [5, 10], Msg::BrowseExclusion(sd_id)),
+        browse_button(
+            CLOUD_FOLDER_OPEN_OUTLINE,
+            CAPTION,
+            [5, 10],
+            Msg::BrowseExclusion(sd_id)
+        ),
         button(text("Exclude").size(CAPTION))
             .padding([6, 12])
             .style(theme::button_secondary)
@@ -1012,11 +1123,9 @@ fn exclusion_panel<'a>(
 
     container(
         column![
-            text(format!(
-                "Filters — paths relative to {remote_display}"
-            ))
-            .size(CAPTION)
-            .style(theme::muted),
+            text(format!("Filters — paths relative to {remote_display}"))
+                .size(CAPTION)
+                .style(theme::muted),
             list,
             form,
         ]
@@ -1029,12 +1138,21 @@ fn exclusion_panel<'a>(
 }
 
 /// "Browse…" with a leading glyph, beside a path field; `size` is the field's text size.
-fn browse_button<'a>(glyph: icondata::Icon, size: f32, padding: [u16; 2], msg: Msg) -> Element<'a, Msg> {
-    button(row![icon(glyph, size + 2.0), text("Browse…").size(size)].spacing(6).align_y(Alignment::Center))
-        .padding(padding)
-        .style(theme::button_secondary)
-        .on_press(msg)
-        .into()
+fn browse_button<'a>(
+    glyph: icondata::Icon,
+    size: f32,
+    padding: [u16; 2],
+    msg: Msg,
+) -> Element<'a, Msg> {
+    button(
+        row![icon(glyph, size + 2.0), text("Browse…").size(size)]
+            .spacing(6)
+            .align_y(Alignment::Center),
+    )
+    .padding(padding)
+    .style(theme::button_secondary)
+    .on_press(msg)
+    .into()
 }
 
 fn add_folder_card<'a>(
@@ -1080,7 +1198,12 @@ fn add_folder_card<'a>(
                     .padding(7)
                     .size(TEXT)
                     .style(theme::input),
-                browse_button(icondata::TbFolderOpenOutline, TEXT, [6, 12], Msg::BrowseLocalPath),
+                browse_button(
+                    icondata::TbFolderOpenOutline,
+                    TEXT,
+                    [6, 12],
+                    Msg::BrowseLocalPath
+                ),
             ]
             .spacing(ROW_SPACING)
             .align_y(Alignment::Center)
@@ -1095,7 +1218,12 @@ fn add_folder_card<'a>(
                     .padding(7)
                     .size(TEXT)
                     .style(theme::input),
-                browse_button(CLOUD_FOLDER_OPEN_OUTLINE, TEXT, [6, 12], Msg::BrowseRemotePath),
+                browse_button(
+                    CLOUD_FOLDER_OPEN_OUTLINE,
+                    TEXT,
+                    [6, 12],
+                    Msg::BrowseRemotePath
+                ),
             ]
             .spacing(ROW_SPACING)
             .align_y(Alignment::Center)
@@ -1174,7 +1302,11 @@ pub fn confirm_delete_overlay<'a>(pending: &'a PendingDelete) -> Element<'a, Msg
         ..
     } = pending
     {
-        let held = if count.files > 0 { format!("{} ({})", count.describe(), count.size()) } else { count.describe() };
+        let held = if count.files > 0 {
+            format!("{} ({})", count.describe(), count.size())
+        } else {
+            count.describe()
+        };
         return leftovers_card(
             format!("Delete the leftovers of '{relative}'?"),
             column![
@@ -1224,11 +1356,21 @@ fn leftovers_card<'a>(title: String, body: Element<'a, Msg>, confirm: String) ->
             body,
             row![
                 Space::new().width(Length::Fill),
-                button(text("Keep").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::CancelDelete),
-                button(row![on_fill_icon(icondata::MdiBroom, 16.0), text(confirm).size(TEXT)].spacing(6).align_y(Alignment::Center))
+                button(text("Keep").size(TEXT))
                     .padding([6, 14])
-                    .style(theme::button_warning)
-                    .on_press(Msg::ConfirmDelete),
+                    .style(theme::button_secondary)
+                    .on_press(Msg::CancelDelete),
+                button(
+                    row![
+                        on_fill_icon(icondata::MdiBroom, 16.0),
+                        text(confirm).size(TEXT)
+                    ]
+                    .spacing(6)
+                    .align_y(Alignment::Center)
+                )
+                .padding([6, 14])
+                .style(theme::button_warning)
+                .on_press(Msg::ConfirmDelete),
             ]
             .spacing(ROW_SPACING),
         ]
@@ -1278,7 +1420,10 @@ pub fn modal<'a, M: Clone + 'a>(content: Element<'a, M>, on_dismiss: Option<M>) 
 }
 
 /// Like [`modal`], for a dialog that keeps its own buttons in view and scrolls inside: it gets the window's height, less the margin.
-pub fn modal_framed<'a, M: Clone + 'a>(content: Element<'a, M>, on_dismiss: Option<M>) -> Element<'a, M> {
+pub fn modal_framed<'a, M: Clone + 'a>(
+    content: Element<'a, M>,
+    on_dismiss: Option<M>,
+) -> Element<'a, M> {
     stack![backdrop(on_dismiss), center(opaque(content)).padding(12)].into()
 }
 

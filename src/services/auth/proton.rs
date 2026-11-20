@@ -66,10 +66,9 @@ pub fn add_proton_drive_remote(
 
     persist_session_to_keyring(name, &cred.uid)?;
 
-    let id = util::await_future(repo.insert_native_proton_remote(
-        name.to_owned(),
-        KEYRING_SESSION_MARKER.to_owned(),
-    ))
+    let id = util::await_future(
+        repo.insert_native_proton_remote(name.to_owned(), KEYRING_SESSION_MARKER.to_owned()),
+    )
     .map_err(|e| e.to_string())?;
 
     // Proton Drive rate-limits short polls; ship the provider-specific
@@ -81,10 +80,7 @@ pub fn add_proton_drive_remote(
     };
     let _ = util::await_future(repo.set_policy(id, policy));
 
-    router.register(
-        name.to_owned(),
-        Arc::new(NativeProtonClient::new(cred.uid)),
-    );
+    router.register(name.to_owned(), Arc::new(NativeProtonClient::new(cred.uid)));
     Ok(id)
 }
 

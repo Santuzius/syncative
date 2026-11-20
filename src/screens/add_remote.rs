@@ -111,16 +111,27 @@ impl std::fmt::Display for ProviderOption {
 }
 
 /// Every provider the picker can offer, in its order; the beta ones only with the beta features on.
-const OFFERED: [ProviderKind; 3] = [ProviderKind::ProtonDrive, ProviderKind::GDrive, ProviderKind::Nextcloud];
+const OFFERED: [ProviderKind; 3] = [
+    ProviderKind::ProtonDrive,
+    ProviderKind::GDrive,
+    ProviderKind::Nextcloud,
+];
 
 /// The providers in the picker; `beta`: the beta features are on.
 fn provider_options(beta: bool) -> Vec<ProviderOption> {
-    OFFERED.into_iter().filter(|kind| beta || !kind.is_beta()).map(ProviderOption).collect()
+    OFFERED
+        .into_iter()
+        .filter(|kind| beta || !kind.is_beta())
+        .map(ProviderOption)
+        .collect()
 }
 
 /// The beta providers of the picker, by name, for the list of beta features.
 pub fn beta_providers() -> impl Iterator<Item = String> {
-    OFFERED.into_iter().filter(|kind| kind.is_beta()).map(|kind| kind.to_string())
+    OFFERED
+        .into_iter()
+        .filter(|kind| kind.is_beta())
+        .map(|kind| kind.to_string())
 }
 
 impl std::fmt::Display for ProviderKind {
@@ -185,13 +196,20 @@ impl Draft {
 const LABEL_WIDTH: f32 = 110.0;
 
 fn field<'a>(label: &'static str, control: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
-    row![text(label).size(TEXT).width(Length::Fixed(LABEL_WIDTH)), control.into()]
-        .align_y(Alignment::Center)
-        .spacing(ROW_SPACING)
-        .into()
+    row![
+        text(label).size(TEXT).width(Length::Fixed(LABEL_WIDTH)),
+        control.into()
+    ]
+    .align_y(Alignment::Center)
+    .spacing(ROW_SPACING)
+    .into()
 }
 
-fn input<'a>(placeholder: &'a str, value: &'a str, on_input: fn(String) -> Msg) -> text_input::TextInput<'a, Msg> {
+fn input<'a>(
+    placeholder: &'a str,
+    value: &'a str,
+    on_input: fn(String) -> Msg,
+) -> text_input::TextInput<'a, Msg> {
     text_input(placeholder, value)
         .on_input(on_input)
         .on_submit(Msg::Submit)
@@ -213,7 +231,10 @@ fn instruction<'a>(s: &'a str) -> Element<'a, Msg> {
 fn third_party_notice<'a>(company: &str) -> Element<'a, Msg> {
     row![
         accent_icon(icondata::TbInfoCircleOutline, TEXT + 2.0),
-        text(format!("This is a third-party application not officially supported by {company}.")).size(TEXT),
+        text(format!(
+            "This is a third-party application not officially supported by {company}."
+        ))
+        .size(TEXT),
     ]
     .spacing(8)
     .align_y(Alignment::Center)
@@ -223,39 +244,84 @@ fn third_party_notice<'a>(company: &str) -> Element<'a, Msg> {
 /// The dialog card; the app centres it over a dimmed backdrop.
 /// `beta`: the beta features are on, which adds their providers to the picker.
 pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
-    let heading = text(if draft.reauth { "Sign in again" } else { "Add remote" }).size(HEADING + 2.0);
+    let heading = text(if draft.reauth {
+        "Sign in again"
+    } else {
+        "Add remote"
+    })
+    .size(HEADING + 2.0);
 
     // In reauth mode the name and provider are fixed (the name keys the DB row + session), so show them as plain text.
     let mut body = column![heading].spacing(12);
     if draft.reauth {
         let provider = draft.provider.map(ProviderKind::label).unwrap_or_default();
         body = body.push(hint("Enter fresh credentials. Folders, filters and schedule are kept — only the sign-in session is replaced."));
-        body = body.push(field("Remote", text(format!("{} ({provider})", draft.name)).size(TEXT)));
+        body = body.push(field(
+            "Remote",
+            text(format!("{} ({provider})", draft.name)).size(TEXT),
+        ));
     } else {
-        let picker = pick_list(provider_options(beta), draft.provider.map(ProviderOption), |o| Msg::ProviderChanged(o.0))
-            .text_shaping(Shaping::Advanced)
-            .text_size(TEXT)
-            .padding([6, 10])
-            .width(Length::Fill)
-            .style(theme::pick_list)
-            .menu_style(theme::menu)
-            .placeholder("Choose a provider");
+        let picker = pick_list(
+            provider_options(beta),
+            draft.provider.map(ProviderOption),
+            |o| Msg::ProviderChanged(o.0),
+        )
+        .text_shaping(Shaping::Advanced)
+        .text_size(TEXT)
+        .padding([6, 10])
+        .width(Length::Fill)
+        .style(theme::pick_list)
+        .menu_style(theme::menu)
+        .placeholder("Choose a provider");
         body = body.push(field("Provider", picker));
-        body = body.push(field("Name", input("e.g. ProtonDrive", &draft.name, Msg::NameChanged)));
+        body = body.push(field(
+            "Name",
+            input("e.g. ProtonDrive", &draft.name, Msg::NameChanged),
+        ));
     }
 
     match draft.provider {
         Some(p) if p.is_webdav_family() => {
-            body = body.push(field("URL", input("https://cloud.example.org", &draft.url, Msg::UrlChanged)));
-            body = body.push(field("Username", input("username", &draft.user, Msg::UserChanged)));
-            body = body.push(field("Password", input("password", &draft.pass, Msg::PassChanged).secure(true)));
+            body = body.push(field(
+                "URL",
+                input("https://cloud.example.org", &draft.url, Msg::UrlChanged),
+            ));
+            body = body.push(field(
+                "Username",
+                input("username", &draft.user, Msg::UserChanged),
+            ));
+            body = body.push(field(
+                "Password",
+                input("password", &draft.pass, Msg::PassChanged).secure(true),
+            ));
         }
         Some(p) if p.is_proton_drive() => {
             body = body.push(third_party_notice("Proton"));
-            body = body.push(field("E-mail", input("example@proton.me", &draft.user, Msg::UserChanged)));
-            body = body.push(field("Password", input("password", &draft.pass, Msg::PassChanged).secure(true)));
-            body = body.push(field("Mailbox password", input("only if the account uses two passwords", &draft.mailbox_pass, Msg::MailboxPassChanged).secure(true)));
-            body = body.push(field("2FA code", input("only if two-factor authentication is on", &draft.totp, Msg::TotpChanged)));
+            body = body.push(field(
+                "E-mail",
+                input("example@proton.me", &draft.user, Msg::UserChanged),
+            ));
+            body = body.push(field(
+                "Password",
+                input("password", &draft.pass, Msg::PassChanged).secure(true),
+            ));
+            body = body.push(field(
+                "Mailbox password",
+                input(
+                    "only if the account uses two passwords",
+                    &draft.mailbox_pass,
+                    Msg::MailboxPassChanged,
+                )
+                .secure(true),
+            ));
+            body = body.push(field(
+                "2FA code",
+                input(
+                    "only if two-factor authentication is on",
+                    &draft.totp,
+                    Msg::TotpChanged,
+                ),
+            ));
             body = body.push(hint(
                 "With 2FA enabled, Proton eventually expires the session and Syncative can't renew it on its own (the code is single-use). You'll then be asked to sign in again.",
             ));
@@ -277,24 +343,54 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
                         .padding([6, 14])
                         .style(theme::button_secondary)
                         .on_press(Msg::OpenClientIdGuide),
-                    button(text(if draft.privacy_link_copied { "Link copied" } else { "Copy privacy policy link" }).size(TEXT))
-                        .padding([6, 14])
-                        .style(theme::button_secondary)
-                        .on_press(Msg::CopyPrivacyLink),
+                    button(
+                        text(if draft.privacy_link_copied {
+                            "Link copied"
+                        } else {
+                            "Copy privacy policy link"
+                        })
+                        .size(TEXT)
+                    )
+                    .padding([6, 14])
+                    .style(theme::button_secondary)
+                    .on_press(Msg::CopyPrivacyLink),
                 ]
                 .spacing(ROW_SPACING)
                 // On a phone the second button goes below the first instead of squeezing its text.
                 .wrap()
                 .vertical_spacing(ROW_SPACING),
             );
-            body = body.push(field("Client ID", input("…apps.googleusercontent.com", &draft.client_id, Msg::ClientIdChanged)));
-            body = body.push(field("Client secret", input("client secret", &draft.client_secret, Msg::ClientSecretChanged).secure(true)));
-            body = body.push(instruction("Then click Connect and grant access in your browser."));
+            body = body.push(field(
+                "Client ID",
+                input(
+                    "…apps.googleusercontent.com",
+                    &draft.client_id,
+                    Msg::ClientIdChanged,
+                ),
+            ));
+            body = body.push(field(
+                "Client secret",
+                input(
+                    "client secret",
+                    &draft.client_secret,
+                    Msg::ClientSecretChanged,
+                )
+                .secure(true),
+            ));
+            body = body.push(instruction(
+                "Then click Connect and grant access in your browser.",
+            ));
         }
         Some(p) if p.is_oauth() => {
             body = body.push(hint("Click Connect and grant access in your browser. Client ID and secret are optional — leave them empty to use rclone's defaults."));
-            body = body.push(field("Client ID", input("optional", &draft.client_id, Msg::ClientIdChanged)));
-            body = body.push(field("Client secret", input("optional", &draft.client_secret, Msg::ClientSecretChanged).secure(true)));
+            body = body.push(field(
+                "Client ID",
+                input("optional", &draft.client_id, Msg::ClientIdChanged),
+            ));
+            body = body.push(field(
+                "Client secret",
+                input("optional", &draft.client_secret, Msg::ClientSecretChanged).secure(true),
+            ));
         }
         Some(_) | None => {}
     }
@@ -304,8 +400,13 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
             container(
                 column![
                     text("Proton wants to make sure you're human").size(TEXT),
-                    text("1. Solve the CAPTCHA on the page that just opened in your browser.").size(CAPTION),
-                    text(format!("2. Come back and click {}.", if draft.reauth { "Sign in" } else { "Add" })).size(CAPTION),
+                    text("1. Solve the CAPTCHA on the page that just opened in your browser.")
+                        .size(CAPTION),
+                    text(format!(
+                        "2. Come back and click {}.",
+                        if draft.reauth { "Sign in" } else { "Add" }
+                    ))
+                    .size(CAPTION),
                     button(text("Open verification page again").size(CAPTION))
                         .padding([5, 12])
                         .style(theme::button_secondary)
@@ -322,14 +423,21 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
     if draft.busy {
         match &draft.oauth {
             Some(handle) => {
-                let mut col = column![text("Waiting for you to finish in the browser…").size(TEXT)].spacing(6);
+                let mut col = column![text("Waiting for you to finish in the browser…").size(TEXT)]
+                    .spacing(6);
                 // Wrong browser, or none at all? The link works in any browser on this computer.
                 if handle.url().is_some() {
                     col = col.push(text(format!("If no browser opened (or the wrong one), open the authorization link in any browser on {}.", crate::util::THIS_DEVICE)).size(CAPTION).style(theme::muted));
                     col = col.push(
                         row![
-                            button(text("Copy link").size(CAPTION)).padding([5, 12]).style(theme::button_secondary).on_press(Msg::CopyAuthLink),
-                            button(text("Open again").size(CAPTION)).padding([5, 12]).style(theme::button_secondary).on_press(Msg::OpenAuthLink),
+                            button(text("Copy link").size(CAPTION))
+                                .padding([5, 12])
+                                .style(theme::button_secondary)
+                                .on_press(Msg::CopyAuthLink),
+                            button(text("Open again").size(CAPTION))
+                                .padding([5, 12])
+                                .style(theme::button_secondary)
+                                .on_press(Msg::OpenAuthLink),
                         ]
                         .spacing(ROW_SPACING),
                     );
@@ -364,5 +472,9 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
     body = body.push(Space::new().height(Length::Fixed(4.0)));
     body = body.push(row![Space::new().width(Length::Fill), cancel, submit].spacing(ROW_SPACING));
 
-    container(body).padding(22).max_width(540).style(theme::dialog).into()
+    container(body)
+        .padding(22)
+        .max_width(540)
+        .style(theme::dialog)
+        .into()
 }

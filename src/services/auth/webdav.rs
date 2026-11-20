@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::{
     domain::{
-        ports::{cancel_never, BackendClient, Repository},
+        ports::{BackendClient, Repository, cancel_never},
         remote::RemoteId,
         sync::ListFilter,
     },
@@ -43,12 +43,18 @@ pub fn add_webdav_remote(
         let _ = client.delete_config(name);
         return Err(err);
     }
-    util::await_future(repo.insert_remote(name.to_owned()))
-        .map_err(|e| e.to_string())
+    util::await_future(repo.insert_remote(name.to_owned())).map_err(|e| e.to_string())
 }
 
 /// Sign in to an existing WebDAV-family remote again, e.g. one imported without its password: replace its rclone config under the same name and keep the DB row with its folders.
-pub fn reauth_webdav_remote(name: &str, url: &str, user: &str, pass: &str, vendor: WebDavVendor, client: &dyn BackendClient) -> Result<(), String> {
+pub fn reauth_webdav_remote(
+    name: &str,
+    url: &str,
+    user: &str,
+    pass: &str,
+    vendor: WebDavVendor,
+    client: &dyn BackendClient,
+) -> Result<(), String> {
     // rclone's `config/create` rejects a name that already exists.
     let _ = client.delete_config(name);
     client.create_config(config_payload(name, url, user, pass, vendor))?;
@@ -71,7 +77,10 @@ fn check_sign_in(name: &str, client: &dyn BackendClient) -> Result<(), String> {
 /// The URL the form takes back from a stored config: Nextcloud and Owncloud get their WebDAV path appended again on saving.
 pub fn form_url(stored_url: &str, user: &str, vendor: WebDavVendor) -> String {
     match vendor {
-        WebDavVendor::Nextcloud | WebDavVendor::Owncloud => stored_url.strip_suffix(&format!("/remote.php/dav/files/{user}")).unwrap_or(stored_url).to_owned(),
+        WebDavVendor::Nextcloud | WebDavVendor::Owncloud => stored_url
+            .strip_suffix(&format!("/remote.php/dav/files/{user}"))
+            .unwrap_or(stored_url)
+            .to_owned(),
         WebDavVendor::WebDav => stored_url.to_owned(),
     }
 }
@@ -138,10 +147,7 @@ mod tests {
         ) -> BoxFuture<'_, Result<Option<Remote>, RepositoryError>> {
             Box::pin(async { Ok(None) })
         }
-        fn insert_remote(
-            &self,
-            name: String,
-        ) -> BoxFuture<'_, Result<RemoteId, RepositoryError>> {
+        fn insert_remote(&self, name: String) -> BoxFuture<'_, Result<RemoteId, RepositoryError>> {
             let mut inserted = self.inserted.lock().unwrap();
             inserted.push(name);
             let mut next = self.next_id.lock().unwrap();
@@ -255,19 +261,27 @@ mod tests {
         ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
-        fn set_remote_meta(&self, _rows: Vec<(SyncItemId, crate::domain::sync::RemoteMeta)>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        fn set_remote_meta(
+            &self,
+            _rows: Vec<(SyncItemId, crate::domain::sync::RemoteMeta)>,
+        ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
-        fn remote_cursor(&self, _sd: SyncDirId) -> BoxFuture<'_, Result<Option<crate::domain::sync::RemoteCursor>, RepositoryError>> {
+        fn remote_cursor(
+            &self,
+            _sd: SyncDirId,
+        ) -> BoxFuture<'_, Result<Option<crate::domain::sync::RemoteCursor>, RepositoryError>>
+        {
             Box::pin(async { Ok(None) })
         }
-        fn set_remote_cursor(&self, _sd: SyncDirId, _cursor: Option<crate::domain::sync::RemoteCursor>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        fn set_remote_cursor(
+            &self,
+            _sd: SyncDirId,
+            _cursor: Option<crate::domain::sync::RemoteCursor>,
+        ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
-        fn delete_sync_item(
-            &self,
-            _id: SyncItemId,
-        ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        fn delete_sync_item(&self, _id: SyncItemId) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
         fn delete_sync_item_by_paths(
@@ -278,9 +292,7 @@ mod tests {
         ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
-        fn list_all_sync_dirs(
-            &self,
-        ) -> BoxFuture<'_, Result<Vec<SyncDir>, RepositoryError>> {
+        fn list_all_sync_dirs(&self) -> BoxFuture<'_, Result<Vec<SyncDir>, RepositoryError>> {
             Box::pin(async { Ok(vec![]) })
         }
         fn delete_sync_items_with_local_prefix(
@@ -309,16 +321,37 @@ mod tests {
         ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
-        fn list_hidden_folders(&self, _sd: SyncDirId) -> BoxFuture<'_, Result<Vec<String>, RepositoryError>> {
+        fn list_hidden_folders(
+            &self,
+            _sd: SyncDirId,
+        ) -> BoxFuture<'_, Result<Vec<String>, RepositoryError>> {
             Box::pin(async { Ok(vec![]) })
         }
-        fn set_hidden_folders(&self, _sd: SyncDirId, _paths: Vec<String>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        fn set_hidden_folders(
+            &self,
+            _sd: SyncDirId,
+            _paths: Vec<String>,
+        ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
-        fn list_nested_filters(&self, _sd: SyncDirId) -> BoxFuture<'_, Result<std::collections::HashMap<SyncDirId, crate::domain::sync::NestedFilter>, RepositoryError>> {
+        fn list_nested_filters(
+            &self,
+            _sd: SyncDirId,
+        ) -> BoxFuture<
+            '_,
+            Result<
+                std::collections::HashMap<SyncDirId, crate::domain::sync::NestedFilter>,
+                RepositoryError,
+            >,
+        > {
             Box::pin(async { Ok(Default::default()) })
         }
-        fn set_nested_filter(&self, _sd: SyncDirId, _nested: SyncDirId, _filter: Option<crate::domain::sync::NestedFilter>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        fn set_nested_filter(
+            &self,
+            _sd: SyncDirId,
+            _nested: SyncDirId,
+            _filter: Option<crate::domain::sync::NestedFilter>,
+        ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
     }
@@ -418,7 +451,10 @@ mod tests {
         .expect("add should succeed against fakes");
 
         assert_eq!(id.0, 1);
-        assert_eq!(repo.inserted.lock().unwrap().as_slice(), &["Home NAS".to_owned()]);
+        assert_eq!(
+            repo.inserted.lock().unwrap().as_slice(),
+            &["Home NAS".to_owned()]
+        );
         let created = client.created.lock().unwrap();
         assert_eq!(created.len(), 1);
         assert!(created[0].contains("\"vendor\":\"webdav\""));

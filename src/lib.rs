@@ -27,7 +27,10 @@ use crate::{
         client_router::ClientRouter,
         persistence::{
             self,
-            migrations::{celeste_to_syncative, legacy_config_dir, proton_listings_file, Migrator, MigratorTrait},
+            migrations::{
+                Migrator, MigratorTrait, celeste_to_syncative, legacy_config_dir,
+                proton_listings_file,
+            },
             repository::SeaOrmRepository,
         },
         proton::client::NativeProtonClient,
@@ -80,7 +83,13 @@ pub fn start_saving(show: bool, files: Vec<std::path::PathBuf>) {
     if saving {
         crate::services::share::receive_files(SAVE.get().cloned().unwrap_or_default());
     }
-    iced_run(services.repo.clone(), services.router.clone(), services.engine.clone(), show || saving).expect("iced app exited with error");
+    iced_run(
+        services.repo.clone(),
+        services.router.clone(),
+        services.engine.clone(),
+        show || saving,
+    )
+    .expect("iced app exited with error");
 }
 
 fn set_up() -> Option<Services> {
@@ -104,7 +113,9 @@ fn set_up() -> Option<Services> {
         Ok(true) => celeste_to_syncative::remove_cache_dir(),
         Ok(false) => {}
         Err(celeste_to_syncative::CelesteRunning) => {
-            eprintln!("syncative: Celeste, the previous version, is still running; quit it from its tray icon, then start Syncative again.");
+            eprintln!(
+                "syncative: Celeste, the previous version, is still running; quit it from its tray icon, then start Syncative again."
+            );
             show_celeste_running_notification();
             return None;
         }
@@ -112,7 +123,9 @@ fn set_up() -> Option<Services> {
     std::fs::create_dir_all(&data_dir).expect("failed to create data dir");
 
     // Bail out before touching the DB or keyring when another process already owns this data dir.
-    if let infrastructure::single_instance::Instance::Secondary = infrastructure::single_instance::acquire(&data_dir, SAVE.get().map_or(&[], Vec::as_slice)) {
+    if let infrastructure::single_instance::Instance::Secondary =
+        infrastructure::single_instance::acquire(&data_dir, SAVE.get().map_or(&[], Vec::as_slice))
+    {
         return None;
     }
 
@@ -142,10 +155,17 @@ fn set_up() -> Option<Services> {
 
     syncative_go::initialize();
     // Prove the combined Go archive loaded — cheap (no network).
-    eprintln!("syncative: syncative-go identity = {}", syncative_go::proton_drive_version());
+    eprintln!(
+        "syncative: syncative-go identity = {}",
+        syncative_go::proton_drive_version()
+    );
     // Proton's naming scheme for third-party Drive clients.
-    syncative_go::proton::set_app_version(concat!("external-drive-syncative@", env!("CARGO_PKG_VERSION"), "-stable"))
-        .expect("failed to set the Proton app version");
+    syncative_go::proton::set_app_version(concat!(
+        "external-drive-syncative@",
+        env!("CARGO_PKG_VERSION"),
+        "-stable"
+    ))
+    .expect("failed to set the Proton app version");
     syncative_go::rpc(
         "config/setpath",
         json!({ "path": rclone_config }).to_string(),
@@ -159,19 +179,15 @@ fn set_up() -> Option<Services> {
     if !db_path.exists() {
         std::fs::File::create(&db_path).expect("failed to create db file");
     }
-    let db = util::await_future(Database::connect(format!(
-        "sqlite://{}",
-        db_path.display()
-    )))
-    .expect("failed to connect to the database");
+    let db = util::await_future(Database::connect(format!("sqlite://{}", db_path.display())))
+        .expect("failed to connect to the database");
 
     if util::await_future(persistence::has_legacy_migrations(&db)) {
         show_legacy_config_popup(&data_dir);
         std::process::exit(0);
     }
 
-    util::await_future(Migrator::up(&db, None))
-        .expect("failed to run database migrations");
+    util::await_future(Migrator::up(&db, None)).expect("failed to run database migrations");
 
     let repo: Arc<dyn Repository> = Arc::new(SeaOrmRepository::new(db));
 
@@ -186,7 +202,11 @@ fn set_up() -> Option<Services> {
     resume_native_sessions(&*repo, &router);
     let engine = engine::start(repo.clone(), router.clone(), stderr).clone();
     services::power::apply();
-    Some(Services { repo, router, engine })
+    Some(Services {
+        repo,
+        router,
+        engine,
+    })
 }
 
 /// Sweep an `<data_dir>/rclone.conf` left behind by a prior version
@@ -259,23 +279,31 @@ fn encrypt_rclone_config(rclone_config: &std::path::Path) {
         Ok(Some(password)) => password,
         Ok(None) => {
             if body.contains(ENCRYPTED_MARK) {
-                eprintln!("syncative: the rclone config is encrypted, but its password is gone; remotes signed in through rclone (Google Drive) need to be signed in again");
+                eprintln!(
+                    "syncative: the rclone config is encrypted, but its password is gone; remotes signed in through rclone (Google Drive) need to be signed in again"
+                );
             }
             let password = match random_password() {
                 Ok(password) => password,
                 Err(err) => {
-                    eprintln!("syncative: could not make a password for the rclone config, leaving it unencrypted: {err}");
+                    eprintln!(
+                        "syncative: could not make a password for the rclone config, leaving it unencrypted: {err}"
+                    );
                     return;
                 }
             };
             if let Err(err) = secrets::store(secrets::RCLONE_PASSWORD_ACCOUNT, &password) {
-                eprintln!("syncative: could not store the rclone config's password, leaving the config unencrypted: {err}");
+                eprintln!(
+                    "syncative: could not store the rclone config's password, leaving the config unencrypted: {err}"
+                );
                 return;
             }
             password
         }
         Err(err) => {
-            eprintln!("syncative: could not read the rclone config's password, leaving the config unencrypted: {err}");
+            eprintln!(
+                "syncative: could not read the rclone config's password, leaving the config unencrypted: {err}"
+            );
             return;
         }
     };
@@ -316,7 +344,9 @@ fn random_password() -> std::io::Result<String> {
 /// clear "Reauthenticate" message rather than falling through to
 /// rclone (which would error with an opaque config-lookup failure).
 fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
-    use crate::infrastructure::proton::client::{DisabledProtonClient, PendingProtonClient, REAUTH_HINT};
+    use crate::infrastructure::proton::client::{
+        DisabledProtonClient, PendingProtonClient, REAUTH_HINT,
+    };
     let remotes = util::await_future(repo.list_remotes()).unwrap_or_default();
     for remote in remotes {
         if remote.backend != Backend::NativeProton {
@@ -325,8 +355,7 @@ fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
         if remote.session_path.is_none() {
             let reason = format!(
                 "Proton Drive session blob missing for '{}'. {}",
-                remote.name,
-                REAUTH_HINT,
+                remote.name, REAUTH_HINT,
             );
             eprintln!("syncative: {reason}");
             notify_reauth_needed(&remote.name);
@@ -338,9 +367,15 @@ fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
         }
         // Offline, resuming would only time out, four times over, while the window waits for it. The pending client tries again once a pass runs, and passes wait for the network.
         if !services::network::online() {
-            let reason = format!("Proton Drive session for '{}' not resumed yet (network is unreachable). Retrying automatically — no action needed.", remote.name);
+            let reason = format!(
+                "Proton Drive session for '{}' not resumed yet (network is unreachable). Retrying automatically — no action needed.",
+                remote.name
+            );
             eprintln!("syncative: {reason}");
-            router.register(remote.name.clone(), Arc::new(PendingProtonClient::new(remote.name.clone(), reason)));
+            router.register(
+                remote.name.clone(),
+                Arc::new(PendingProtonClient::new(remote.name.clone(), reason)),
+            );
             continue;
         }
         match crate::services::auth::resume_proton_session(&remote.name) {
@@ -357,8 +392,7 @@ fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
             Ok(None) => {
                 let reason = format!(
                     "Proton Drive session for '{}' not found in keyring. {}",
-                    remote.name,
-                    REAUTH_HINT,
+                    remote.name, REAUTH_HINT,
                 );
                 eprintln!("syncative: {reason}");
                 notify_reauth_needed(&remote.name);
@@ -376,8 +410,7 @@ fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
             Err(err) if crate::engine::is_auth_failure(&err) => {
                 let reason = format!(
                     "Proton Drive session for '{}' has expired ({err}). {}",
-                    remote.name,
-                    REAUTH_HINT,
+                    remote.name, REAUTH_HINT,
                 );
                 eprintln!("syncative: {reason}");
                 notify_reauth_needed(&remote.name);
@@ -416,7 +449,10 @@ fn notify_reauth_needed(remote_name: &str) {
 
 #[cfg(target_os = "android")]
 fn show_reauth_notification(remote_name: &str) {
-    infrastructure::android::notify("Sign-in needed", &format!("Syncing '{remote_name}' is on hold. Open Syncative and tap Sign in again."));
+    infrastructure::android::notify(
+        "Sign-in needed",
+        &format!("Syncing '{remote_name}' is on hold. Open Syncative and tap Sign in again."),
+    );
 }
 
 #[cfg(not(target_os = "android"))]
@@ -453,8 +489,8 @@ fn show_celeste_running_notification() {
 
 fn show_legacy_config_popup(data_dir: &std::path::Path) {
     use iced::{
-        widget::{button, column, text},
         Element, Length, Task, Theme,
+        widget::{button, column, text},
     };
 
     struct LegacyPopup {

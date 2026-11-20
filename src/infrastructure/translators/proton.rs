@@ -38,8 +38,7 @@ impl EventTranslator for ProtonTranslator {
 
         // Folder-already-exists from the Go bridge (create_folder returns
         // Code=2500 for duplicate names on Proton's API).
-        if op == Operation::Mkdir
-            && (msg.contains("Code=2500") || lower.contains("already exists"))
+        if op == Operation::Mkdir && (msg.contains("Code=2500") || lower.contains("already exists"))
         {
             return BackendEvent::AlreadyExists;
         }

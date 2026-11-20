@@ -29,8 +29,8 @@ use crate::{
 };
 
 use super::{
-    CONFLICT_LINE_PREFIXES, LINK_LINE_PREFIX, Cadence, Command, Input, LogLine, Logs, MAX_LOG_LINES, PassVerdict,
-    Snapshot, UploadStatus, is_auth_failure, pass::Pass,
+    CONFLICT_LINE_PREFIXES, Cadence, Command, Input, LINK_LINE_PREFIX, LogLine, Logs,
+    MAX_LOG_LINES, PassVerdict, Snapshot, UploadStatus, is_auth_failure, pass::Pass,
 };
 
 /// Tries per shared file before it is given up, not counting those that failed for want of a connection or a sign-in.
@@ -166,7 +166,9 @@ impl Core {
 
     /// Keep the last numbers a provider actually reported; an unsupported or failed `about` simply changes nothing.
     fn record_usage(&mut self, id: RemoteId, usage: Result<Option<RemoteUsage>, String>) {
-        let Some(remote) = self.remotes.iter().find(|r| r.id == id) else { return };
+        let Some(remote) = self.remotes.iter().find(|r| r.id == id) else {
+            return;
+        };
         match usage {
             Ok(usage) => {
                 self.usage_failed.remove(&id);
@@ -180,7 +182,10 @@ impl Core {
                     self.state.auth_failure(id);
                 }
                 if self.usage_failed.insert(id) {
-                    eprintln!("syncative: couldn't get the used space of '{}': {err}", remote.name);
+                    eprintln!(
+                        "syncative: couldn't get the used space of '{}': {err}",
+                        remote.name
+                    );
                 }
             }
         }
@@ -321,7 +326,11 @@ impl Core {
             self.resolutions.remove(&gone.id);
             self.usage.remove(&gone.id);
             // Nowhere to upload them any more.
-            for job in self.uploads.iter().filter(|j| j.upload.remote_id == gone.id) {
+            for job in self
+                .uploads
+                .iter()
+                .filter(|j| j.upload.remote_id == gone.id)
+            {
                 job.cancel.store(true, Ordering::Release);
                 share::discard(&job.upload.dir);
             }
@@ -480,7 +489,8 @@ impl Core {
             .filter(|j| !j.active && self.can_upload(j.upload.remote_id))
             .filter_map(|j| j.retry_at.filter(|at| *at > now))
             .min();
-        let pass = self.remotes
+        let pass = self
+            .remotes
             .iter()
             .filter(|r| self.is_schedulable(r.id) && !self.syncing.contains(&r.id))
             .filter_map(|r| {
@@ -681,7 +691,11 @@ impl Core {
         let known = self.conflicts.remove(&sync_dir_id).unwrap_or_default();
         for c in &conflicts {
             if !known.iter().any(|k| k.remote_path == c.remote_path) {
-                let prefix = if c.link.is_some() { LINK_LINE_PREFIX } else { CONFLICT_LINE_PREFIXES[usize::from(!c.first_sync)] };
+                let prefix = if c.link.is_some() {
+                    LINK_LINE_PREFIX
+                } else {
+                    CONFLICT_LINE_PREFIXES[usize::from(!c.first_sync)]
+                };
                 self.push_log_line(
                     sync_dir_id,
                     format!("{prefix}: {}", fmt_home(&c.local_path)),
@@ -696,7 +710,12 @@ impl Core {
     }
 
     /// Store the user's choice for the next pass, hide the conflict and start that pass.
-    fn resolve(&mut self, remote_id: RemoteId, sync_dir_id: SyncDirId, resolutions: Vec<Resolution>) {
+    fn resolve(
+        &mut self,
+        remote_id: RemoteId,
+        sync_dir_id: SyncDirId,
+        resolutions: Vec<Resolution>,
+    ) {
         if let Some(list) = self.conflicts.get_mut(&sync_dir_id) {
             list.retain(|c| !resolutions.iter().any(|r| r.remote_path == c.remote_path));
             // Nothing left to decide: drop the Warning the conflicts caused (it would outlast the next Synced) until the pass that applies the choices reports.
@@ -772,12 +791,22 @@ impl Core {
         if self.uploads.iter().any(|j| j.upload.dir == dir) {
             return;
         }
-        let Some(upload) = share::load(dir) else { return };
+        let Some(upload) = share::load(dir) else {
+            return;
+        };
         if upload.files.is_empty() || !self.remotes.iter().any(|r| r.id == upload.remote_id) {
             share::discard(dir);
             return;
         }
-        self.uploads.push(UploadJob { upload, active: false, tries: 0, name: None, error: None, retry_at: None, cancel: Arc::new(AtomicBool::new(false)) });
+        self.uploads.push(UploadJob {
+            upload,
+            active: false,
+            tries: 0,
+            name: None,
+            error: None,
+            retry_at: None,
+            cancel: Arc::new(AtomicBool::new(false)),
+        });
     }
 
     /// Whether uploads to the remote can go ahead: online and signed in.
@@ -787,7 +816,12 @@ impl Core {
 
     /// Start the next file for every remote that has shared files waiting and none going up.
     fn start_uploads(&mut self, now: Instant) {
-        let busy: HashSet<RemoteId> = self.uploads.iter().filter(|j| j.active).map(|j| j.upload.remote_id).collect();
+        let busy: HashSet<RemoteId> = self
+            .uploads
+            .iter()
+            .filter(|j| j.active)
+            .map(|j| j.upload.remote_id)
+            .collect();
         let mut started = HashSet::new();
         for i in 0..self.uploads.len() {
             let id = self.uploads[i].upload.remote_id;
@@ -800,10 +834,26 @@ impl Core {
             if job.retry_at.is_some_and(|at| at > now) {
                 continue;
             }
-            let Some(file) = job.upload.files.first().cloned() else { continue };
-            let Some(remote) = self.remotes.iter().find(|r| r.id == id).map(|r| r.name.clone()) else { continue };
+            let Some(file) = job.upload.files.first().cloned() else {
+                continue;
+            };
+            let Some(remote) = self
+                .remotes
+                .iter()
+                .find(|r| r.id == id)
+                .map(|r| r.name.clone())
+            else {
+                continue;
+            };
             job.active = true;
-            let (backend, folder, dir, cancel, tx, name) = (self.backend.clone(), job.upload.folder.clone(), job.upload.dir.clone(), job.cancel.clone(), self.tx.clone(), job.name.clone());
+            let (backend, folder, dir, cancel, tx, name) = (
+                self.backend.clone(),
+                job.upload.folder.clone(),
+                job.upload.dir.clone(),
+                job.cancel.clone(),
+                self.tx.clone(),
+                job.name.clone(),
+            );
             tokio::task::spawn_blocking(move || {
                 let result = upload_shared(&*backend, &remote, &folder, &file, name, &cancel);
                 let _ = tx.send(Input::Uploaded { dir, file, result });
@@ -813,32 +863,60 @@ impl Core {
 
     /// A shared file went up or not: on to the next, try again later, or give it up after [`UPLOAD_TRIES`].
     fn uploaded(&mut self, dir: &Path, file: PathBuf, result: Result<String, UploadFailure>) {
-        let Some(index) = self.uploads.iter().position(|j| j.upload.dir == dir) else { return };
+        let Some(index) = self.uploads.iter().position(|j| j.upload.dir == dir) else {
+            return;
+        };
         let remote_id = self.uploads[index].upload.remote_id;
-        let remote_name = self.remotes.iter().find(|r| r.id == remote_id).map(|r| r.name.clone()).unwrap_or_default();
+        let remote_name = self
+            .remotes
+            .iter()
+            .find(|r| r.id == remote_id)
+            .map(|r| r.name.clone())
+            .unwrap_or_default();
         let job = &mut self.uploads[index];
         job.active = false;
-        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = file
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         match result {
             Ok(saved_as) => {
-                let target = if job.upload.folder.is_empty() { saved_as } else { format!("{}/{saved_as}", job.upload.folder) };
+                let target = if job.upload.folder.is_empty() {
+                    saved_as
+                } else {
+                    format!("{}/{saved_as}", job.upload.folder)
+                };
                 eprintln!("syncative: uploaded the shared file {name} to {remote_name}:{target}");
                 job.file_done(&file);
             }
             Err(_) if job.cancel.load(Ordering::Acquire) => return,
             // An original moved or deleted since it was handed over: trying again won't find it either.
             Err(_) if !job.upload.copies && !file.is_file() => {
-                shared_file_given_up(&name, &remote_name, "it was moved or deleted before it was saved");
+                shared_file_given_up(
+                    &name,
+                    &remote_name,
+                    "it was moved or deleted before it was saved",
+                );
                 job.file_done(&file);
             }
             // Saved while it went up: up again under the same name once the save is done, without counting it as a failure.
-            Err(UploadFailure { name: chosen, changed: true, error }) => {
-                eprintln!("syncative: the shared file {name} changed during its upload to {remote_name}; uploading it again ({error})");
+            Err(UploadFailure {
+                name: chosen,
+                changed: true,
+                error,
+            }) => {
+                eprintln!(
+                    "syncative: the shared file {name} changed during its upload to {remote_name}; uploading it again ({error})"
+                );
                 job.name = chosen;
                 job.error = Some("it changed while it was uploading".to_owned());
                 job.retry_at = Some(Instant::now() + UPLOAD_SETTLE);
             }
-            Err(UploadFailure { name: chosen, error: err, .. }) => {
+            Err(UploadFailure {
+                name: chosen,
+                error: err,
+                ..
+            }) => {
                 job.name = chosen;
                 let auth = is_auth_failure(&err);
                 let offline = self.offline || crate::infrastructure::translators::is_offline(&err);
@@ -848,7 +926,10 @@ impl Core {
                 if !auth && !offline {
                     job.tries += 1;
                 }
-                eprintln!("syncative: couldn't upload the shared file {name} to {remote_name} (try {}): {err}", job.tries);
+                eprintln!(
+                    "syncative: couldn't upload the shared file {name} to {remote_name} (try {}): {err}",
+                    job.tries
+                );
                 if job.tries >= UPLOAD_TRIES {
                     shared_file_given_up(&name, &remote_name, &err);
                     job.file_done(&file);
@@ -865,7 +946,12 @@ impl Core {
         share::discard(dir);
         self.uploads.remove(index);
         // Into a synced folder, the files come down to this device right away instead of at the next scheduled pass.
-        let synced = self.sync_dirs.iter().any(|d| d.remote_id == remote_id && (d.remote_path.is_empty() || folder == d.remote_path || folder.starts_with(&format!("{}/", d.remote_path))));
+        let synced = self.sync_dirs.iter().any(|d| {
+            d.remote_id == remote_id
+                && (d.remote_path.is_empty()
+                    || folder == d.remote_path
+                    || folder.starts_with(&format!("{}/", d.remote_path)))
+        });
         if synced && self.is_schedulable(remote_id) {
             self.sync_now(remote_id);
         }
@@ -874,13 +960,13 @@ impl Core {
     /// The one-line summary, when it differs from the last call's. A remote uploading shared files counts as syncing.
     pub fn take_status_change(&mut self) -> Option<TrayStatus> {
         let mut syncing = self.syncing.clone();
-        syncing.extend(self.uploads.iter().filter(|j| j.active).map(|j| j.upload.remote_id));
-        let status = tray::compute_status(
-            &self.state,
-            &self.remotes,
-            &syncing,
-            &self.last_sync_at,
+        syncing.extend(
+            self.uploads
+                .iter()
+                .filter(|j| j.active)
+                .map(|j| j.upload.remote_id),
         );
+        let status = tray::compute_status(&self.state, &self.remotes, &syncing, &self.last_sync_at);
         if self.last_status.as_ref() == Some(&status) {
             return None;
         }
@@ -890,13 +976,33 @@ impl Core {
 }
 
 /// Upload `file` into `folder` of `remote` under `name` from an earlier try, else under its own name or the first free "name (n)" there; returns the name used. Nothing in the cloud is overwritten but what an earlier try of this file left.
-fn upload_shared(backend: &dyn BackendClient, remote: &str, folder: &str, file: &Path, name: Option<String>, cancel: &Cancel) -> Result<String, UploadFailure> {
-    let fail = |name: Option<String>, changed: bool, error: String| UploadFailure { name, changed, error };
+fn upload_shared(
+    backend: &dyn BackendClient,
+    remote: &str,
+    folder: &str,
+    file: &Path,
+    name: Option<String>,
+    cancel: &Cancel,
+) -> Result<String, UploadFailure> {
+    let fail = |name: Option<String>, changed: bool, error: String| UploadFailure {
+        name,
+        changed,
+        error,
+    };
     let name = match name {
         Some(name) => name,
         None => {
-            let own = file.file_name().map(|n| n.to_string_lossy().into_owned()).ok_or_else(|| fail(None, false, "no file name".to_owned()))?;
-            let taken: Vec<String> = match backend.list(remote, folder, false, crate::domain::sync::ListFilter::All, cancel) {
+            let own = file
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .ok_or_else(|| fail(None, false, "no file name".to_owned()))?;
+            let taken: Vec<String> = match backend.list(
+                remote,
+                folder,
+                false,
+                crate::domain::sync::ListFilter::All,
+                cancel,
+            ) {
                 Ok(items) => items.into_iter().map(|item| item.name).collect(),
                 // A folder deleted in the meantime is created by the upload; any other failure would risk overwriting a file.
                 Err(err) => match backend.stat(remote, folder, cancel) {
@@ -907,7 +1013,11 @@ fn upload_shared(backend: &dyn BackendClient, remote: &str, folder: &str, file: 
             share::free_name(&own, |candidate| taken.iter().any(|t| t == candidate))
         }
     };
-    let path = if folder.is_empty() { name.clone() } else { format!("{folder}/{name}") };
+    let path = if folder.is_empty() {
+        name.clone()
+    } else {
+        format!("{folder}/{name}")
+    };
     let before = file_state(file);
     if let Err(err) = backend.copy_to_remote(&file.to_string_lossy(), remote, &path, cancel) {
         // rclone stops reading a file that is written into while it reads.
@@ -916,7 +1026,11 @@ fn upload_shared(backend: &dyn BackendClient, remote: &str, folder: &str, file: 
     }
     // Other backends read on regardless; size and time tell whether the file was saved meanwhile.
     if file_state(file) != before {
-        return Err(fail(Some(name), true, "size or time changed during the upload".to_owned()));
+        return Err(fail(
+            Some(name),
+            true,
+            "size or time changed during the upload".to_owned(),
+        ));
     }
     Ok(name)
 }
@@ -931,5 +1045,8 @@ fn file_state(file: &Path) -> Option<(u64, std::time::SystemTime)> {
 fn shared_file_given_up(name: &str, remote: &str, err: &str) {
     eprintln!("syncative: gave up uploading the shared file {name} to {remote}: {err}");
     #[cfg(target_os = "android")]
-    crate::infrastructure::android::notify("Shared file not saved", &format!("{name} couldn't be saved in {remote}: {err}"));
+    crate::infrastructure::android::notify(
+        "Shared file not saved",
+        &format!("{name} couldn't be saved in {remote}: {err}"),
+    );
 }

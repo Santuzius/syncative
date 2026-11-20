@@ -16,7 +16,7 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-use iced::{stream, Subscription};
+use iced::{Subscription, stream};
 
 /// Listener handed from `acquire` to the subscription. The subscription builder is a plain `fn`, so the hand-off goes through a static.
 static LISTENER: OnceLock<Mutex<Option<UnixListener>>> = OnceLock::new();
@@ -34,10 +34,17 @@ pub enum Instance {
 /// Take the data dir, or hand over to the process that has it: ask it to show its window, or to save `save` in the cloud.
 pub fn acquire(data_dir: &Path, save: &[PathBuf]) -> Instance {
     let sock_path = data_dir.join("instance.sock");
-    let lock = match File::options().create(true).truncate(false).write(true).open(data_dir.join("instance.lock")) {
+    let lock = match File::options()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(data_dir.join("instance.lock"))
+    {
         Ok(f) => f,
         Err(err) => {
-            eprintln!("syncative: couldn't open instance lock ({err}); continuing without single-instance guard.");
+            eprintln!(
+                "syncative: couldn't open instance lock ({err}); continuing without single-instance guard."
+            );
             return Instance::Primary;
         }
     };
@@ -55,7 +62,9 @@ pub fn acquire(data_dir: &Path, save: &[PathBuf]) -> Instance {
             }
         }
         match UnixStream::connect(&sock_path).and_then(|mut s| s.write_all(&request)) {
-            Ok(()) => eprintln!("syncative: already running — asked the running instance to show its window."),
+            Ok(()) => eprintln!(
+                "syncative: already running — asked the running instance to show its window."
+            ),
             Err(err) => eprintln!("syncative: already running, but couldn't reach it ({err})."),
         }
         return Instance::Secondary;
@@ -67,7 +76,10 @@ pub fn acquire(data_dir: &Path, save: &[PathBuf]) -> Instance {
         Ok(listener) => {
             let _ = LISTENER.set(Mutex::new(Some(listener)));
         }
-        Err(err) => eprintln!("syncative: couldn't bind {} ({err}); a second launch won't be able to raise this window.", sock_path.display()),
+        Err(err) => eprintln!(
+            "syncative: couldn't bind {} ({err}); a second launch won't be able to raise this window.",
+            sock_path.display()
+        ),
     }
     Instance::Primary
 }
@@ -88,7 +100,13 @@ pub fn show_requests() -> Subscription<()> {
                         }
                         if let Some(paths) = request.strip_prefix(b"save\n") {
                             #[cfg(not(target_os = "android"))]
-                            crate::services::share::receive_files(paths.split(|b| *b == 0).filter(|p| !p.is_empty()).map(|p| PathBuf::from(std::ffi::OsStr::from_bytes(p))).collect());
+                            crate::services::share::receive_files(
+                                paths
+                                    .split(|b| *b == 0)
+                                    .filter(|p| !p.is_empty())
+                                    .map(|p| PathBuf::from(std::ffi::OsStr::from_bytes(p)))
+                                    .collect(),
+                            );
                             #[cfg(target_os = "android")]
                             let _ = paths;
                         } else if request.trim_ascii() != b"show" {

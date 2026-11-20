@@ -58,11 +58,17 @@ pub struct Cleaned {
 
 fn under<'a>(items: &'a [SyncItem], root: &str) -> impl Iterator<Item = &'a SyncItem> {
     let prefix = format!("{root}/");
-    items.iter().filter(move |i| i.local_path == root || i.local_path.starts_with(&prefix))
+    items
+        .iter()
+        .filter(move |i| i.local_path == root || i.local_path.starts_with(&prefix))
 }
 
 fn mtime_secs(meta: &fs::Metadata) -> Option<i64> {
-    let at = meta.modified().ok()?.duration_since(SystemTime::UNIX_EPOCH).ok()?;
+    let at = meta
+        .modified()
+        .ok()?
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .ok()?;
     Some(at.as_secs() as i64)
 }
 
@@ -85,14 +91,18 @@ fn is_removable_dir(tracked: &HashMap<&Path, &SyncItem>, path: &Path) -> bool {
     };
     entries.flatten().all(|e| match e.file_type() {
         Ok(t) if t.is_dir() => is_removable_dir(tracked, &e.path()),
-        Ok(_) => tracked.get(e.path().as_path()).is_some_and(|i| is_stale_copy(i)),
+        Ok(_) => tracked
+            .get(e.path().as_path())
+            .is_some_and(|i| is_stale_copy(i)),
         Err(_) => false,
     })
 }
 
 /// The synced-and-unchanged files under `root`, and the synced folders that would be left empty without them (empty synced folders included).
 pub fn count(items: &[SyncItem], root: &str) -> Found {
-    let tracked: HashMap<&Path, &SyncItem> = under(items, root).map(|i| (Path::new(i.local_path.as_str()), i)).collect();
+    let tracked: HashMap<&Path, &SyncItem> = under(items, root)
+        .map(|i| (Path::new(i.local_path.as_str()), i))
+        .collect();
     let mut found = Found::default();
     for (path, item) in &tracked {
         if is_stale_copy(item) {
@@ -106,8 +116,15 @@ pub fn count(items: &[SyncItem], root: &str) -> Found {
 }
 
 /// Delete the synced-and-unchanged files under `root`, then every folder that ends up empty, and forget their DB rows. Forgetting matters: a stale row for a deleted file would read as "deleted locally" once the exclusion is lifted, and the cloud copy would go too.
-pub async fn clean(repo: &dyn Repository, sync_dir: SyncDirId, root: &str) -> Result<Cleaned, String> {
-    let items = repo.list_sync_items(sync_dir).await.map_err(|e| e.to_string())?;
+pub async fn clean(
+    repo: &dyn Repository,
+    sync_dir: SyncDirId,
+    root: &str,
+) -> Result<Cleaned, String> {
+    let items = repo
+        .list_sync_items(sync_dir)
+        .await
+        .map_err(|e| e.to_string())?;
     let mut deleted = Found::default();
     let mut dirs: Vec<&SyncItem> = Vec::new();
     for item in under(&items, root) {
@@ -117,7 +134,8 @@ pub async fn clean(repo: &dyn Repository, sync_dir: SyncDirId, root: &str) -> Re
                 continue;
             }
             Ok(meta) if is_stale_copy(item) => {
-                fs::remove_file(&item.local_path).map_err(|e| format!("{}: {e}", item.local_path))?;
+                fs::remove_file(&item.local_path)
+                    .map_err(|e| format!("{}: {e}", item.local_path))?;
                 deleted.files += 1;
                 deleted.bytes += meta.len();
             }
@@ -126,7 +144,9 @@ pub async fn clean(repo: &dyn Repository, sync_dir: SyncDirId, root: &str) -> Re
             // Already gone; the row is stale either way.
             Err(_) => {}
         }
-        let _ = repo.delete_sync_item_by_paths(sync_dir, &item.local_path, &item.remote_path).await;
+        let _ = repo
+            .delete_sync_item_by_paths(sync_dir, &item.local_path, &item.remote_path)
+            .await;
     }
 
     // Deepest first, so parents are empty by the time they come up. `remove_dir` refuses non-empty folders, which keeps whatever is left.
@@ -134,12 +154,17 @@ pub async fn clean(repo: &dyn Repository, sync_dir: SyncDirId, root: &str) -> Re
     for dir in dirs {
         if fs::remove_dir(&dir.local_path).is_ok() {
             deleted.folders += 1;
-            let _ = repo.delete_sync_item_by_paths(sync_dir, &dir.local_path, &dir.remote_path).await;
+            let _ = repo
+                .delete_sync_item_by_paths(sync_dir, &dir.local_path, &dir.remote_path)
+                .await;
         }
     }
     let _ = fs::remove_dir(root);
 
-    Ok(Cleaned { deleted, kept: count_files(Path::new(root)) })
+    Ok(Cleaned {
+        deleted,
+        kept: count_files(Path::new(root)),
+    })
 }
 
 fn count_files(path: &Path) -> usize {
@@ -158,7 +183,7 @@ fn count_files(path: &Path) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{touch_mtime, FakeRepo, TempDir};
+    use crate::test_support::{FakeRepo, TempDir, touch_mtime};
 
     #[test]
     fn deletes_only_unchanged_synced_files() {
@@ -167,22 +192,63 @@ mod tests {
         let repo = FakeRepo::new();
         let synced = tmp.write_file("Raw/sub/old.mov", b"x");
         touch_mtime(&synced, 1_700_000_000);
-        repo.insert_item(SyncDirId(1), synced.to_str().unwrap(), "Raw/sub/old.mov", 1_700_000_000, 1_700_000_000);
-        repo.insert_item(SyncDirId(1), &format!("{root}/sub"), "Raw/sub", 1_700_000_000, 1_700_000_000);
+        repo.insert_item(
+            SyncDirId(1),
+            synced.to_str().unwrap(),
+            "Raw/sub/old.mov",
+            1_700_000_000,
+            1_700_000_000,
+        );
+        repo.insert_item(
+            SyncDirId(1),
+            &format!("{root}/sub"),
+            "Raw/sub",
+            1_700_000_000,
+            1_700_000_000,
+        );
         let edited = tmp.write_file("Raw/edited.mov", b"y");
         touch_mtime(&edited, 1_800_000_000);
-        repo.insert_item(SyncDirId(1), edited.to_str().unwrap(), "Raw/edited.mov", 1_700_000_000, 1_700_000_000);
+        repo.insert_item(
+            SyncDirId(1),
+            edited.to_str().unwrap(),
+            "Raw/edited.mov",
+            1_700_000_000,
+            1_700_000_000,
+        );
         let local_only = tmp.write_file("Raw/new.mov", b"z");
         // A sibling outside the excluded path must not be touched.
         let outside = tmp.write_file("Rawer/keep.mov", b"k");
         touch_mtime(&outside, 1_700_000_000);
-        repo.insert_item(SyncDirId(1), outside.to_str().unwrap(), "Rawer/keep.mov", 1_700_000_000, 1_700_000_000);
+        repo.insert_item(
+            SyncDirId(1),
+            outside.to_str().unwrap(),
+            "Rawer/keep.mov",
+            1_700_000_000,
+            1_700_000_000,
+        );
 
         let items = crate::util::await_future(repo.list_sync_items(SyncDirId(1))).unwrap();
-        assert_eq!(count(&items, &root), Found { files: 1, folders: 1, bytes: 1 });
+        assert_eq!(
+            count(&items, &root),
+            Found {
+                files: 1,
+                folders: 1,
+                bytes: 1
+            }
+        );
 
         let cleaned = crate::util::await_future(clean(&repo, SyncDirId(1), &root)).unwrap();
-        assert_eq!(cleaned, Cleaned { deleted: Found { files: 1, folders: 1, bytes: 1 }, kept: 2 });
+        assert_eq!(
+            cleaned,
+            Cleaned {
+                deleted: Found {
+                    files: 1,
+                    folders: 1,
+                    bytes: 1
+                },
+                kept: 2
+            }
+        );
         assert!(!synced.exists() && !tmp.path.join("Raw/sub").exists());
         assert!(edited.exists() && local_only.exists() && outside.exists());
         assert!(!repo.has_item(synced.to_str().unwrap(), "Raw/sub/old.mov"));
@@ -197,10 +263,26 @@ mod tests {
         let repo = FakeRepo::new();
         let synced = tmp.write_file("Raw/a.txt", b"a");
         touch_mtime(&synced, 1_700_000_000);
-        repo.insert_item(SyncDirId(1), synced.to_str().unwrap(), "Raw/a.txt", 1_700_000_000, 1_700_000_000);
+        repo.insert_item(
+            SyncDirId(1),
+            synced.to_str().unwrap(),
+            "Raw/a.txt",
+            1_700_000_000,
+            1_700_000_000,
+        );
 
         let cleaned = crate::util::await_future(clean(&repo, SyncDirId(1), &root)).unwrap();
-        assert_eq!(cleaned, Cleaned { deleted: Found { files: 1, folders: 0, bytes: 1 }, kept: 0 });
+        assert_eq!(
+            cleaned,
+            Cleaned {
+                deleted: Found {
+                    files: 1,
+                    folders: 0,
+                    bytes: 1
+                },
+                kept: 0
+            }
+        );
         assert!(!Path::new(&root).exists());
     }
 
@@ -211,17 +293,43 @@ mod tests {
         let repo = FakeRepo::new();
         for rel in ["Raw", "Raw/a", "Raw/a/b"] {
             std::fs::create_dir_all(tmp.path.join(rel)).unwrap();
-            repo.insert_item(SyncDirId(1), &format!("{}/{rel}", tmp.as_str()), rel, 1_700_000_000, 1_700_000_000);
+            repo.insert_item(
+                SyncDirId(1),
+                &format!("{}/{rel}", tmp.as_str()),
+                rel,
+                1_700_000_000,
+                1_700_000_000,
+            );
         }
         // An empty folder made after the exclusion has no row and keeps its parent.
         std::fs::create_dir_all(tmp.path.join("Raw/c/new")).unwrap();
-        repo.insert_item(SyncDirId(1), &format!("{root}/c"), "Raw/c", 1_700_000_000, 1_700_000_000);
+        repo.insert_item(
+            SyncDirId(1),
+            &format!("{root}/c"),
+            "Raw/c",
+            1_700_000_000,
+            1_700_000_000,
+        );
 
         let items = crate::util::await_future(repo.list_sync_items(SyncDirId(1))).unwrap();
-        assert_eq!(count(&items, &root), Found { files: 0, folders: 2, bytes: 0 });
+        assert_eq!(
+            count(&items, &root),
+            Found {
+                files: 0,
+                folders: 2,
+                bytes: 0
+            }
+        );
 
         let cleaned = crate::util::await_future(clean(&repo, SyncDirId(1), &root)).unwrap();
-        assert_eq!(cleaned.deleted, Found { files: 0, folders: 2, bytes: 0 });
+        assert_eq!(
+            cleaned.deleted,
+            Found {
+                files: 0,
+                folders: 2,
+                bytes: 0
+            }
+        );
         assert!(!tmp.path.join("Raw/a").exists());
         assert!(tmp.path.join("Raw/c/new").exists());
     }

@@ -154,7 +154,10 @@ pub(super) fn set_remote_meta(
                 remote_tag: ActiveValue::Set(meta.tag),
                 ..Default::default()
             };
-            SyncItemsEntity::update(active).exec(&txn).await.map_err(map_err)?;
+            SyncItemsEntity::update(active)
+                .exec(&txn)
+                .await
+                .map_err(map_err)?;
         }
         txn.commit().await.map_err(map_err)
     })
@@ -206,8 +209,7 @@ pub(super) fn delete_sync_items_with_local_prefix(
                 Condition::any()
                     .add(SyncItemsColumn::LocalPath.eq(local_prefix.clone()))
                     .add(
-                        SyncItemsColumn::LocalPath
-                            .starts_with(format!("{local_prefix}/").as_str()),
+                        SyncItemsColumn::LocalPath.starts_with(format!("{local_prefix}/").as_str()),
                     ),
             )
             .exec(db)

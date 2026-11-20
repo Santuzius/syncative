@@ -175,8 +175,7 @@ mod tests {
                     assert!(
                         any_opaque,
                         "{name}/{variant} @ {}x{} rasterised to a fully-transparent pixmap",
-                        icon.width,
-                        icon.height,
+                        icon.width, icon.height,
                     );
                 }
             }

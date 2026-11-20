@@ -15,7 +15,14 @@ impl SyncativeApp {
             .lock()
             .unwrap()
             .get(&sync_dir_id)
-            .map(|lines| lines.iter().rev().map(|l| format!("{}  {}", l.at, l.text)).collect::<Vec<_>>().join("\n"))
+            .map(|lines| {
+                lines
+                    .iter()
+                    .rev()
+                    .map(|l| format!("{}  {}", l.at, l.text))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
             .unwrap_or_default();
         Content::with_text(&joined)
     }

@@ -7,7 +7,11 @@ pub const MARK: &str = "🧪";
 
 /// `name` as the window shows it: with the mark after it for a beta feature.
 pub fn marked(name: &str, beta: bool) -> String {
-    if beta { format!("{name} {MARK}") } else { name.to_owned() }
+    if beta {
+        format!("{name} {MARK}")
+    } else {
+        name.to_owned()
+    }
 }
 
 fn flag_path() -> PathBuf {

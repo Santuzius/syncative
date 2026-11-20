@@ -58,7 +58,11 @@ pub fn store(account: &str, value: &str) -> Result<(), String> {
 pub fn load(account: &str) -> Result<Option<String>, String> {
     match entry(account)?.get_password() {
         Ok(value) => Ok(Some(value)),
-        Err(keyring::Error::NoEntry) => crate::infrastructure::persistence::migrations::celeste_to_syncative::take_celeste_key(account),
+        Err(keyring::Error::NoEntry) => {
+            crate::infrastructure::persistence::migrations::celeste_to_syncative::take_celeste_key(
+                account,
+            )
+        }
         Err(e) => Err(format!("keyring read failed: {e}")),
     }
 }
@@ -67,7 +71,9 @@ pub fn load(account: &str) -> Result<Option<String>, String> {
 /// remote-removal flow doesn't have to special-case never-saved remotes.
 #[cfg(not(target_os = "android"))]
 pub fn delete(account: &str) -> Result<(), String> {
-    crate::infrastructure::persistence::migrations::celeste_to_syncative::delete_celeste_key(account);
+    crate::infrastructure::persistence::migrations::celeste_to_syncative::delete_celeste_key(
+        account,
+    );
     match entry(account)?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),

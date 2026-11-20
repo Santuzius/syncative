@@ -1,12 +1,12 @@
 //! Tray-related message handlers: lifecycle handshake, theme
 //! propagation, and click actions.
 
-use iced::{theme as iced_theme, window, Task};
+use iced::{Task, theme as iced_theme, window};
 use tokio::sync::mpsc;
 
 use crate::infrastructure::tray::{TrayAction, TrayUpdate};
 
-use super::super::{main_window_settings, SyncativeApp, Message};
+use super::super::{Message, SyncativeApp, main_window_settings};
 
 impl SyncativeApp {
     /// Handle [`Message::TrayReady`] — store the sender, push the
@@ -49,7 +49,12 @@ impl SyncativeApp {
         if mode == iced_theme::Mode::None {
             #[cfg(not(target_os = "android"))]
             return Task::perform(
-                async { tokio::task::spawn_blocking(crate::infrastructure::color_scheme::read).await.ok().flatten() },
+                async {
+                    tokio::task::spawn_blocking(crate::infrastructure::color_scheme::read)
+                        .await
+                        .ok()
+                        .flatten()
+                },
                 Message::SystemThemeConfirmed,
             );
             #[cfg(target_os = "android")]

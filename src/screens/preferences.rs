@@ -1,8 +1,8 @@
 //! App-wide preferences dialog (as opposed to the per-remote settings): colours of the window and the tray icon, the size of the window's content, the power mode on Android, metered networks, start at login — one labelled row each, like the remote settings.
 
 use iced::{
-    widget::{button, column, container, row, rule, toggler, Row, Space},
     Alignment, Element, Length,
+    widget::{Row, Space, button, column, container, row, rule, toggler},
 };
 
 use crate::{
@@ -75,22 +75,66 @@ pub struct FileManagerMenu {
 /// `compact`: the phone layout, where the button groups go below their labels.
 /// `sync_metered`: sync on metered networks too; `file_manager_menu`: the context menu setting, `None` where it isn't offered; `log_note`: how the last copy or clear of the log went; `note`: how the last export or import went; `beta`: the beta features are on.
 #[allow(clippy::too_many_arguments)]
-pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool, autostart: bool, start_hidden: bool, file_manager_menu: Option<&'a FileManagerMenu>, detailed_log: bool, log_note: Option<&'a str>, note: Option<&'a str>, beta: bool, error: Option<&'a str>, compact: bool) -> Element<'a, Msg> {
+pub fn view<'a>(
+    appearance: Appearance,
+    power: Option<Power>,
+    sync_metered: bool,
+    autostart: bool,
+    start_hidden: bool,
+    file_manager_menu: Option<&'a FileManagerMenu>,
+    detailed_log: bool,
+    log_note: Option<&'a str>,
+    note: Option<&'a str>,
+    beta: bool,
+    error: Option<&'a str>,
+    compact: bool,
+) -> Element<'a, Msg> {
     let android = cfg!(target_os = "android");
-    let size_hint = if android { "Text and everything else in this window, relative to the system's font and display size." } else { "Text and everything else in this window." };
+    let size_hint = if android {
+        "Text and everything else in this window, relative to the system's font and display size."
+    } else {
+        "Text and everything else in this window."
+    };
     let mut rows = column![
-        choice_row(compact, "Theme", "Colours of this window.", segmented(&ThemeChoice::ALL, ThemeChoice::label, appearance.window, Msg::WindowThemeChanged)),
+        choice_row(
+            compact,
+            "Theme",
+            "Colours of this window.",
+            segmented(
+                &ThemeChoice::ALL,
+                ThemeChoice::label,
+                appearance.window,
+                Msg::WindowThemeChanged
+            )
+        ),
         rule::horizontal(1).style(theme::separator),
-        choice_row(compact, "Size", size_hint, segmented(&SizeChoice::ALL, SizeChoice::label, appearance.size, Msg::SizeChanged)),
+        choice_row(
+            compact,
+            "Size",
+            size_hint,
+            segmented(
+                &SizeChoice::ALL,
+                SizeChoice::label,
+                appearance.size,
+                Msg::SizeChanged
+            )
+        ),
     ];
     // Android has no tray.
     if !android {
-        rows = rows.push(rule::horizontal(1).style(theme::separator)).push(choice_row(
-            compact,
-            "Tray icon",
-            "Colour of Syncative's icon in the system tray.",
-            segmented(&TrayIconChoice::ALL, TrayIconChoice::label, appearance.tray_icon, Msg::TrayIconChanged),
-        ));
+        rows = rows
+            .push(rule::horizontal(1).style(theme::separator))
+            .push(choice_row(
+                compact,
+                "Tray icon",
+                "Colour of Syncative's icon in the system tray.",
+                segmented(
+                    &TrayIconChoice::ALL,
+                    TrayIconChoice::label,
+                    appearance.tray_icon,
+                    Msg::TrayIconChanged,
+                ),
+            ));
     }
     let separator = || rule::horizontal(1).style(theme::separator);
     match power {
@@ -99,13 +143,28 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool
             let mut background = column![setting_row(
                 "Run in background",
                 "Keep syncing after you leave Syncative, with its status in a silent notification.",
-                toggler(power.background).on_toggle(Msg::BackgroundToggled).size(20).into(),
+                toggler(power.background)
+                    .on_toggle(Msg::BackgroundToggled)
+                    .size(20)
+                    .into(),
             )];
             if power.background && !power.background_allowed {
-                background = background.push(container(background_warning()).padding(iced::Padding { top: 0.0, right: 14.0, bottom: 12.0, left: 14.0 }));
+                background =
+                    background.push(container(background_warning()).padding(iced::Padding {
+                        top: 0.0,
+                        right: 14.0,
+                        bottom: 12.0,
+                        left: 14.0,
+                    }));
             }
-            let autostart_hint = if power.background { "Syncs again after a restart, without opening Syncative." } else { "Turn on “Run in background” first." };
-            let autostart_toggle = toggler(power.background && autostart).on_toggle_maybe(power.background.then_some(Msg::AutostartToggled)).size(20);
+            let autostart_hint = if power.background {
+                "Syncs again after a restart, without opening Syncative."
+            } else {
+                "Turn on “Run in background” first."
+            };
+            let autostart_toggle = toggler(power.background && autostart)
+                .on_toggle_maybe(power.background.then_some(Msg::AutostartToggled))
+                .size(20);
             rows = rows
                 .push(separator())
                 .push(background)
@@ -119,19 +178,49 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool
         None => {
             rows = rows
                 .push(separator())
-                .push(setting_row("Start Syncative when you log in", "It syncs in the background.", toggler(autostart).on_toggle(Msg::AutostartToggled).size(20).into()))
+                .push(setting_row(
+                    "Start Syncative when you log in",
+                    "It syncs in the background.",
+                    toggler(autostart)
+                        .on_toggle(Msg::AutostartToggled)
+                        .size(20)
+                        .into(),
+                ))
                 .push(separator())
                 .push(setting_row(
                     "Start hidden",
-                    if autostart { "At login only the tray icon appears, not the window." } else { "Turn on “Start Syncative when you log in” first." },
-                    toggler(autostart && start_hidden).on_toggle_maybe(autostart.then_some(Msg::StartHiddenToggled)).size(20).into(),
+                    if autostart {
+                        "At login only the tray icon appears, not the window."
+                    } else {
+                        "Turn on “Start Syncative when you log in” first."
+                    },
+                    toggler(autostart && start_hidden)
+                        .on_toggle_maybe(autostart.then_some(Msg::StartHiddenToggled))
+                        .size(20)
+                        .into(),
                 ))
                 .push(separator());
             if let Some(menu) = file_manager_menu {
                 let available = menu.available;
-                let none_installed = if available { "" } else { " None of them is installed." };
-                let detail = format!("Adds “Save in the cloud with Syncative” to the right-click menu of files. Currently supported: {}.{none_installed}", and_list(&menu.supported));
-                rows = rows.push(setting_row("Context menu in the file manager", detail, toggler(menu.on && available).on_toggle_maybe(available.then_some(Msg::FileManagerMenuToggled)).size(20).into())).push(separator());
+                let none_installed = if available {
+                    ""
+                } else {
+                    " None of them is installed."
+                };
+                let detail = format!(
+                    "Adds “Save in the cloud with Syncative” to the right-click menu of files. Currently supported: {}.{none_installed}",
+                    and_list(&menu.supported)
+                );
+                rows = rows
+                    .push(setting_row(
+                        "Context menu in the file manager",
+                        detail,
+                        toggler(menu.on && available)
+                            .on_toggle_maybe(available.then_some(Msg::FileManagerMenuToggled))
+                            .size(20)
+                            .into(),
+                    ))
+                    .push(separator());
             }
             rows = rows
                 .push(metered_row(sync_metered, "E.g. a phone's hotspot, or networks marked as metered in the network settings. When off, Syncative waits for an unmetered network, but you can still start a sync yourself."));
@@ -157,8 +246,14 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool
         rows = rows.push(row_note(log_note));
     }
     let transfer = row![
-        button(text("Export…").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::Export),
-        button(text("Import…").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::Import),
+        button(text("Export…").size(TEXT))
+            .padding([6, 14])
+            .style(theme::button_secondary)
+            .on_press(Msg::Export),
+        button(text("Import…").size(TEXT))
+            .padding([6, 14])
+            .style(theme::button_secondary)
+            .on_press(Msg::Import),
     ]
     .spacing(8);
     rows = rows.push(separator()).push(choice_row(compact, "Settings file", "Remotes, folders and these preferences, without sign-ins. After an import, sign in to each remote again.", transfer.into()));
@@ -169,7 +264,10 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool
 
     let mut content = column![
         text("Preferences").size(HEADING + 2.0),
-        container(rows).padding([2, 0]).width(Length::Fill).style(theme::card),
+        container(rows)
+            .padding([2, 0])
+            .width(Length::Fill)
+            .style(theme::card),
     ]
     .spacing(16);
     if let Some(err) = error {
@@ -177,24 +275,40 @@ pub fn view<'a>(appearance: Appearance, power: Option<Power>, sync_metered: bool
     }
     content = content.push(row![
         Space::new().width(Length::Fill),
-        button(text("Close").size(TEXT)).padding([6, 16]).style(theme::button_secondary).on_press(Msg::Close),
+        button(text("Close").size(TEXT))
+            .padding([6, 16])
+            .style(theme::button_secondary)
+            .on_press(Msg::Close),
     ]);
 
-    container(content).padding(22).max_width(560).style(theme::dialog).into()
+    container(content)
+        .padding(22)
+        .max_width(560)
+        .style(theme::dialog)
+        .into()
 }
 
 /// What the beta switch turns on on this platform, as the dialog lists it; taken from the lists that decide what's beta, so it can't fall behind them.
 fn beta_features() -> Vec<String> {
     #[cfg(not(target_os = "android"))]
-    let managers: Vec<String> = crate::services::file_manager_menu::beta_file_managers().into_iter().map(str::to_owned).collect();
+    let managers: Vec<String> = crate::services::file_manager_menu::beta_file_managers()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
     #[cfg(target_os = "android")]
     let managers: Vec<String> = Vec::new();
     let context_menu = match managers.len() {
         0 => None,
         1 => Some(format!("Context menu in the file manager {}", managers[0])),
-        _ => Some(format!("Context menu in the file managers {}", and_list(&managers))),
+        _ => Some(format!(
+            "Context menu in the file managers {}",
+            and_list(&managers)
+        )),
     };
-    super::add_remote::beta_providers().map(|name| format!("{name} integration")).chain(context_menu).collect()
+    super::add_remote::beta_providers()
+        .map(|name| format!("{name} integration"))
+        .chain(context_menu)
+        .collect()
 }
 
 /// "a", "a and b", "a, b and c".
@@ -208,15 +322,34 @@ fn and_list(names: &[String]) -> String {
 
 /// "Sync on metered networks", with what counts as metered on this platform.
 fn metered_row(sync_metered: bool, hint: &'static str) -> Element<'static, Msg> {
-    setting_row("Sync on metered networks", hint, toggler(sync_metered).on_toggle(Msg::SyncMeteredToggled).size(20).into())
+    setting_row(
+        "Sync on metered networks",
+        hint,
+        toggler(sync_metered)
+            .on_toggle(Msg::SyncMeteredToggled)
+            .size(20)
+            .into(),
+    )
 }
 
 /// Switches the beta features: on only after [`beta_dialog`], off at once.
 fn beta_row(beta: bool) -> Element<'static, Msg> {
     let (detail, control) = if beta {
-        ("On. Features that haven't been fully tested yet are marked with 🧪.", button(text("Disable").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::DisableBeta))
+        (
+            "On. Features that haven't been fully tested yet are marked with 🧪.",
+            button(text("Disable").size(TEXT))
+                .padding([6, 14])
+                .style(theme::button_secondary)
+                .on_press(Msg::DisableBeta),
+        )
     } else {
-        ("Features that haven't been fully tested yet, e.g. if you'd like to try them out yourself.", button(text("Enable…").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::EnableBeta))
+        (
+            "Features that haven't been fully tested yet, e.g. if you'd like to try them out yourself.",
+            button(text("Enable…").size(TEXT))
+                .padding([6, 14])
+                .style(theme::button_secondary)
+                .on_press(Msg::EnableBeta),
+        )
     };
     setting_row("Beta features 🧪", detail, control.into())
 }
@@ -243,12 +376,23 @@ pub fn beta_dialog<'a>() -> Element<'a, Msg> {
         .spacing(8),
     ]
     .spacing(12);
-    container(content).padding(22).max_width(520).style(theme::dialog).into()
+    container(content)
+        .padding(22)
+        .max_width(520)
+        .style(theme::dialog)
+        .into()
 }
 
 /// A short note under the row above it.
 fn row_note(note: &str) -> Element<'_, Msg> {
-    container(text(note).size(CAPTION).style(theme::muted)).padding(iced::Padding { top: 0.0, right: 14.0, bottom: 12.0, left: 14.0 }).into()
+    container(text(note).size(CAPTION).style(theme::muted))
+        .padding(iced::Padding {
+            top: 0.0,
+            right: 14.0,
+            bottom: 12.0,
+            left: 14.0,
+        })
+        .into()
 }
 
 /// The power mode with what it does, and a warning while Android may stop Syncative in the background.
@@ -258,8 +402,19 @@ fn power_row<'a>(power: Power) -> Element<'a, Msg> {
         points = points.push(bullet(point));
     }
     let row = column![
-        column![text("Power mode").size(TEXT), text("How often to sync, depending on the screen and the charger.").size(CAPTION).style(theme::muted)].spacing(2),
-        segmented(&PowerMode::ALL, PowerMode::label, power.mode, Msg::PowerModeChanged),
+        column![
+            text("Power mode").size(TEXT),
+            text("How often to sync, depending on the screen and the charger.")
+                .size(CAPTION)
+                .style(theme::muted)
+        ]
+        .spacing(2),
+        segmented(
+            &PowerMode::ALL,
+            PowerMode::label,
+            power.mode,
+            Msg::PowerModeChanged
+        ),
         points,
     ]
     .spacing(10)
@@ -272,8 +427,13 @@ fn background_warning<'a>() -> Element<'a, Msg> {
     container(
         row![
             icon(icondata::TbAlertTriangleOutline, 16.0),
-            text("Android's battery optimization may stop syncing in the background.").size(CAPTION).width(Length::Fill),
-            button(text("Allow…").size(CAPTION)).padding([4, 10]).style(theme::button_secondary).on_press(Msg::AllowBackground),
+            text("Android's battery optimization may stop syncing in the background.")
+                .size(CAPTION)
+                .width(Length::Fill),
+            button(text("Allow…").size(CAPTION))
+                .padding([4, 10])
+                .style(theme::button_secondary)
+                .on_press(Msg::AllowBackground),
         ]
         .spacing(8)
         .align_y(Alignment::Center),
@@ -299,7 +459,11 @@ pub fn background_dialog<'a>() -> Element<'a, Msg> {
         .spacing(8),
     ]
     .spacing(12);
-    container(content).padding(22).max_width(520).style(theme::dialog).into()
+    container(content)
+        .padding(22)
+        .max_width(520)
+        .style(theme::dialog)
+        .into()
 }
 
 /// Shown once on the desktop, the first time the window opens with a tray icon: panels differ in colour, so the icon's may need changing.
@@ -312,11 +476,20 @@ pub fn tray_hint_dialog<'a>(tray_icon: TrayIconChoice) -> Element<'a, Msg> {
         row![Space::new().width(Length::Fill), button(text("OK").size(TEXT)).padding([6, 16]).style(theme::button_primary).on_press(Msg::TrayHintClosed)],
     ]
     .spacing(12);
-    container(content).padding(22).max_width(520).style(theme::dialog).into()
+    container(content)
+        .padding(22)
+        .max_width(520)
+        .style(theme::dialog)
+        .into()
 }
 
 /// The options as one button group; the chosen one stays highlighted.
-fn segmented<'a, T: Copy + PartialEq + 'a>(options: &[T], label: fn(T) -> &'static str, current: T, on_pick: fn(T) -> Msg) -> Element<'a, Msg> {
+fn segmented<'a, T: Copy + PartialEq + 'a>(
+    options: &[T],
+    label: fn(T) -> &'static str,
+    current: T,
+    on_pick: fn(T) -> Msg,
+) -> Element<'a, Msg> {
     let buttons = options.iter().map(|&choice| {
         button(text(label(choice)).size(TEXT))
             .padding([4, 12])
@@ -325,22 +498,52 @@ fn segmented<'a, T: Copy + PartialEq + 'a>(options: &[T], label: fn(T) -> &'stat
             .into()
     });
     // Wraps rather than cutting off the last options when the window is narrow or its content large.
-    container(Row::with_children(buttons).spacing(2).wrap().vertical_spacing(2)).padding(2).style(theme::well).into()
+    container(
+        Row::with_children(buttons)
+            .spacing(2)
+            .wrap()
+            .vertical_spacing(2),
+    )
+    .padding(2)
+    .style(theme::well)
+    .into()
 }
 
 /// A row with a button group, which needs the whole width of a phone.
-fn choice_row<'a>(compact: bool, title: &'a str, detail: &'a str, control: Element<'a, Msg>) -> Element<'a, Msg> {
+fn choice_row<'a>(
+    compact: bool,
+    title: &'a str,
+    detail: &'a str,
+    control: Element<'a, Msg>,
+) -> Element<'a, Msg> {
     if !compact {
         return setting_row(title, detail, control);
     }
-    column![column![text(title).size(TEXT), text(detail).size(CAPTION).style(theme::muted)].spacing(2), control].spacing(10).padding([12, 14]).into()
+    column![
+        column![
+            text(title).size(TEXT),
+            text(detail).size(CAPTION).style(theme::muted)
+        ]
+        .spacing(2),
+        control
+    ]
+    .spacing(10)
+    .padding([12, 14])
+    .into()
 }
 
-fn setting_row<'a>(title: impl iced::widget::text::IntoFragment<'a>, detail: impl iced::widget::text::IntoFragment<'a>, control: Element<'a, Msg>) -> Element<'a, Msg> {
+fn setting_row<'a>(
+    title: impl iced::widget::text::IntoFragment<'a>,
+    detail: impl iced::widget::text::IntoFragment<'a>,
+    control: Element<'a, Msg>,
+) -> Element<'a, Msg> {
     row![
-        column![text(title).size(TEXT), text(detail).size(CAPTION).style(theme::muted)]
-            .spacing(2)
-            .width(Length::Fill),
+        column![
+            text(title).size(TEXT),
+            text(detail).size(CAPTION).style(theme::muted)
+        ]
+        .spacing(2)
+        .width(Length::Fill),
         control,
     ]
     .spacing(16)
@@ -354,6 +557,12 @@ mod tests {
     /// The beta dialog lists what the `is_beta` lists say, in words.
     #[test]
     fn the_beta_dialog_lists_the_beta_features() {
-        assert_eq!(super::beta_features(), ["Nextcloud integration", "Context menu in the file managers Files and Nemo"]);
+        assert_eq!(
+            super::beta_features(),
+            [
+                "Nextcloud integration",
+                "Context menu in the file managers Files and Nemo"
+            ]
+        );
     }
 }

@@ -42,7 +42,12 @@ impl TempDir {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         loop {
             let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let p = std::env::temp_dir().join(format!("syncative_test_{}_{}_{}", tag, std::process::id(), counter));
+            let p = std::env::temp_dir().join(format!(
+                "syncative_test_{}_{}_{}",
+                tag,
+                std::process::id(),
+                counter
+            ));
             // `create_dir` fails on an existing directory, e.g. one left behind by an earlier process with the same ID.
             match fs::create_dir(&p) {
                 Ok(()) => return Self { path: p },

@@ -15,7 +15,10 @@ use crate::{
 use super::super::{Message, SyncativeApp};
 
 impl SyncativeApp {
-    pub(in crate::app) fn handle_preferences_msg(&mut self, msg: preferences::Msg) -> Task<Message> {
+    pub(in crate::app) fn handle_preferences_msg(
+        &mut self,
+        msg: preferences::Msg,
+    ) -> Task<Message> {
         match msg {
             preferences::Msg::Close => {
                 self.preferences_open = false;
@@ -255,7 +258,10 @@ impl SyncativeApp {
             use crate::services::file_manager_menu;
             match file_manager_menu::set(on, self.beta) {
                 Ok(()) => self.preferences_error = None,
-                Err(err) => self.preferences_error = Some(format!("Could not change the context menu entry {err}")),
+                Err(err) => {
+                    self.preferences_error =
+                        Some(format!("Could not change the context menu entry {err}"))
+                }
             }
             self.file_manager_menu = file_manager_menu::offer(self.beta);
         }

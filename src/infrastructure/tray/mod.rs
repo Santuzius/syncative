@@ -27,11 +27,11 @@ use std::{
 
 #[cfg(not(target_os = "android"))]
 use iced::stream;
-use iced::{theme, Subscription};
+use iced::{Subscription, theme};
 #[cfg(not(target_os = "android"))]
 use ksni::{
-    menu::{StandardItem, TextDirection},
     Icon, MenuItem, ToolTip, TrayMethods,
+    menu::{StandardItem, TextDirection},
 };
 use tokio::sync::mpsc;
 
@@ -342,7 +342,11 @@ pub fn compute_status(
         return TrayStatus::Disconnected;
     }
     let names_where = |pred: &dyn Fn(&Remote) -> bool| -> Vec<String> {
-        remotes.iter().filter(|r| pred(r)).map(|r| r.name.clone()).collect()
+        remotes
+            .iter()
+            .filter(|r| pred(r))
+            .map(|r| r.name.clone())
+            .collect()
     };
     let auth = names_where(&|r| state.needs_reauth(r.id));
     if !auth.is_empty() {
@@ -351,18 +355,25 @@ pub fn compute_status(
     let problems = names_where(&|r| {
         r.policy.enabled
             && (state.in_backoff(r.id)
-                || state.roll_up(r.id).is_some_and(|s| matches!(s, RunState::Warning | RunState::Error)))
+                || state
+                    .roll_up(r.id)
+                    .is_some_and(|s| matches!(s, RunState::Warning | RunState::Error)))
     });
     if !problems.is_empty() {
         return TrayStatus::Warning { remotes: problems };
     }
     if !syncing.is_empty() {
-        return TrayStatus::Syncing { count: syncing.len() };
+        return TrayStatus::Syncing {
+            count: syncing.len(),
+        };
     }
     if remotes.iter().all(|r| !r.policy.enabled) {
         return TrayStatus::Paused;
     }
-    if remotes.iter().any(|r| r.policy.enabled && state.roll_up(r.id) == Some(RunState::Offline)) {
+    if remotes
+        .iter()
+        .any(|r| r.policy.enabled && state.roll_up(r.id) == Some(RunState::Offline))
+    {
         return TrayStatus::Offline;
     }
     let now = Instant::now();

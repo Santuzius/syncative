@@ -72,14 +72,24 @@ impl SyncDir {
         if self.remote_path.is_empty() {
             return remote_path;
         }
-        remote_path.strip_prefix(self.remote_path.as_str()).and_then(|rest| rest.strip_prefix('/')).unwrap_or(remote_path)
+        remote_path
+            .strip_prefix(self.remote_path.as_str())
+            .and_then(|rest| rest.strip_prefix('/'))
+            .unwrap_or(remote_path)
     }
 
     /// `other` is another folder of the same remote whose remote folder lies inside this one's.
     pub fn contains(&self, other: &SyncDir) -> bool {
         other.id != self.id
             && other.remote_id == self.remote_id
-            && if self.remote_path.is_empty() { !other.remote_path.is_empty() } else { other.remote_path.strip_prefix(self.remote_path.as_str()).is_some_and(|rest| rest.starts_with('/')) }
+            && if self.remote_path.is_empty() {
+                !other.remote_path.is_empty()
+            } else {
+                other
+                    .remote_path
+                    .strip_prefix(self.remote_path.as_str())
+                    .is_some_and(|rest| rest.starts_with('/'))
+            }
     }
 }
 
@@ -123,7 +133,11 @@ pub enum Changes {
     /// Nothing changed.
     None,
     /// These changed; `cursor` is where the backend stands now. `root_id` is the provider's ID of the sync folder itself, for changes that name their folder by ID.
-    Some { cursor: String, root_id: Option<String>, changes: Vec<RemoteChange> },
+    Some {
+        cursor: String,
+        root_id: Option<String>,
+        changes: Vec<RemoteChange>,
+    },
     /// The backend can't tell: list the folder in full. `cursor`, taken before that listing, is where the next pass starts if the listing matches the database.
     Unknown { cursor: Option<String> },
 }
@@ -134,7 +148,13 @@ pub enum RemoteChange {
     /// List this folder again, and every subfolder that is new or whose [`RemoteItem::tag`] changed.
     Folder(String),
     /// The item with this ID as it is now, in the folder with ID `parent_id`.
-    Item { id: String, parent_id: String, name: String, is_dir: bool, mod_time: OffsetDateTime },
+    Item {
+        id: String,
+        parent_id: String,
+        name: String,
+        is_dir: bool,
+        mod_time: OffsetDateTime,
+    },
     /// The item with this ID is gone, with everything below it.
     Gone(String),
 }
@@ -256,7 +276,12 @@ mod tests {
 
     #[test]
     fn paths_are_made_relative_to_the_folder_only_inside_it() {
-        let dir = |remote_path: &str| SyncDir { id: SyncDirId(1), remote_id: RemoteId(1), local_path: "/home/me/Docs".to_owned(), remote_path: remote_path.to_owned() };
+        let dir = |remote_path: &str| SyncDir {
+            id: SyncDirId(1),
+            remote_id: RemoteId(1),
+            local_path: "/home/me/Docs".to_owned(),
+            remote_path: remote_path.to_owned(),
+        };
         assert_eq!(dir("Docs").relative("Docs/a/b.txt"), "a/b.txt");
         assert_eq!(dir("Docs").relative("Docs"), "Docs");
         assert_eq!(dir("Docs").relative("Documents/a.txt"), "Documents/a.txt");

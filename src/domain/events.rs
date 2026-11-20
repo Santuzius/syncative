@@ -9,14 +9,9 @@ use super::{
 #[derive(Clone, Debug)]
 pub enum SyncEvent {
     /// A remote's full sync pass has begun.
-    RemoteStarted {
-        remote_id: RemoteId,
-    },
+    RemoteStarted { remote_id: RemoteId },
     /// A remote's full sync pass finished successfully.
-    RemoteCompleted {
-        remote_id: RemoteId,
-        at_unix: i64,
-    },
+    RemoteCompleted { remote_id: RemoteId, at_unix: i64 },
     /// A remote's sync pass failed at the remote level (not a single file).
     RemoteFailed {
         remote_id: RemoteId,

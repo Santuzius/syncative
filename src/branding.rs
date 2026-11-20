@@ -18,7 +18,9 @@ pub const SYNCATIVE_ICON_SVG: &[u8] = include_bytes!("../assets/syncative-icon.s
 /// The brand icon as an iced svg handle (in-window logo), parsed once.
 pub fn logo() -> iced::widget::svg::Handle {
     static CACHED: OnceLock<iced::widget::svg::Handle> = OnceLock::new();
-    CACHED.get_or_init(|| iced::widget::svg::Handle::from_memory(SYNCATIVE_ICON_SVG)).clone()
+    CACHED
+        .get_or_init(|| iced::widget::svg::Handle::from_memory(SYNCATIVE_ICON_SVG))
+        .clone()
 }
 
 /// Pixel side length used when rasterising the brand icon for the
@@ -40,8 +42,7 @@ pub fn icon_file_path() -> Option<&'static str> {
             let cache_root = std::env::var_os("XDG_CACHE_HOME")
                 .map(std::path::PathBuf::from)
                 .or_else(|| {
-                    std::env::var_os("HOME")
-                        .map(|h| std::path::PathBuf::from(h).join(".cache"))
+                    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache"))
                 })?;
             let dir = cache_root.join("syncative");
             std::fs::create_dir_all(&dir).ok()?;

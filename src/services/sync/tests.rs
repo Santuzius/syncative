@@ -12,21 +12,19 @@ use std::{
     sync::Mutex,
 };
 
-use super::{planner::ancestor_in_set, run, Outcome};
+use super::{Outcome, planner::ancestor_in_set, run};
 use crate::{
     domain::{
         events::SyncEvent,
         ports::cancel_never,
-        sync::{Conflict, ConflictChoice, LinkTarget, NestedFilter, Resolution, SyncDirId, SyncError},
+        sync::{
+            Conflict, ConflictChoice, LinkTarget, NestedFilter, Resolution, SyncDirId, SyncError,
+        },
     },
-    test_support::{remote, remote_item, sync_dir, touch_mtime, FakeBackend, FakeRepo, TempDir},
+    test_support::{FakeBackend, FakeRepo, TempDir, remote, remote_item, sync_dir, touch_mtime},
 };
 
-fn run_full(
-    tmp: &TempDir,
-    repo: &FakeRepo,
-    client: &FakeBackend,
-) -> (Outcome, Vec<SyncEvent>) {
+fn run_full(tmp: &TempDir, repo: &FakeRepo, client: &FakeBackend) -> (Outcome, Vec<SyncEvent>) {
     run_resolving(tmp, repo, client, &[])
 }
 
@@ -161,7 +159,13 @@ fn nomedia_files_of_hidden_folders_stay_on_the_device() {
 
     let (outcome, _events) = run_full(&tmp, &repo, &client);
     assert_eq!(outcome, Outcome::Synced);
-    let uploads: Vec<String> = client.copy_to_remote_calls.lock().unwrap().iter().map(|(_, remote)| remote.clone()).collect();
+    let uploads: Vec<String> = client
+        .copy_to_remote_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, remote)| remote.clone())
+        .collect();
     assert_eq!(uploads, ["Docs/.nomedia"]);
     assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
 }
@@ -172,11 +176,25 @@ fn with_links(name: &str) -> (TempDir, TempDir, FakeRepo, FakeBackend) {
     let target = TempDir::new(&format!("{name}_target"));
     target.write_file("data.json", b"behind the link");
     target.write_file("dir/inside.txt", b"inside");
-    std::os::unix::fs::symlink(format!("{}/data.json", target.as_str()), format!("{}/linked.json", tmp.as_str())).unwrap();
-    std::os::unix::fs::symlink(format!("{}/dir", target.as_str()), format!("{}/linked-dir", tmp.as_str())).unwrap();
+    std::os::unix::fs::symlink(
+        format!("{}/data.json", target.as_str()),
+        format!("{}/linked.json", tmp.as_str()),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        format!("{}/dir", target.as_str()),
+        format!("{}/linked-dir", tmp.as_str()),
+    )
+    .unwrap();
     tmp.write_file("plain.txt", b"plain");
     let repo = FakeRepo::new();
-    repo.insert_item(SyncDirId(1), &format!("{}/linked.json", tmp.as_str()), "linked.json", 1_700_000_000, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        &format!("{}/linked.json", tmp.as_str()),
+        "linked.json",
+        1_700_000_000,
+        1_700_000_000,
+    );
     let client = FakeBackend::default();
     let remote_items = vec![
         remote_item("linked.json", false, 1_700_000_000),
@@ -205,12 +223,26 @@ fn symbolic_links_are_put_to_the_user() {
     assert_eq!(file_link.target_kind, LinkTarget::File);
     assert_eq!(reported[1].local.size, Some(15));
     assert!(reported[1].remote.is_some());
-    assert_eq!(reported[0].link.as_ref().unwrap().target_kind, LinkTarget::Folder);
-    let uploads: Vec<String> = client.copy_to_remote_calls.lock().unwrap().iter().map(|(_, remote)| remote.clone()).collect();
+    assert_eq!(
+        reported[0].link.as_ref().unwrap().target_kind,
+        LinkTarget::Folder
+    );
+    let uploads: Vec<String> = client
+        .copy_to_remote_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, remote)| remote.clone())
+        .collect();
     assert_eq!(uploads, ["plain.txt"]);
     assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
     assert!(client.delete_file_calls.lock().unwrap().is_empty());
-    assert!(fs::symlink_metadata(format!("{}/linked.json", tmp.as_str())).unwrap().file_type().is_symlink());
+    assert!(
+        fs::symlink_metadata(format!("{}/linked.json", tmp.as_str()))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     assert!(!Path::new(&format!("{}/dir/new.txt", target.as_str())).exists());
 }
 
@@ -221,7 +253,12 @@ fn replacing_links_copies_what_they_point_to() {
     let (_outcome, events) = run_full(&tmp, &repo, &client);
     let resolutions: Vec<Resolution> = conflicts(&events)
         .iter()
-        .map(|c| Resolution { remote_path: c.remote_path.clone(), choice: ConflictChoice::ReplaceLink, local_stamp: c.local_stamp, remote_stamp: c.remote_stamp })
+        .map(|c| Resolution {
+            remote_path: c.remote_path.clone(),
+            choice: ConflictChoice::ReplaceLink,
+            local_stamp: c.local_stamp,
+            remote_stamp: c.remote_stamp,
+        })
         .collect();
     let (_outcome, events) = run_resolving(&tmp, &repo, &client, &resolutions);
     assert!(errors(&events).is_empty());
@@ -234,7 +271,13 @@ fn replacing_links_copies_what_they_point_to() {
     assert_eq!(fs::read(format!("{dir}/inside.txt")).unwrap(), b"inside");
     assert!(Path::new(&format!("{}/data.json", target.as_str())).exists());
     assert!(!repo.has_item(&file, "linked.json"));
-    assert!(fs::read_dir(tmp.as_str()).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().ends_with(".part")));
+    assert!(
+        fs::read_dir(tmp.as_str()).unwrap().all(|e| !e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".part"))
+    );
 }
 
 /// A broken link is put to the user too; "Replace" removes it, and without its row the remote copy then comes down instead of being deleted.
@@ -243,16 +286,34 @@ fn a_broken_link_is_removed_on_request() {
     let (tmp, target, repo, client) = with_links("sync_links_broken");
     fs::remove_file(format!("{}/data.json", target.as_str())).unwrap();
     let (_outcome, events) = run_full(&tmp, &repo, &client);
-    let broken = conflicts(&events).into_iter().find(|c| c.remote_path == "linked.json").unwrap();
-    assert_eq!(broken.link.as_ref().unwrap().target_kind, LinkTarget::Missing);
-    let resolution = Resolution { remote_path: "linked.json".into(), choice: ConflictChoice::ReplaceLink, local_stamp: broken.local_stamp, remote_stamp: broken.remote_stamp };
+    let broken = conflicts(&events)
+        .into_iter()
+        .find(|c| c.remote_path == "linked.json")
+        .unwrap();
+    assert_eq!(
+        broken.link.as_ref().unwrap().target_kind,
+        LinkTarget::Missing
+    );
+    let resolution = Resolution {
+        remote_path: "linked.json".into(),
+        choice: ConflictChoice::ReplaceLink,
+        local_stamp: broken.local_stamp,
+        remote_stamp: broken.remote_stamp,
+    };
     run_resolving(&tmp, &repo, &client, &[resolution]);
     let file = format!("{}/linked.json", tmp.as_str());
     assert!(fs::symlink_metadata(&file).is_err());
     assert!(!repo.has_item(&file, "linked.json"));
     let (_outcome, _events) = run_full(&tmp, &repo, &client);
     assert!(client.delete_file_calls.lock().unwrap().is_empty());
-    assert!(client.copy_to_local_calls.lock().unwrap().iter().any(|(_, remote)| remote == "linked.json"));
+    assert!(
+        client
+            .copy_to_local_calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, remote)| remote == "linked.json")
+    );
 }
 
 /// A link to a folder that holds the link itself can't be replaced by a copy: that copy would never end.
@@ -265,10 +326,20 @@ fn a_link_to_its_own_ancestor_is_not_copied() {
     client.set_list("", Ok(vec![]));
     let (_outcome, events) = run_full(&tmp, &repo, &client);
     let c = conflicts(&events).remove(0);
-    let resolution = Resolution { remote_path: "me".into(), choice: ConflictChoice::ReplaceLink, local_stamp: c.local_stamp, remote_stamp: c.remote_stamp };
+    let resolution = Resolution {
+        remote_path: "me".into(),
+        choice: ConflictChoice::ReplaceLink,
+        local_stamp: c.local_stamp,
+        remote_stamp: c.remote_stamp,
+    };
     let (_outcome, events) = run_resolving(&tmp, &repo, &client, &[resolution]);
     assert_eq!(errors(&events).len(), 1);
-    assert!(fs::symlink_metadata(format!("{}/me", tmp.as_str())).unwrap().file_type().is_symlink());
+    assert!(
+        fs::symlink_metadata(format!("{}/me", tmp.as_str()))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
 }
 
 /// A delete whose target vanished since the listing did what it wanted: no warning, and the row goes.
@@ -277,10 +348,17 @@ fn deleting_what_is_already_gone_is_no_problem() {
     let tmp = TempDir::new("sync_del_gone");
     let repo = FakeRepo::new();
     let local_path = format!("{}/gone.txt", tmp.as_str());
-    repo.insert_item(SyncDirId(1), &local_path, "gone.txt", 1_700_000_000, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        &local_path,
+        "gone.txt",
+        1_700_000_000,
+        1_700_000_000,
+    );
     let client = FakeBackend::default();
     client.set_list("", Ok(vec![remote_item("gone.txt", false, 1_700_000_000)]));
-    *client.delete_file_result.lock().unwrap() = Err("path 'gone.txt' not found on remote".to_owned());
+    *client.delete_file_result.lock().unwrap() =
+        Err("path 'gone.txt' not found on remote".to_owned());
 
     let (outcome, events) = run_full(&tmp, &repo, &client);
     assert_eq!(outcome, Outcome::Synced);
@@ -295,12 +373,37 @@ fn a_deleted_folder_is_purged_once() {
     let repo = FakeRepo::new();
     let keep = tmp.write_file("keep.txt", b"k");
     touch_mtime(&keep, 1_700_000_000);
-    repo.insert_item(SyncDirId(1), keep.to_str().unwrap(), "keep.txt", 1_700_000_000, 1_700_000_000);
-    repo.insert_item(SyncDirId(1), &format!("{}/old", tmp.as_str()), "old", 1_700_000_000, 1_700_000_000);
-    let mut listing = vec![remote_item("keep.txt", false, 1_700_000_000), remote_item("old", true, 1_700_000_000)];
+    repo.insert_item(
+        SyncDirId(1),
+        keep.to_str().unwrap(),
+        "keep.txt",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    repo.insert_item(
+        SyncDirId(1),
+        &format!("{}/old", tmp.as_str()),
+        "old",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    let mut listing = vec![
+        remote_item("keep.txt", false, 1_700_000_000),
+        remote_item("old", true, 1_700_000_000),
+    ];
     for i in 0..3 {
-        repo.insert_item(SyncDirId(1), &format!("{}/old/file_{i}.txt", tmp.as_str()), &format!("old/file_{i}.txt"), 1_700_000_000, 1_700_000_000);
-        listing.push(remote_item(&format!("old/file_{i}.txt"), false, 1_700_000_000));
+        repo.insert_item(
+            SyncDirId(1),
+            &format!("{}/old/file_{i}.txt", tmp.as_str()),
+            &format!("old/file_{i}.txt"),
+            1_700_000_000,
+            1_700_000_000,
+        );
+        listing.push(remote_item(
+            &format!("old/file_{i}.txt"),
+            false,
+            1_700_000_000,
+        ));
     }
     let client = FakeBackend::default();
     client.set_list("", Ok(listing));
@@ -319,13 +422,22 @@ fn a_download_keeps_the_remote_modification_time() {
     let repo = FakeRepo::new();
     let client = FakeBackend::default();
     client.set_list("", Ok(vec![remote_item("new.txt", false, 1_600_000_000)]));
-    client.set_stat("new.txt", Ok(Some(remote_item("new.txt", false, 1_600_000_000))));
+    client.set_stat(
+        "new.txt",
+        Ok(Some(remote_item("new.txt", false, 1_600_000_000))),
+    );
 
     let (outcome, events) = run_full(&tmp, &repo, &client);
     assert_eq!(outcome, Outcome::Synced);
     assert!(errors(&events).is_empty());
     let local_path = tmp.path.join("new.txt");
-    let mtime = fs::metadata(&local_path).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let mtime = fs::metadata(&local_path)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     assert_eq!(mtime, 1_600_000_000);
     assert!(repo.has_item(local_path.to_str().unwrap(), "new.txt"));
 }
@@ -337,10 +449,22 @@ fn a_file_restored_with_an_older_time_is_uploaded() {
     let restored = tmp.write_file("letter.pdf", b"the real content");
     touch_mtime(&restored, 1_560_000_000);
     let repo = FakeRepo::new();
-    repo.insert_item(SyncDirId(1), restored.to_str().unwrap(), "letter.pdf", 1_700_000_000, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        restored.to_str().unwrap(),
+        "letter.pdf",
+        1_700_000_000,
+        1_700_000_000,
+    );
     let client = FakeBackend::default();
-    client.set_list("", Ok(vec![remote_item("letter.pdf", false, 1_700_000_000)]));
-    client.set_stat("letter.pdf", Ok(Some(remote_item("letter.pdf", false, 1_700_000_000))));
+    client.set_list(
+        "",
+        Ok(vec![remote_item("letter.pdf", false, 1_700_000_000)]),
+    );
+    client.set_stat(
+        "letter.pdf",
+        Ok(Some(remote_item("letter.pdf", false, 1_700_000_000))),
+    );
 
     let (outcome, events) = run_full(&tmp, &repo, &client);
     assert_eq!(outcome, Outcome::Synced);
@@ -356,10 +480,22 @@ fn a_remote_file_replaced_by_an_older_version_is_downloaded() {
     let local = tmp.write_file("letter.pdf", b"");
     touch_mtime(&local, 1_700_000_000);
     let repo = FakeRepo::new();
-    repo.insert_item(SyncDirId(1), local.to_str().unwrap(), "letter.pdf", 1_700_000_000, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        local.to_str().unwrap(),
+        "letter.pdf",
+        1_700_000_000,
+        1_700_000_000,
+    );
     let client = FakeBackend::default();
-    client.set_list("", Ok(vec![remote_item("letter.pdf", false, 1_560_000_000)]));
-    client.set_stat("letter.pdf", Ok(Some(remote_item("letter.pdf", false, 1_560_000_000))));
+    client.set_list(
+        "",
+        Ok(vec![remote_item("letter.pdf", false, 1_560_000_000)]),
+    );
+    client.set_stat(
+        "letter.pdf",
+        Ok(Some(remote_item("letter.pdf", false, 1_560_000_000))),
+    );
 
     let (outcome, events) = run_full(&tmp, &repo, &client);
     assert_eq!(outcome, Outcome::Synced);
@@ -375,7 +511,13 @@ fn a_folder_whose_time_changed_is_left_alone() {
     let dir = tmp.path.join("docs");
     fs::create_dir_all(&dir).unwrap();
     let repo = FakeRepo::new();
-    repo.insert_item(SyncDirId(1), dir.to_str().unwrap(), "docs", 1_600_000_000, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        dir.to_str().unwrap(),
+        "docs",
+        1_600_000_000,
+        1_700_000_000,
+    );
     let client = FakeBackend::default();
     client.set_list("", Ok(vec![remote_item("docs", true, 1_700_000_000)]));
 
@@ -393,17 +535,40 @@ fn a_download_gets_the_time_the_file_was_last_modified() {
     let repo = FakeRepo::new();
     let client = FakeBackend::default();
     client.set_list("", Ok(vec![remote_item("scan.pdf", false, 1_776_000_000)]));
-    client.set_stat("scan.pdf", Ok(Some(remote_item("scan.pdf", false, 1_776_000_000))));
-    client.details_time_map.lock().unwrap().insert("scan.pdf".to_owned(), 1_772_000_000);
+    client.set_stat(
+        "scan.pdf",
+        Ok(Some(remote_item("scan.pdf", false, 1_776_000_000))),
+    );
+    client
+        .details_time_map
+        .lock()
+        .unwrap()
+        .insert("scan.pdf".to_owned(), 1_772_000_000);
 
     let (outcome, events) = run_full(&tmp, &repo, &client);
     assert_eq!(outcome, Outcome::Synced);
     assert!(errors(&events).is_empty());
     let local_path = tmp.path.join("scan.pdf");
-    let mtime = fs::metadata(&local_path).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let mtime = fs::metadata(&local_path)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     assert_eq!(mtime, 1_772_000_000);
-    let row = repo.items.lock().unwrap().iter().find(|i| i.remote_path == "scan.pdf").cloned().unwrap();
-    assert_eq!((row.last_local_timestamp, row.last_remote_timestamp), (1_772_000_000, 1_776_000_000));
+    let row = repo
+        .items
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|i| i.remote_path == "scan.pdf")
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        (row.last_local_timestamp, row.last_remote_timestamp),
+        (1_772_000_000, 1_776_000_000)
+    );
 }
 
 /// A tracked file whose time changed on one side but whose content is the same on both is not transferred. Changed on the remote, the local file takes over the time the file was last modified there; changed here, it keeps its own.
@@ -416,37 +581,101 @@ fn a_changed_time_with_the_same_content_transfers_nothing() {
     touch_mtime(&restored, 1_500_000_000);
     let repo = FakeRepo::new();
     // Remote time differs from the row (an older version recorded another one): would download.
-    repo.insert_item(SyncDirId(1), pulled.to_str().unwrap(), "pulled.txt", 1_700_000_000, 1_700_000_500);
+    repo.insert_item(
+        SyncDirId(1),
+        pulled.to_str().unwrap(),
+        "pulled.txt",
+        1_700_000_000,
+        1_700_000_500,
+    );
     // Local time differs from the row (put back from a backup): would upload.
-    repo.insert_item(SyncDirId(1), restored.to_str().unwrap(), "restored.txt", 1_700_000_000, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        restored.to_str().unwrap(),
+        "restored.txt",
+        1_700_000_000,
+        1_700_000_000,
+    );
     let client = FakeBackend::default();
-    client.set_list("", Ok(vec![remote_item("pulled.txt", false, 1_700_000_000), remote_item("restored.txt", false, 1_700_000_000)]));
-    client.set_stat("pulled.txt", Ok(Some(remote_item("pulled.txt", false, 1_700_000_000))));
-    client.set_stat("restored.txt", Ok(Some(remote_item("restored.txt", false, 1_700_000_000))));
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("pulled.txt", false, 1_700_000_000),
+            remote_item("restored.txt", false, 1_700_000_000),
+        ]),
+    );
+    client.set_stat(
+        "pulled.txt",
+        Ok(Some(remote_item("pulled.txt", false, 1_700_000_000))),
+    );
+    client.set_stat(
+        "restored.txt",
+        Ok(Some(remote_item("restored.txt", false, 1_700_000_000))),
+    );
     let pulled_sha1 = {
         use sha1::{Digest, Sha1};
-        Sha1::digest(b"same").iter().map(|b| format!("{b:02x}")).collect::<String>()
+        Sha1::digest(b"same")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
     };
     let restored_sha1 = {
         use sha1::{Digest, Sha1};
-        Sha1::digest(b"also same").iter().map(|b| format!("{b:02x}")).collect::<String>()
+        Sha1::digest(b"also same")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
     };
-    client.sha1_map.lock().unwrap().insert("pulled.txt".to_owned(), pulled_sha1);
-    client.details_time_map.lock().unwrap().insert("pulled.txt".to_owned(), 1_600_000_000);
-    client.sha1_map.lock().unwrap().insert("restored.txt".to_owned(), restored_sha1);
+    client
+        .sha1_map
+        .lock()
+        .unwrap()
+        .insert("pulled.txt".to_owned(), pulled_sha1);
+    client
+        .details_time_map
+        .lock()
+        .unwrap()
+        .insert("pulled.txt".to_owned(), 1_600_000_000);
+    client
+        .sha1_map
+        .lock()
+        .unwrap()
+        .insert("restored.txt".to_owned(), restored_sha1);
 
     let (outcome, events) = run_full(&tmp, &repo, &client);
     assert_eq!(outcome, Outcome::Synced);
     assert!(errors(&events).is_empty());
     assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
     assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
-    let mtime = fs::metadata(&restored).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let mtime = fs::metadata(&restored)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     assert_eq!(mtime, 1_500_000_000);
     // The file pulled only by time takes over the time it was last modified; the row follows.
-    let pulled_mtime = fs::metadata(&pulled).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let pulled_mtime = fs::metadata(&pulled)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     assert_eq!(pulled_mtime, 1_600_000_000);
-    let row = repo.items.lock().unwrap().iter().find(|i| i.remote_path == "pulled.txt").cloned().unwrap();
-    assert_eq!((row.last_local_timestamp, row.last_remote_timestamp), (1_600_000_000, 1_700_000_000));
+    let row = repo
+        .items
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|i| i.remote_path == "pulled.txt")
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        (row.last_local_timestamp, row.last_remote_timestamp),
+        (1_600_000_000, 1_700_000_000)
+    );
 }
 
 /// The part file of a download cut off by Syncative's end is removed and never uploaded; other programs' part files stay untouched.
@@ -472,19 +701,53 @@ fn an_unfinished_download_is_cleaned_up_and_not_uploaded() {
 fn rows_of_vanished_copies_under_a_nested_folder_are_forgotten() {
     let tmp = TempDir::new("sync_nested_rows");
     let repo = FakeRepo::new();
-    repo.insert_item(SyncDirId(1), &format!("{}/Obsidian", tmp.as_str()), "Obsidian", 1_700_000_000, 1_700_000_000);
-    repo.insert_item(SyncDirId(1), &format!("{}/Obsidian/note.md", tmp.as_str()), "Obsidian/note.md", 1_700_000_000, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        &format!("{}/Obsidian", tmp.as_str()),
+        "Obsidian",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    repo.insert_item(
+        SyncDirId(1),
+        &format!("{}/Obsidian/note.md", tmp.as_str()),
+        "Obsidian/note.md",
+        1_700_000_000,
+        1_700_000_000,
+    );
     let leftover = tmp.write_file("Music/song.ogg", b"s");
-    repo.insert_item(SyncDirId(1), leftover.to_str().unwrap(), "Music/song.ogg", 1_700_000_000, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        leftover.to_str().unwrap(),
+        "Music/song.ogg",
+        1_700_000_000,
+        1_700_000_000,
+    );
     let client = FakeBackend::default();
     client.set_list("", Ok(vec![]));
-    let nested = [sync_dir(2, 1, "/elsewhere/Obsidian", "Obsidian"), sync_dir(3, 1, "/elsewhere/Music", "Music")];
+    let nested = [
+        sync_dir(2, 1, "/elsewhere/Obsidian", "Obsidian"),
+        sync_dir(3, 1, "/elsewhere/Music", "Music"),
+    ];
 
     let r = remote(1, "TestRemote");
     let sd = sync_dir(1, 1, tmp.as_str(), "");
-    let outcome = run(&r, &sd, &repo, &client, &nested, &[], |_| {}, &cancel_never(), |_| false);
+    let outcome = run(
+        &r,
+        &sd,
+        &repo,
+        &client,
+        &nested,
+        &[],
+        |_| {},
+        &cancel_never(),
+        |_| false,
+    );
     assert_eq!(outcome, Outcome::Synced);
-    assert!(!repo.has_item(&format!("{}/Obsidian/note.md", tmp.as_str()), "Obsidian/note.md"));
+    assert!(!repo.has_item(
+        &format!("{}/Obsidian/note.md", tmp.as_str()),
+        "Obsidian/note.md"
+    ));
     assert!(!repo.has_item(&format!("{}/Obsidian", tmp.as_str()), "Obsidian"));
     assert!(repo.has_item(leftover.to_str().unwrap(), "Music/song.ogg"));
 }
@@ -497,24 +760,50 @@ fn a_nested_folder_follows_its_filter() {
     std::os::unix::fs::symlink(elsewhere.as_str(), tmp.path.join("Linked")).unwrap();
     let repo = FakeRepo::new();
     let client = FakeBackend::default();
-    client.set_list("", Ok(vec![
-        remote_item("Both", true, 1_700_000_000),
-        remote_item("Both/a.txt", false, 1_700_000_000),
-        remote_item("Open", true, 1_700_000_000),
-        remote_item("Open/b.txt", false, 1_700_000_000),
-        remote_item("Linked", true, 1_700_000_000),
-        remote_item("Linked/c.txt", false, 1_700_000_000),
-    ]));
-    let nested = [sync_dir(2, 1, "/elsewhere/Both", "Both"), sync_dir(3, 1, "/elsewhere/Open", "Open"), sync_dir(4, 1, elsewhere.as_str(), "Linked")];
-    repo.nested_filters.lock().unwrap().extend([(SyncDirId(2), NestedFilter::SyncInBoth), (SyncDirId(4), NestedFilter::Symlink)]);
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("Both", true, 1_700_000_000),
+            remote_item("Both/a.txt", false, 1_700_000_000),
+            remote_item("Open", true, 1_700_000_000),
+            remote_item("Open/b.txt", false, 1_700_000_000),
+            remote_item("Linked", true, 1_700_000_000),
+            remote_item("Linked/c.txt", false, 1_700_000_000),
+        ]),
+    );
+    let nested = [
+        sync_dir(2, 1, "/elsewhere/Both", "Both"),
+        sync_dir(3, 1, "/elsewhere/Open", "Open"),
+        sync_dir(4, 1, elsewhere.as_str(), "Linked"),
+    ];
+    repo.nested_filters.lock().unwrap().extend([
+        (SyncDirId(2), NestedFilter::SyncInBoth),
+        (SyncDirId(4), NestedFilter::Symlink),
+    ]);
 
     let r = remote(1, "TestRemote");
     let sd = sync_dir(1, 1, tmp.as_str(), "");
     let captured: Mutex<Vec<SyncEvent>> = Mutex::new(Vec::new());
-    let outcome = run(&r, &sd, &repo, &client, &nested, &[], |e| captured.lock().unwrap().push(e), &cancel_never(), |_| false);
+    let outcome = run(
+        &r,
+        &sd,
+        &repo,
+        &client,
+        &nested,
+        &[],
+        |e| captured.lock().unwrap().push(e),
+        &cancel_never(),
+        |_| false,
+    );
     assert_eq!(outcome, Outcome::Synced);
     assert!(conflicts(&captured.lock().unwrap()).is_empty());
-    let downloads: Vec<String> = client.copy_to_local_calls.lock().unwrap().iter().map(|c| c.1.clone()).collect();
+    let downloads: Vec<String> = client
+        .copy_to_local_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|c| c.1.clone())
+        .collect();
     assert_eq!(downloads, ["Both/a.txt"]);
     assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
 }
@@ -531,7 +820,13 @@ fn an_unreadable_sub_folder_stops_the_pass() {
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
     let repo = FakeRepo::new();
     let client = FakeBackend::default();
-    client.set_list("", Ok(vec![remote_item("locked", true, 1_700_000_000), remote_item("locked/inside.txt", false, 1_700_000_000)]));
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("locked", true, 1_700_000_000),
+            remote_item("locked/inside.txt", false, 1_700_000_000),
+        ]),
+    );
 
     let (outcome, events) = run_full(&tmp, &repo, &client);
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
@@ -582,10 +877,19 @@ fn both_changed(name: &str) -> (TempDir, PathBuf, FakeRepo, FakeBackend) {
     let local = tmp.write_file("a.txt", b"v2");
     touch_mtime(&local, 1_700_000_500);
     let repo = FakeRepo::new();
-    repo.insert_item(SyncDirId(1), local.to_str().unwrap(), "a.txt", 1_700_000_000, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        local.to_str().unwrap(),
+        "a.txt",
+        1_700_000_000,
+        1_700_000_000,
+    );
     let client = FakeBackend::default();
     client.set_list("", Ok(vec![remote_item("a.txt", false, 1_700_000_700)]));
-    client.set_stat("a.txt", Ok(Some(remote_item("a.txt", false, 1_700_000_700))));
+    client.set_stat(
+        "a.txt",
+        Ok(Some(remote_item("a.txt", false, 1_700_000_700))),
+    );
     (tmp, local, repo, client)
 }
 
@@ -597,10 +901,19 @@ fn both_sides_changed_is_a_conflict() {
     let reported = conflicts(&events);
     assert_eq!(reported.len(), 1);
     assert_eq!(reported[0].local_path, local.to_str().unwrap());
-    assert_eq!((reported[0].local_stamp, reported[0].remote_stamp), (1_700_000_500, 1_700_000_700));
+    assert_eq!(
+        (reported[0].local_stamp, reported[0].remote_stamp),
+        (1_700_000_500, 1_700_000_700)
+    );
     assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
     assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
-    assert!(!events.iter().any(|e| matches!(e, SyncEvent::SyncDirStateChanged { state: crate::domain::run_state::RunState::Warning, .. })));
+    assert!(!events.iter().any(|e| matches!(
+        e,
+        SyncEvent::SyncDirStateChanged {
+            state: crate::domain::run_state::RunState::Warning,
+            ..
+        }
+    )));
 }
 
 /// A file waiting for the user doesn't hold up the rest of the folder: other changes in the same pass still go through.
@@ -608,10 +921,19 @@ fn both_sides_changed_is_a_conflict() {
 fn conflict_does_not_block_other_changes() {
     let (tmp, _local, repo, client) = both_changed("sync_conflict_others");
     let new_local = tmp.write_file("b.txt", b"b");
-    client.set_list("", Ok(vec![remote_item("a.txt", false, 1_700_000_700), remote_item("c.txt", false, 1_700_000_000)]));
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("a.txt", false, 1_700_000_700),
+            remote_item("c.txt", false, 1_700_000_000),
+        ]),
+    );
     let (_outcome, events) = run_full(&tmp, &repo, &client);
     assert_eq!(conflicts(&events).len(), 1);
-    assert_eq!(*client.copy_to_remote_calls.lock().unwrap(), vec![(new_local.to_str().unwrap().to_owned(), "b.txt".to_owned())]);
+    assert_eq!(
+        *client.copy_to_remote_calls.lock().unwrap(),
+        vec![(new_local.to_str().unwrap().to_owned(), "b.txt".to_owned())]
+    );
     assert_eq!(client.copy_to_local_calls.lock().unwrap().len(), 1);
 }
 
@@ -619,7 +941,12 @@ fn conflict_does_not_block_other_changes() {
 #[test]
 fn resolution_keep_local_uploads() {
     let (tmp, _local, repo, client) = both_changed("sync_conflict_keep_local");
-    let resolution = Resolution { remote_path: "a.txt".into(), choice: ConflictChoice::KeepLocal, local_stamp: 1_700_000_500, remote_stamp: 1_700_000_700 };
+    let resolution = Resolution {
+        remote_path: "a.txt".into(),
+        choice: ConflictChoice::KeepLocal,
+        local_stamp: 1_700_000_500,
+        remote_stamp: 1_700_000_700,
+    };
     let (_outcome, events) = run_resolving(&tmp, &repo, &client, &[resolution]);
     assert!(conflicts(&events).is_empty());
     assert_eq!(client.copy_to_remote_calls.lock().unwrap().len(), 1);
@@ -630,7 +957,12 @@ fn resolution_keep_local_uploads() {
 #[test]
 fn stale_resolution_is_ignored() {
     let (tmp, _local, repo, client) = both_changed("sync_conflict_stale");
-    let resolution = Resolution { remote_path: "a.txt".into(), choice: ConflictChoice::KeepRemote, local_stamp: 1_700_000_400, remote_stamp: 1_700_000_700 };
+    let resolution = Resolution {
+        remote_path: "a.txt".into(),
+        choice: ConflictChoice::KeepRemote,
+        local_stamp: 1_700_000_400,
+        remote_stamp: 1_700_000_700,
+    };
     let (_outcome, events) = run_resolving(&tmp, &repo, &client, &[resolution]);
     assert_eq!(conflicts(&events).len(), 1);
     assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
@@ -642,7 +974,9 @@ fn resolution_keep_both_renames_and_downloads() {
     let (tmp, local, repo, client) = both_changed("sync_conflict_keep_both");
     let resolution = Resolution {
         remote_path: "a.txt".into(),
-        choice: ConflictChoice::KeepBoth { local_name: "a (1).txt".into() },
+        choice: ConflictChoice::KeepBoth {
+            local_name: "a (1).txt".into(),
+        },
         local_stamp: 1_700_000_500,
         remote_stamp: 1_700_000_700,
     };
@@ -659,7 +993,10 @@ fn identical_content_is_no_conflict() {
     let (tmp, _local, repo, client) = both_changed("sync_conflict_identical");
     let expected = {
         use sha1::{Digest, Sha1};
-        Sha1::digest(b"v2").iter().map(|b| format!("{b:02x}")).collect::<String>()
+        Sha1::digest(b"v2")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
     };
     client.set_sha1("a.txt", &expected);
     let (_outcome, events) = run_full(&tmp, &repo, &client);
@@ -677,7 +1014,10 @@ fn untracked_file_with_the_same_time_is_not_downloaded_again() {
     let repo = FakeRepo::new();
     let client = FakeBackend::default();
     client.set_list("", Ok(vec![remote_item("a.txt", false, 1_700_000_000)]));
-    client.set_stat("a.txt", Ok(Some(remote_item("a.txt", false, 1_700_000_000))));
+    client.set_stat(
+        "a.txt",
+        Ok(Some(remote_item("a.txt", false, 1_700_000_000))),
+    );
     let (_outcome, events) = run_full(&tmp, &repo, &client);
     assert!(conflicts(&events).is_empty());
     assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
@@ -708,7 +1048,13 @@ fn remote_edit_beats_local_delete() {
     let tmp = TempDir::new("sync_edit_beats_delete");
     let local = tmp.path.join("a.txt");
     let repo = FakeRepo::new();
-    repo.insert_item(SyncDirId(1), local.to_str().unwrap(), "a.txt", 1_700_000_000, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        local.to_str().unwrap(),
+        "a.txt",
+        1_700_000_000,
+        1_700_000_000,
+    );
     let client = FakeBackend::default();
     client.set_list("", Ok(vec![remote_item("a.txt", false, 1_700_000_700)]));
     let (_outcome, _events) = run_full(&tmp, &repo, &client);
@@ -723,10 +1069,19 @@ fn upload_rechecks_remote_before_overwriting() {
     let local = tmp.write_file("a.txt", b"v2");
     touch_mtime(&local, 1_700_000_500);
     let repo = FakeRepo::new();
-    repo.insert_item(SyncDirId(1), local.to_str().unwrap(), "a.txt", 1_700_000_000, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        local.to_str().unwrap(),
+        "a.txt",
+        1_700_000_000,
+        1_700_000_000,
+    );
     let client = FakeBackend::default();
     client.set_list("", Ok(vec![remote_item("a.txt", false, 1_700_000_000)]));
-    client.set_stat("a.txt", Ok(Some(remote_item("a.txt", false, 1_700_000_800))));
+    client.set_stat(
+        "a.txt",
+        Ok(Some(remote_item("a.txt", false, 1_700_000_800))),
+    );
     let (_outcome, events) = run_full(&tmp, &repo, &client);
     assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
     assert_eq!(conflicts(&events).len(), 1);
@@ -741,7 +1096,10 @@ fn a_save_during_the_upload_is_uploaded_again_next_pass() {
     let repo = FakeRepo::new();
     let client = FakeBackend::default();
     client.set_list("", Ok(vec![]));
-    client.set_stat("settings.json", Ok(Some(remote_item("settings.json", false, 1_700_000_500))));
+    client.set_stat(
+        "settings.json",
+        Ok(Some(remote_item("settings.json", false, 1_700_000_500))),
+    );
     *client.during_copy_to_remote.lock().unwrap() = Some(Box::new(|path: &str| {
         fs::write(path, b"{\"theme\": \"dark\"}").unwrap();
         touch_mtime(Path::new(path), 1_700_000_900);
@@ -749,7 +1107,14 @@ fn a_save_during_the_upload_is_uploaded_again_next_pass() {
     let (outcome, events) = run_full(&tmp, &repo, &client);
     assert_eq!(outcome, Outcome::Synced);
     assert!(errors(&events).is_empty());
-    let row = repo.items.lock().unwrap().iter().find(|i| i.remote_path == "settings.json").cloned().unwrap();
+    let row = repo
+        .items
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|i| i.remote_path == "settings.json")
+        .cloned()
+        .unwrap();
     assert_eq!(row.last_local_timestamp, 1_700_000_500);
 }
 
@@ -762,7 +1127,9 @@ fn an_upload_stopped_by_a_write_waits_for_the_next_pass() {
     let repo = FakeRepo::new();
     let client = FakeBackend::default();
     client.set_list("", Ok(vec![]));
-    client.set_copy_to_remote(Err("can't copy - source file is being updated (size changed from 5 to 9)".into()));
+    client.set_copy_to_remote(Err(
+        "can't copy - source file is being updated (size changed from 5 to 9)".into(),
+    ));
     let (outcome, events) = run_full(&tmp, &repo, &client);
     assert_eq!(outcome, Outcome::Synced);
     assert!(errors(&events).is_empty());
@@ -1107,7 +1474,11 @@ fn delete_remote_skipped_when_parent_walk_has_no_db_siblings() {
         listing.push(remote_item(&format!("root_{i}.txt"), false, 1_700_000_000));
     }
     for i in 0..5 {
-        listing.push(remote_item(&format!("dir/file_{i}.txt"), false, 1_700_000_000));
+        listing.push(remote_item(
+            &format!("dir/file_{i}.txt"),
+            false,
+            1_700_000_000,
+        ));
     }
     client.set_list("", Ok(listing));
 
@@ -1139,8 +1510,18 @@ fn emptied_sub_folder_mirrors_deletes_remotely() {
     let repo = FakeRepo::new();
     let mut listing = vec![remote_item("dir", true, 1_700_000_000)];
     for i in 0..3 {
-        repo.insert_item(SyncDirId(1), &format!("{}/dir/file_{i}.txt", tmp.as_str()), &format!("dir/file_{i}.txt"), 1_700_000_000, 1_700_000_000);
-        listing.push(remote_item(&format!("dir/file_{i}.txt"), false, 1_700_000_000));
+        repo.insert_item(
+            SyncDirId(1),
+            &format!("{}/dir/file_{i}.txt", tmp.as_str()),
+            &format!("dir/file_{i}.txt"),
+            1_700_000_000,
+            1_700_000_000,
+        );
+        listing.push(remote_item(
+            &format!("dir/file_{i}.txt"),
+            false,
+            1_700_000_000,
+        ));
     }
     let client = FakeBackend::default();
     client.set_list("", Ok(listing));
@@ -1165,7 +1546,11 @@ fn untracked_folder_on_both_sides_is_recorded() {
     assert_eq!(outcome, Outcome::Synced);
     assert!(repo.has_item(dir.to_str().unwrap(), "dir"));
     // Bookkeeping isn't reported as a synced change.
-    assert!(!events.iter().any(|e| matches!(e, SyncEvent::SyncDirStatus { text, .. } if text.starts_with("Done"))));
+    assert!(
+        !events.iter().any(
+            |e| matches!(e, SyncEvent::SyncDirStatus { text, .. } if text.starts_with("Done"))
+        )
+    );
 }
 
 /// A walk I/O error on a subtree (simulated via chmod 000 so read_dir
@@ -1290,25 +1675,55 @@ fn editor_swap_files_are_not_seen() {
 }
 
 /// One pass of a sync folder synced with the remote folder "Photos", whose only file sits alone in a subfolder: the case an empty listing would delete, as no sibling proves the listing wrong.
-fn run_in_photos(name: &str, synced_before: bool, client: &FakeBackend) -> (Outcome, Vec<SyncEvent>, PathBuf, FakeRepo, TempDir) {
+fn run_in_photos(
+    name: &str,
+    synced_before: bool,
+    client: &FakeBackend,
+) -> (Outcome, Vec<SyncEvent>, PathBuf, FakeRepo, TempDir) {
     let tmp = TempDir::new(name);
     let local = tmp.write_file("sub/x.jpg", b"photo");
     touch_mtime(&local, 1_700_000_000);
     let repo = FakeRepo::new();
     if synced_before {
-        repo.insert_item(SyncDirId(1), local.to_str().unwrap(), "Photos/sub/x.jpg", 1_700_000_000, 1_700_000_000);
+        repo.insert_item(
+            SyncDirId(1),
+            local.to_str().unwrap(),
+            "Photos/sub/x.jpg",
+            1_700_000_000,
+            1_700_000_000,
+        );
     }
     let r = remote(1, "TestRemote");
     let sd = sync_dir(1, 1, tmp.as_str(), "Photos");
     let captured: Mutex<Vec<SyncEvent>> = Mutex::new(Vec::new());
-    let outcome = run(&r, &sd, &repo, client, &[], &[], |e| captured.lock().unwrap().push(e), &cancel_never(), |_| false);
+    let outcome = run(
+        &r,
+        &sd,
+        &repo,
+        client,
+        &[],
+        &[],
+        |e| captured.lock().unwrap().push(e),
+        &cancel_never(),
+        |_| false,
+    );
     let events = captured.lock().unwrap().clone();
     (outcome, events, local, repo, tmp)
 }
 
-fn stops_with_remote_folder_not_found(outcome: Outcome, events: &[SyncEvent], local: &Path, repo: &FakeRepo, client: &FakeBackend) {
+fn stops_with_remote_folder_not_found(
+    outcome: Outcome,
+    events: &[SyncEvent],
+    local: &Path,
+    repo: &FakeRepo,
+    client: &FakeBackend,
+) {
     assert_eq!(outcome, Outcome::Aborted);
-    assert!(matches!(errors(events).as_slice(), [SyncError::General(path, msg)] if path == "Photos" && msg == "Remote folder not found"), "{:?}", errors(events));
+    assert!(
+        matches!(errors(events).as_slice(), [SyncError::General(path, msg)] if path == "Photos" && msg == "Remote folder not found"),
+        "{:?}",
+        errors(events)
+    );
     assert!(local.exists());
     assert_eq!(repo.item_count(), 1);
     assert!(client.mkdir_calls.lock().unwrap().is_empty());
@@ -1340,7 +1755,15 @@ fn a_missing_folder_is_created_for_the_first_sync() {
     client.set_list("Photos", Err("directory not found".to_owned()));
     let (outcome, events, _local, _repo, _tmp) = run_in_photos("sync_root_first", false, &client);
     assert_eq!(outcome, Outcome::Synced, "{:?}", errors(&events));
-    assert_eq!(client.mkdir_calls.lock().unwrap().first().map(String::as_str), Some("Photos"));
+    assert_eq!(
+        client
+            .mkdir_calls
+            .lock()
+            .unwrap()
+            .first()
+            .map(String::as_str),
+        Some("Photos")
+    );
     assert_eq!(client.copy_to_remote_calls.lock().unwrap().len(), 1);
 }
 
@@ -1349,7 +1772,14 @@ fn a_missing_folder_is_created_for_the_first_sync() {
 fn an_emptied_folder_is_not_reported_missing() {
     let client = FakeBackend::default();
     client.set_list("Photos", Ok(Vec::new()));
-    client.set_stat("Photos", Ok(Some(remote_item("Photos", true, 1_700_000_000))));
+    client.set_stat(
+        "Photos",
+        Ok(Some(remote_item("Photos", true, 1_700_000_000))),
+    );
     let (_outcome, events, _local, _repo, _tmp) = run_in_photos("sync_root_emptied", true, &client);
-    assert!(!errors(&events).iter().any(|e| matches!(e, SyncError::General(_, msg) if msg == "Remote folder not found")));
+    assert!(
+        !errors(&events)
+            .iter()
+            .any(|e| matches!(e, SyncError::General(_, msg) if msg == "Remote folder not found"))
+    );
 }

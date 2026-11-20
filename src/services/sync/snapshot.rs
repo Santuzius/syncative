@@ -75,7 +75,8 @@ impl Snapshot {
         // sub-tree is also excluded to keep the walk from picking up a
         // coincidentally-named folder under this sync_dir's root.
         // The user may have chosen to sync a nested folder here too (`NestedFilter::SyncInBoth`); until they decide, it stays out.
-        let nested_filters = util::await_future(repo.list_nested_filters(sync_dir.id)).unwrap_or_default();
+        let nested_filters =
+            util::await_future(repo.list_nested_filters(sync_dir.id)).unwrap_or_default();
         let mut excluded_local_prefixes: Vec<String> = Vec::new();
         let mut excluded_remote_prefixes: Vec<String> = Vec::new();
         for d in all_sync_dirs
@@ -84,11 +85,13 @@ impl Snapshot {
             .filter(|d| NestedFilter::leaves_out(nested_filters.get(&d.id).copied()))
         {
             if let Some(rel) = remote_descendant_relative(sync_dir, &d.remote_path) {
-                excluded_remote_prefixes
-                    .push(absolute_remote_path(sync_dir, &rel));
+                excluded_remote_prefixes.push(absolute_remote_path(sync_dir, &rel));
                 excluded_remote_prefixes.push(rel.clone());
-                excluded_local_prefixes
-                    .push(format!("{}/{}", sync_dir.local_path, local_names::to_local(&rel)));
+                excluded_local_prefixes.push(format!(
+                    "{}/{}",
+                    sync_dir.local_path,
+                    local_names::to_local(&rel)
+                ));
             }
         }
 
@@ -96,13 +99,15 @@ impl Snapshot {
         // this sync_dir's remote root). Push both the relative and the
         // absolute form for the same provider-shape reason as above; the
         // local form is always absolute and only needs one entry.
-        let user_excls = util::await_future(repo.list_exclusions(sync_dir.id))
-            .unwrap_or_default();
+        let user_excls = util::await_future(repo.list_exclusions(sync_dir.id)).unwrap_or_default();
         for excl in &user_excls {
-            excluded_remote_prefixes
-                .push(absolute_remote_path(sync_dir, &excl.remote_path));
+            excluded_remote_prefixes.push(absolute_remote_path(sync_dir, &excl.remote_path));
             excluded_remote_prefixes.push(excl.remote_path.clone());
-            excluded_local_prefixes.push(format!("{}/{}", sync_dir.local_path, local_names::to_local(&excl.remote_path)));
+            excluded_local_prefixes.push(format!(
+                "{}/{}",
+                sync_dir.local_path,
+                local_names::to_local(&excl.remote_path)
+            ));
         }
 
         // The `.nomedia` files of hidden folders belong to this device: each phone creates them from the setting, so none is uploaded, downloaded or deleted. The prefix match is exact for a file, so only these files drop out.
@@ -118,8 +123,7 @@ impl Snapshot {
         // 1. DB (cheap, authoritative for "what we last saw"). Drop any
         //    tracked rows that now fall inside an excluded subtree — they
         //    may linger from before the descendant sync_dir was created.
-        let db_rows = util::await_future(repo.list_sync_items(sync_dir.id))
-            .unwrap_or_default();
+        let db_rows = util::await_future(repo.list_sync_items(sync_dir.id)).unwrap_or_default();
         let (excluded_rows, db_rows): (Vec<SyncItem>, Vec<SyncItem>) = db_rows
             .into_iter()
             .partition(|r| path_is_excluded(&r.local_path, &excluded_local_prefixes));
@@ -131,20 +135,48 @@ impl Snapshot {
 
         // 2. The remote side: from the database plus what changed, or one full listing (see `remote_view`). A missing root folder is created for a first sync and stops a synced folder with an error (see `missing_root`).
         let list = || -> Result<Vec<RemoteItem>, String> {
-            match client.list(&remote.name, &sync_dir.remote_path, true, ListFilter::All, cancel) {
+            match client.list(
+                &remote.name,
+                &sync_dir.remote_path,
+                true,
+                ListFilter::All,
+                cancel,
+            ) {
                 // The native Proton client lists a missing folder as empty; asking for the folder itself tells the two apart.
-                Ok(items) if items.is_empty() && !sync_dir.remote_path.is_empty() && matches!(client.stat(&remote.name, &sync_dir.remote_path, cancel), Ok(None)) => {
+                Ok(items)
+                    if items.is_empty()
+                        && !sync_dir.remote_path.is_empty()
+                        && matches!(
+                            client.stat(&remote.name, &sync_dir.remote_path, cancel),
+                            Ok(None)
+                        ) =>
+                {
                     missing_root(remote, sync_dir, client, &db, "not found", cancel)
                 }
                 Ok(items) => Ok(items),
-                Err(err) if is_directory_missing_error(&err) => missing_root(remote, sync_dir, client, &db, &err, cancel),
+                Err(err) if is_directory_missing_error(&err) => {
+                    missing_root(remote, sync_dir, client, &db, &err, cancel)
+                }
                 Err(err) => Err(err),
             }
         };
-        let super::remote_view::RemoteSide { items: remote, reported_gone } = super::remote_view::build(remote, sync_dir, repo, client, &db, &excluded_remote_prefixes, list, cancel)?;
+        let super::remote_view::RemoteSide {
+            items: remote,
+            reported_gone,
+        } = super::remote_view::build(
+            remote,
+            sync_dir,
+            repo,
+            client,
+            &db,
+            &excluded_remote_prefixes,
+            list,
+            cancel,
+        )?;
 
         // 3. Local walk — skip subtrees managed by descendant sync_dirs.
-        let (local, walk_unreliable, walk_denied, local_links) = walk_local(sync_dir, &excluded_local_prefixes);
+        let (local, walk_unreliable, walk_denied, local_links) =
+            walk_local(sync_dir, &excluded_local_prefixes);
 
         Ok(Snapshot {
             remote: Arc::new(remote),
@@ -165,11 +197,20 @@ impl Snapshot {
 /// body. Match broadly — a false positive here costs us one speculative
 /// mkdir, a miss costs the user a broken sync cycle.
 /// The sync folder's own folder is missing on the remote. Never synced: create it, the local files go up into it. Synced before: the user renamed, moved or deleted it there, and an empty listing would read as every file deleted (a file alone in its subfolder has no sibling to prove otherwise), so the folder stops with an error and nothing changes on either side.
-fn missing_root(remote: &Remote, sync_dir: &SyncDir, client: &dyn BackendClient, db: &HashMap<String, SyncItem>, err: &str, cancel: &Cancel) -> Result<Vec<RemoteItem>, String> {
+fn missing_root(
+    remote: &Remote,
+    sync_dir: &SyncDir,
+    client: &dyn BackendClient,
+    db: &HashMap<String, SyncItem>,
+    err: &str,
+    cancel: &Cancel,
+) -> Result<Vec<RemoteItem>, String> {
     if !db.is_empty() {
         eprintln!(
             "sync: STOP for remote='{}' dir='{}' — the remote folder is gone ({err}), but {} item(s) were synced with it; nothing is changed until it is back.",
-            remote.name, sync_dir.remote_path, db.len(),
+            remote.name,
+            sync_dir.remote_path,
+            db.len(),
         );
         return Err(tr::tr!("Remote folder not found"));
     }
@@ -221,15 +262,26 @@ fn absolute_remote_path(sync_dir: &SyncDir, relative: &str) -> String {
 fn forget_vanished_excluded_rows(repo: &dyn Repository, sync_dir: &SyncDir, rows: &[SyncItem]) {
     let vanished: Vec<&SyncItem> = rows
         .iter()
-        .filter(|r| fs::symlink_metadata(&r.local_path).is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound))
+        .filter(|r| {
+            fs::symlink_metadata(&r.local_path)
+                .is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound)
+        })
         .collect();
     if vanished.is_empty() {
         return;
     }
     for row in &vanished {
-        let _ = util::await_future(repo.delete_sync_item_by_paths(sync_dir.id, &row.local_path, &row.remote_path));
+        let _ = util::await_future(repo.delete_sync_item_by_paths(
+            sync_dir.id,
+            &row.local_path,
+            &row.remote_path,
+        ));
     }
-    eprintln!("sync: forgot {} rows under excluded folders of '{}' whose local copies are gone.", vanished.len(), sync_dir.local_path);
+    eprintln!(
+        "sync: forgot {} rows under excluded folders of '{}' whose local copies are gone.",
+        vanished.len(),
+        sync_dir.local_path
+    );
 }
 
 /// Returns true when `path` equals one of `excluded_prefixes` or starts
@@ -243,7 +295,12 @@ pub(super) fn path_is_excluded(path: &str, excluded_prefixes: &[String]) -> bool
 fn walk_local(
     sync_dir: &SyncDir,
     excluded_local_prefixes: &[String],
-) -> (HashMap<String, LocalEntry>, HashSet<String>, Option<String>, HashSet<String>) {
+) -> (
+    HashMap<String, LocalEntry>,
+    HashSet<String>,
+    Option<String>,
+    HashSet<String>,
+) {
     let root = Path::new(&sync_dir.local_path);
     let mut out: HashMap<String, LocalEntry> = HashMap::new();
     let mut unreliable: HashSet<String> = HashSet::new();
@@ -323,8 +380,14 @@ fn walk_dir(
             // A Proton download cut off by Syncative's end leaves its part file behind (src/go/proton/drive/download.go); no download runs into this folder while it is walked.
             if crate::services::editor_temp::is_syncative_part(&name) {
                 match fs::remove_file(entry.path()) {
-                    Ok(()) => eprintln!("sync: removed the unfinished download '{}'.", entry.path().display()),
-                    Err(err) => eprintln!("sync: could not remove the unfinished download '{}': {err}", entry.path().display()),
+                    Ok(()) => eprintln!(
+                        "sync: removed the unfinished download '{}'.",
+                        entry.path().display()
+                    ),
+                    Err(err) => eprintln!(
+                        "sync: could not remove the unfinished download '{}': {err}",
+                        entry.path().display()
+                    ),
                 }
             }
             continue;
@@ -378,7 +441,15 @@ fn walk_dir(
             },
         );
         if file_type.is_dir() {
-            walk_dir(&path, out, unreliable, denied, links, &remote_key, excluded_local_prefixes);
+            walk_dir(
+                &path,
+                out,
+                unreliable,
+                denied,
+                links,
+                &remote_key,
+                excluded_local_prefixes,
+            );
         }
     }
 }

@@ -15,9 +15,17 @@ use crate::domain::remote::RemoteId;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Incoming {
     /// `count` files are being copied to the cache folder `folder` (`copies`, Android), or handed over as they are, where `folder` only names the share (desktop).
-    Started { folder: PathBuf, count: usize, copies: bool },
+    Started {
+        folder: PathBuf,
+        count: usize,
+        copies: bool,
+    },
     /// The files are in `folder`; `error` says why some or all are missing.
-    Ready { folder: PathBuf, files: Vec<PathBuf>, error: Option<String> },
+    Ready {
+        folder: PathBuf,
+        files: Vec<PathBuf>,
+        error: Option<String>,
+    },
 }
 
 static QUEUE: Mutex<VecDeque<Incoming>> = Mutex::new(VecDeque::new());
@@ -60,11 +68,21 @@ pub fn receive_files(paths: Vec<PathBuf>) {
     if files.is_empty() {
         return;
     }
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
     // Only names the share; there is no such folder.
     let folder = PathBuf::from(format!("originals-{stamp}"));
-    push(Incoming::Started { folder: folder.clone(), count: files.len(), copies: false });
-    push(Incoming::Ready { folder, files, error: None });
+    push(Incoming::Started {
+        folder: folder.clone(),
+        count: files.len(),
+        copies: false,
+    });
+    push(Incoming::Ready {
+        folder,
+        files,
+        error: None,
+    });
 }
 
 /// Where an upload goes: kept as `target.json`, next to its `files/` for copies.
@@ -97,10 +115,19 @@ pub fn uploads_dir(data_dir: &Path) -> PathBuf {
 }
 
 /// Hand a share over to the background uploads, and return the upload's folder for [`load`]. With `copies`, the files in the cache folder `share_folder` move below `uploads/`; otherwise only the list of `originals` is kept.
-pub fn queue_upload(data_dir: &Path, share_folder: &Path, copies: bool, originals: &[PathBuf], remote_id: RemoteId, folder: &str) -> std::io::Result<PathBuf> {
+pub fn queue_upload(
+    data_dir: &Path,
+    share_folder: &Path,
+    copies: bool,
+    originals: &[PathBuf],
+    remote_id: RemoteId,
+    folder: &str,
+) -> std::io::Result<PathBuf> {
     let base = uploads_dir(data_dir);
     std::fs::create_dir_all(&base)?;
-    let name = share_folder.file_name().map_or_else(|| "upload".into(), |n| n.to_owned());
+    let name = share_folder
+        .file_name()
+        .map_or_else(|| "upload".into(), |n| n.to_owned());
     let mut dir = base.join(&name);
     for n in 1.. {
         if !dir.exists() {
@@ -119,9 +146,20 @@ pub fn queue_upload(data_dir: &Path, share_folder: &Path, copies: bool, original
         }
         discard(share_folder);
     }
-    let originals = if copies { Vec::new() } else { originals.to_vec() };
+    let originals = if copies {
+        Vec::new()
+    } else {
+        originals.to_vec()
+    };
     // Written last: a folder without it is an upload that never got queued.
-    write_target(&dir, &Target { remote_id: remote_id.0, folder: folder.to_owned(), originals })?;
+    write_target(
+        &dir,
+        &Target {
+            remote_id: remote_id.0,
+            folder: folder.to_owned(),
+            originals,
+        },
+    )?;
     Ok(dir)
 }
 
@@ -138,27 +176,49 @@ pub fn file_done(upload: &Upload, file: &Path) {
     let result = if upload.copies {
         std::fs::remove_file(file)
     } else {
-        write_target(&upload.dir, &Target { remote_id: upload.remote_id.0, folder: upload.folder.clone(), originals: upload.files.clone() })
+        write_target(
+            &upload.dir,
+            &Target {
+                remote_id: upload.remote_id.0,
+                folder: upload.folder.clone(),
+                originals: upload.files.clone(),
+            },
+        )
     };
     if let Err(err) = result {
-        eprintln!("syncative: could not record the upload of {}: {err}", file.display());
+        eprintln!(
+            "syncative: could not record the upload of {}: {err}",
+            file.display()
+        );
     }
 }
 
 /// The upload in `dir`, `None` when it isn't one (no `target.json`).
 pub fn load(dir: &Path) -> Option<Upload> {
-    let target: Target = serde_json::from_slice(&std::fs::read(dir.join("target.json")).ok()?).ok()?;
+    let target: Target =
+        serde_json::from_slice(&std::fs::read(dir.join("target.json")).ok()?).ok()?;
     let copies = target.originals.is_empty();
     let files = if copies {
         let mut files: Vec<PathBuf> = std::fs::read_dir(dir.join("files"))
-            .map(|read| read.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect())
+            .map(|read| {
+                read.flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.is_file())
+                    .collect()
+            })
             .unwrap_or_default();
         files.sort();
         files
     } else {
         target.originals
     };
-    Some(Upload { dir: dir.to_owned(), remote_id: RemoteId(target.remote_id), folder: target.folder, files, copies })
+    Some(Upload {
+        dir: dir.to_owned(),
+        remote_id: RemoteId(target.remote_id),
+        folder: target.folder,
+        files,
+        copies,
+    })
 }
 
 /// Every waiting upload, oldest first; leftovers of uploads that never got queued are deleted.
@@ -166,7 +226,11 @@ pub fn pending(data_dir: &Path) -> Vec<Upload> {
     let Ok(read) = std::fs::read_dir(uploads_dir(data_dir)) else {
         return Vec::new();
     };
-    let mut dirs: Vec<PathBuf> = read.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    let mut dirs: Vec<PathBuf> = read
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
     dirs.sort();
     dirs.into_iter()
         .filter_map(|dir| {
@@ -224,8 +288,14 @@ mod tests {
         assert_eq!(pending.len(), 1);
         assert!(!uploads_dir(&data).join("0").exists());
         let upload = &pending[0];
-        assert_eq!((upload.dir.clone(), upload.remote_id, upload.folder.as_str()), (dir.clone(), RemoteId(7), "Inbox/Phone"));
-        assert_eq!(upload.files, vec![dir.join("files/a.txt"), dir.join("files/b.txt")]);
+        assert_eq!(
+            (upload.dir.clone(), upload.remote_id, upload.folder.as_str()),
+            (dir.clone(), RemoteId(7), "Inbox/Phone")
+        );
+        assert_eq!(
+            upload.files,
+            vec![dir.join("files/a.txt"), dir.join("files/b.txt")]
+        );
         assert!(upload.copies);
     }
 
@@ -233,11 +303,25 @@ mod tests {
     fn originals_are_listed_not_moved_and_stay_when_done() {
         let temp = crate::test_support::TempDir::new("share-originals");
         let data = temp.path.join("data");
-        let (b, a) = (temp.write_file("docs/b.txt", b"b"), temp.write_file("docs/a.txt", b"a"));
-        let dir = queue_upload(&data, Path::new("originals-1"), false, &[b.clone(), a.clone()], RemoteId(3), "").unwrap();
+        let (b, a) = (
+            temp.write_file("docs/b.txt", b"b"),
+            temp.write_file("docs/a.txt", b"a"),
+        );
+        let dir = queue_upload(
+            &data,
+            Path::new("originals-1"),
+            false,
+            &[b.clone(), a.clone()],
+            RemoteId(3),
+            "",
+        )
+        .unwrap();
         assert!(!dir.join("files").exists());
         let mut upload = load(&dir).unwrap();
-        assert_eq!((upload.files.clone(), upload.copies), (vec![b.clone(), a.clone()], false));
+        assert_eq!(
+            (upload.files.clone(), upload.copies),
+            (vec![b.clone(), a.clone()], false)
+        );
 
         upload.files.retain(|f| *f != b);
         file_done(&upload, &b);
@@ -248,9 +332,24 @@ mod tests {
     #[tokio::test]
     async fn news_arrives_in_order_even_before_anyone_waits() {
         let folder = PathBuf::from("/cache/shared/1");
-        push(Incoming::Started { folder: folder.clone(), count: 1, copies: true });
-        push(Incoming::Ready { folder: folder.clone(), files: vec![folder.join("a.txt")], error: None });
-        assert_eq!(next().await, Incoming::Started { folder: folder.clone(), count: 1, copies: true });
+        push(Incoming::Started {
+            folder: folder.clone(),
+            count: 1,
+            copies: true,
+        });
+        push(Incoming::Ready {
+            folder: folder.clone(),
+            files: vec![folder.join("a.txt")],
+            error: None,
+        });
+        assert_eq!(
+            next().await,
+            Incoming::Started {
+                folder: folder.clone(),
+                count: 1,
+                copies: true
+            }
+        );
         assert!(matches!(next().await, Incoming::Ready { .. }));
     }
 }

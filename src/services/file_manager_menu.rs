@@ -69,18 +69,31 @@ impl Kind {
     fn content(self, exec: &str, icon: bool) -> String {
         match self {
             // all/allfiles: files of any type, not folders.
-            Kind::Kio => format!("[Desktop Entry]\nType=Service\nMimeType=all/allfiles;\nActions=save\n\n[Desktop Action save]\nName={LABEL}\n{}Exec={exec} --save %F\n", if icon { "Icon=syncative-icon\n" } else { "" }),
+            Kind::Kio => format!(
+                "[Desktop Entry]\nType=Service\nMimeType=all/allfiles;\nActions=save\n\n[Desktop Action save]\nName={LABEL}\n{}Exec={exec} --save %F\n",
+                if icon { "Icon=syncative-icon\n" } else { "" }
+            ),
             // Nautilus passes the selected paths in a variable, one per line, and as arguments relative to the open folder; the variable is empty for files that aren't local.
             Kind::Nautilus => format!(
                 "#!/bin/sh\n# Written by Syncative (Preferences → Context menu in the file manager).\nif [ -n \"$NAUTILUS_SCRIPT_SELECTED_FILE_PATHS\" ]; then\n  IFS='\n'\n  set -f\n  # shellcheck disable=SC2086\n  exec {exec} --save $NAUTILUS_SCRIPT_SELECTED_FILE_PATHS\nfi\nexec {exec} --save \"$@\"\n"
             ),
-            Kind::Nemo => format!("[Nemo Action]\nName={LABEL}\nComment=Upload the selected files to a cloud folder\nExec={exec} --save %F\n{}Selection=notnone\nExtensions=nodirs;\n", if icon { "Icon-Name=syncative-icon\n" } else { "" }),
+            Kind::Nemo => format!(
+                "[Nemo Action]\nName={LABEL}\nComment=Upload the selected files to a cloud folder\nExec={exec} --save %F\n{}Selection=notnone\nExtensions=nodirs;\n",
+                if icon {
+                    "Icon-Name=syncative-icon\n"
+                } else {
+                    ""
+                }
+            ),
         }
     }
 
     fn installed(self) -> bool {
-        let Some(paths) = std::env::var_os("PATH") else { return false };
-        std::env::split_paths(&paths).any(|dir| self.programs().iter().any(|name| dir.join(name).is_file()))
+        let Some(paths) = std::env::var_os("PATH") else {
+            return false;
+        };
+        std::env::split_paths(&paths)
+            .any(|dir| self.programs().iter().any(|name| dir.join(name).is_file()))
     }
 }
 
@@ -94,12 +107,22 @@ fn data_home() -> PathBuf {
 
 /// Whether the icon theme has Syncative's icon: installed packages put it into `icons/hicolor` of a data dir, the AppImage doesn't.
 fn icon_installed(data_home: &Path) -> bool {
-    let dirs = std::env::var_os("XDG_DATA_DIRS").filter(|d| !d.is_empty()).unwrap_or_else(|| "/usr/local/share:/usr/share".into());
-    std::iter::once(data_home.to_owned()).chain(std::env::split_paths(&dirs)).any(|dir| {
-        std::fs::read_dir(dir.join("icons/hicolor")).is_ok_and(|sizes| {
-            sizes.flatten().any(|size| ["png", "svg"].iter().any(|ext| size.path().join(format!("apps/syncative-icon.{ext}")).is_file()))
+    let dirs = std::env::var_os("XDG_DATA_DIRS")
+        .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+    std::iter::once(data_home.to_owned())
+        .chain(std::env::split_paths(&dirs))
+        .any(|dir| {
+            std::fs::read_dir(dir.join("icons/hicolor")).is_ok_and(|sizes| {
+                sizes.flatten().any(|size| {
+                    ["png", "svg"].iter().any(|ext| {
+                        size.path()
+                            .join(format!("apps/syncative-icon.{ext}"))
+                            .is_file()
+                    })
+                })
+            })
         })
-    })
 }
 
 /// The installed file managers that can show the entry, with the beta features on or off. None in the Snap: the entries would land in the Snap's own home, where no file manager looks.
@@ -107,7 +130,10 @@ fn installed(beta: bool) -> Vec<Kind> {
     if std::env::var_os("SNAP").is_some() {
         return Vec::new();
     }
-    Kind::ALL.into_iter().filter(|kind| kind.offered(beta) && kind.installed()).collect()
+    Kind::ALL
+        .into_iter()
+        .filter(|kind| kind.offered(beta) && kind.installed())
+        .collect()
 }
 
 /// The setting as Preferences shows it; `None` while no file manager is offered, i.e. all of them are beta and the beta features are off.
@@ -117,12 +143,20 @@ pub fn offer(beta: bool) -> Option<FileManagerMenu> {
         .filter(|kind| kind.offered(beta))
         .map(|kind| super::beta::marked(kind.name(), kind.is_beta()))
         .collect();
-    (!supported.is_empty()).then(|| FileManagerMenu { on: enabled(), available: !installed(beta).is_empty(), supported })
+    (!supported.is_empty()).then(|| FileManagerMenu {
+        on: enabled(),
+        available: !installed(beta).is_empty(),
+        supported,
+    })
 }
 
 /// The file managers whose entry is a beta feature, by name, for the list of beta features.
 pub fn beta_file_managers() -> Vec<&'static str> {
-    Kind::ALL.into_iter().filter(|kind| kind.is_beta()).map(Kind::name).collect()
+    Kind::ALL
+        .into_iter()
+        .filter(|kind| kind.is_beta())
+        .map(Kind::name)
+        .collect()
 }
 
 /// Whether the entry is in a context menu.
@@ -135,7 +169,10 @@ pub fn enabled() -> bool {
 pub fn set(enabled: bool, beta: bool) -> io::Result<()> {
     let home = data_home();
     let wanted = if enabled { installed(beta) } else { Vec::new() };
-    let (exec, icon) = (crate::services::autostart::exec_command(), icon_installed(&home));
+    let (exec, icon) = (
+        crate::services::autostart::exec_command(),
+        icon_installed(&home),
+    );
     Kind::ALL.iter().try_for_each(|kind| {
         let path = kind.path(&home);
         let result = if wanted.contains(kind) {
@@ -163,7 +200,11 @@ fn write_at(path: &Path, content: &str) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let tmp = path.with_file_name(format!(".{}.tmp", path.file_name().map_or_else(Default::default, |n| n.to_string_lossy())));
+    let tmp = path.with_file_name(format!(
+        ".{}.tmp",
+        path.file_name()
+            .map_or_else(Default::default, |n| n.to_string_lossy())
+    ));
     std::fs::write(&tmp, content)?;
     // KDE ignores service menus in the user's folder that aren't executable, and Nautilus scripts have to be.
     #[cfg(unix)]
@@ -183,17 +224,30 @@ mod tests {
         let dir = crate::test_support::TempDir::new("servicemenu");
         for kind in Kind::ALL {
             let path = kind.path(&dir.path);
-            write_at(&path, &kind.content("\"/opt/My Apps/Syncative.AppImage\"", false)).unwrap();
+            write_at(
+                &path,
+                &kind.content("\"/opt/My Apps/Syncative.AppImage\"", false),
+            )
+            .unwrap();
             let content = std::fs::read_to_string(&path).unwrap();
             let call = match kind {
                 Kind::Nautilus => "exec \"/opt/My Apps/Syncative.AppImage\" --save \"$@\"\n",
                 _ => "Exec=\"/opt/My Apps/Syncative.AppImage\" --save %F\n",
             };
             assert!(content.contains(call), "{kind:?}: {content}");
-            assert!(!content.contains("syncative-icon"), "{kind:?}: no icon to show");
-            assert!(kind.content("syncative", true).contains("syncative-icon") || kind == Kind::Nautilus);
+            assert!(
+                !content.contains("syncative-icon"),
+                "{kind:?}: no icon to show"
+            );
+            assert!(
+                kind.content("syncative", true).contains("syncative-icon")
+                    || kind == Kind::Nautilus
+            );
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o111, 0o111);
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o111,
+                0o111
+            );
         }
     }
 
@@ -201,13 +255,33 @@ mod tests {
     fn the_nautilus_script_passes_paths_with_spaces_whole() {
         let dir = crate::test_support::TempDir::new("nautilus-script");
         let log = dir.path.join("args");
-        let fake = dir.write_file("fake", format!("#!/bin/sh\nfor a in \"$@\"; do echo \"$a\"; done > {}\n", log.display()).as_bytes());
+        let fake = dir.write_file(
+            "fake",
+            format!(
+                "#!/bin/sh\nfor a in \"$@\"; do echo \"$a\"; done > {}\n",
+                log.display()
+            )
+            .as_bytes(),
+        );
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
         let script = Kind::Nautilus.path(&dir.path);
-        write_at(&script, &Kind::Nautilus.content(&fake.to_string_lossy(), false)).unwrap();
-        let status = std::process::Command::new(&script).env("NAUTILUS_SCRIPT_SELECTED_FILE_PATHS", "/home/me/a b.txt\n/home/me/*.pdf\n").status().unwrap();
+        write_at(
+            &script,
+            &Kind::Nautilus.content(&fake.to_string_lossy(), false),
+        )
+        .unwrap();
+        let status = std::process::Command::new(&script)
+            .env(
+                "NAUTILUS_SCRIPT_SELECTED_FILE_PATHS",
+                "/home/me/a b.txt\n/home/me/*.pdf\n",
+            )
+            .status()
+            .unwrap();
         assert!(status.success());
-        assert_eq!(std::fs::read_to_string(&log).unwrap(), "--save\n/home/me/a b.txt\n/home/me/*.pdf\n");
+        assert_eq!(
+            std::fs::read_to_string(&log).unwrap(),
+            "--save\n/home/me/a b.txt\n/home/me/*.pdf\n"
+        );
     }
 }

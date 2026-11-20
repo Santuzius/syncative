@@ -2,9 +2,9 @@
 //! [`super::SyncativeApp`] that the root `update()` dispatch in
 //! [`super`] (`app/mod.rs`) calls into.
 
+pub(super) mod conflicts;
 pub(super) mod folder_picker;
 pub(super) mod preferences;
-pub(super) mod conflicts;
 pub(super) mod remotes;
 pub(super) mod share;
 pub(super) mod sync;

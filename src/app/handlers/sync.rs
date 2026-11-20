@@ -6,7 +6,7 @@ use iced::Task;
 
 use crate::{domain::remote::RemoteId, engine::Snapshot};
 
-use super::super::{SyncativeApp, Message};
+use super::super::{Message, SyncativeApp};
 
 impl SyncativeApp {
     /// Handle [`Message::Engine`] — take the engine's new state and refresh what depends on it.
@@ -32,7 +32,8 @@ impl SyncativeApp {
 
     /// Enabled by the user and not blocked on reauthentication.
     pub(in crate::app) fn is_schedulable(&self, id: RemoteId) -> bool {
-        self.remotes.iter().any(|r| r.id == id && r.policy.enabled) && !self.snapshot.state.needs_reauth(id)
+        self.remotes.iter().any(|r| r.id == id && r.policy.enabled)
+            && !self.snapshot.state.needs_reauth(id)
     }
 
     /// Time until the engine will next attempt this remote, plus a flag telling the caller whether the remote is currently in a backoff window (next attempt will be a skip, not a real pass). Returns `None` when the remote is disabled or needs reauth.

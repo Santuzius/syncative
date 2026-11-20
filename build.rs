@@ -2,9 +2,16 @@
 
 fn main() {
     let out_dir = std::env::var_os("OUT_DIR").expect("OUT_DIR");
-    for (source, packed) in [("assets/licenses.json", "licenses.json.deflate"), ("LICENSE", "license.deflate")] {
+    for (source, packed) in [
+        ("assets/licenses.json", "licenses.json.deflate"),
+        ("LICENSE", "license.deflate"),
+    ] {
         println!("cargo:rerun-if-changed={source}");
         let data = std::fs::read(source).expect("read the license file");
-        std::fs::write(std::path::Path::new(&out_dir).join(packed), miniz_oxide::deflate::compress_to_vec(&data, 10)).expect("write the packed license");
+        std::fs::write(
+            std::path::Path::new(&out_dir).join(packed),
+            miniz_oxide::deflate::compress_to_vec(&data, 10),
+        )
+        .expect("write the packed license");
     }
 }

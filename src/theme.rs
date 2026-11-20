@@ -5,9 +5,8 @@
 use std::sync::LazyLock;
 
 use iced::{
-    border, font, theme,
+    Background, Border, Color, Font, Shadow, Theme, Vector, border, font, theme,
     widget::{button, container, overlay, pick_list as pick, rule, scrollable, text, text_input},
-    Background, Border, Color, Font, Shadow, Theme, Vector,
 };
 
 use crate::domain::run_state::RunState;
@@ -31,7 +30,10 @@ pub const COMPACT_PADDING: f32 = 12.0;
 pub const UI_FONT: Font = if cfg!(target_os = "android") {
     Font::with_name("Roboto")
 } else {
-    Font { family: font::Family::Name("Noto Sans"), ..Font::DEFAULT }
+    Font {
+        family: font::Family::Name("Noto Sans"),
+        ..Font::DEFAULT
+    }
 };
 
 /// Body text size.
@@ -132,15 +134,20 @@ fn palette(t: &Tones) -> theme::Palette {
     }
 }
 
-static LIGHT_THEME: LazyLock<Theme> = LazyLock::new(|| Theme::custom("Syncative Light", palette(&LIGHT)));
-static DARK_THEME: LazyLock<Theme> = LazyLock::new(|| Theme::custom("Syncative Dark", palette(&DARK)));
+static LIGHT_THEME: LazyLock<Theme> =
+    LazyLock::new(|| Theme::custom("Syncative Light", palette(&LIGHT)));
+static DARK_THEME: LazyLock<Theme> =
+    LazyLock::new(|| Theme::custom("Syncative Dark", palette(&DARK)));
 
 /// `SYNCATIVE_COLOR_SCHEME=light|dark` overrides the system colour scheme for the window (not the tray, which follows the panel). For desktops without the portal, and for reproducible screenshots.
-static FORCED_MODE: LazyLock<Option<theme::Mode>> = LazyLock::new(|| match std::env::var("SYNCATIVE_COLOR_SCHEME").ok()?.as_str() {
-    "light" => Some(theme::Mode::Light),
-    "dark" => Some(theme::Mode::Dark),
-    _ => None,
-});
+static FORCED_MODE: LazyLock<Option<theme::Mode>> =
+    LazyLock::new(
+        || match std::env::var("SYNCATIVE_COLOR_SCHEME").ok()?.as_str() {
+            "light" => Some(theme::Mode::Light),
+            "dark" => Some(theme::Mode::Dark),
+            _ => None,
+        },
+    );
 
 /// Pick the theme that mirrors the system colour-scheme iced reports (freedesktop `color-scheme` portal), unless [`FORCED_MODE`] is set. `Mode::None`, "no preference", is light as in GNOME's own apps: Ubuntu's light style reports it rather than `prefer-light`.
 pub fn syncative_theme(mode: theme::Mode) -> Theme {
@@ -151,7 +158,11 @@ pub fn syncative_theme(mode: theme::Mode) -> Theme {
 }
 
 pub fn tones(theme: &Theme) -> &'static Tones {
-    if theme.extended_palette().is_dark { &DARK } else { &LIGHT }
+    if theme.extended_palette().is_dark {
+        &DARK
+    } else {
+        &LIGHT
+    }
 }
 
 /// Colour of a run-state glyph.
@@ -195,7 +206,11 @@ pub fn card(theme: &Theme) -> container::Style {
     container::Style {
         background: Some(t.surface.into()),
         text_color: Some(t.text),
-        border: Border { width: 1.0, radius: RADIUS.into(), color: t.border },
+        border: Border {
+            width: 1.0,
+            radius: RADIUS.into(),
+            color: t.border,
+        },
         ..Default::default()
     }
 }
@@ -206,7 +221,11 @@ pub fn well(theme: &Theme) -> container::Style {
     container::Style {
         background: Some(t.background.into()),
         text_color: Some(t.text),
-        border: Border { width: 1.0, radius: (RADIUS - 2.0).into(), color: t.border },
+        border: Border {
+            width: 1.0,
+            radius: (RADIUS - 2.0).into(),
+            color: t.border,
+        },
         ..Default::default()
     }
 }
@@ -215,14 +234,28 @@ pub fn well(theme: &Theme) -> container::Style {
 pub fn dialog(theme: &Theme) -> container::Style {
     let t = tones(theme);
     container::Style {
-        shadow: Shadow { color: Color { a: 0.35, ..Color::BLACK }, offset: Vector::new(0.0, 8.0), blur_radius: 28.0 },
+        shadow: Shadow {
+            color: Color {
+                a: 0.35,
+                ..Color::BLACK
+            },
+            offset: Vector::new(0.0, 8.0),
+            blur_radius: 28.0,
+        },
         ..card(theme)
     }
-    .border(Border { width: 1.0, radius: (RADIUS + 2.0).into(), color: t.border })
+    .border(Border {
+        width: 1.0,
+        radius: (RADIUS + 2.0).into(),
+        color: t.border,
+    })
 }
 
 pub fn backdrop(_theme: &Theme) -> container::Style {
-    container::Style::default().background(Color { a: 0.45, ..Color::BLACK })
+    container::Style::default().background(Color {
+        a: 0.45,
+        ..Color::BLACK
+    })
 }
 
 /// Top bar of the content area (title, status and page actions), set off from the scrolling body below by [`separator`] like a KDE page header.
@@ -242,7 +275,11 @@ pub fn warning_bar(theme: &Theme) -> container::Style {
     container::Style {
         background: Some(tint(0.14).into()),
         text_color: Some(t.text),
-        border: Border { width: 1.0, radius: RADIUS.into(), color: tint(0.55) },
+        border: Border {
+            width: 1.0,
+            radius: RADIUS.into(),
+            color: tint(0.55),
+        },
         ..Default::default()
     }
 }
@@ -261,14 +298,29 @@ pub fn nav_indicator(theme: &Theme) -> container::Style {
 /// Round floating action button for the main action of the compact layout.
 pub fn fab(theme: &Theme, status: button::Status) -> button::Style {
     let style = button_primary(theme, status);
-    button::Style { border: Border { radius: 28.0.into(), ..style.border }, shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.35), offset: Vector::new(0.0, 2.0), blur_radius: 6.0 }, ..style }
+    button::Style {
+        border: Border {
+            radius: 28.0.into(),
+            ..style.border
+        },
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.35),
+            offset: Vector::new(0.0, 2.0),
+            blur_radius: 6.0,
+        },
+        ..style
+    }
 }
 
 fn button_base(bg: Color, fg: Color, border_color: Color) -> button::Style {
     button::Style {
         background: Some(Background::Color(bg)),
         text_color: fg,
-        border: Border { width: 1.0, radius: RADIUS.into(), color: border_color },
+        border: Border {
+            width: 1.0,
+            radius: RADIUS.into(),
+            color: border_color,
+        },
         ..Default::default()
     }
 }
@@ -277,7 +329,10 @@ fn disabled(style: button::Style) -> button::Style {
     button::Style {
         background: style.background.map(|b| b.scale_alpha(0.5)),
         text_color: style.text_color.scale_alpha(0.45),
-        border: Border { color: style.border.color.scale_alpha(0.5), ..style.border },
+        border: Border {
+            color: style.border.color.scale_alpha(0.5),
+            ..style.border
+        },
         ..style
     }
 }
@@ -288,8 +343,14 @@ pub fn button_secondary(theme: &Theme, status: button::Status) -> button::Style 
     let base = button_base(t.surface, t.text, t.border);
     match status {
         button::Status::Active => base,
-        button::Status::Hovered => button::Style { background: Some(t.surface_hover.into()), ..base },
-        button::Status::Pressed => button::Style { background: Some(t.background.into()), ..base },
+        button::Status::Hovered => button::Style {
+            background: Some(t.surface_hover.into()),
+            ..base
+        },
+        button::Status::Pressed => button::Style {
+            background: Some(t.background.into()),
+            ..base
+        },
         button::Status::Disabled => disabled(base),
     }
 }
@@ -311,7 +372,9 @@ pub fn button_danger(theme: &Theme, status: button::Status) -> button::Style {
     let base = button_base(t.danger_fill, Color::WHITE, t.danger_fill);
     match status {
         button::Status::Active | button::Status::Pressed => base,
-        button::Status::Hovered => button_base(t.danger_fill_hover, Color::WHITE, t.danger_fill_hover),
+        button::Status::Hovered => {
+            button_base(t.danger_fill_hover, Color::WHITE, t.danger_fill_hover)
+        }
         button::Status::Disabled => disabled(base),
     }
 }
@@ -322,7 +385,14 @@ pub fn button_warning(theme: &Theme, status: button::Status) -> button::Style {
     let base = button_base(t.warning, Color::WHITE, t.warning);
     match status {
         button::Status::Active | button::Status::Pressed => base,
-        button::Status::Hovered => button_base(Color { a: 0.85, ..t.warning }, Color::WHITE, t.warning),
+        button::Status::Hovered => button_base(
+            Color {
+                a: 0.85,
+                ..t.warning
+            },
+            Color::WHITE,
+            t.warning,
+        ),
         button::Status::Disabled => disabled(base),
     }
 }
@@ -333,7 +403,14 @@ pub fn button_success(theme: &Theme, status: button::Status) -> button::Style {
     let base = button_base(t.success, Color::WHITE, t.success);
     match status {
         button::Status::Active | button::Status::Pressed => base,
-        button::Status::Hovered => button_base(Color { a: 0.85, ..t.success }, Color::WHITE, t.success),
+        button::Status::Hovered => button_base(
+            Color {
+                a: 0.85,
+                ..t.success
+            },
+            Color::WHITE,
+            t.success,
+        ),
         button::Status::Disabled => disabled(base),
     }
 }
@@ -349,9 +426,18 @@ pub fn button_flat(theme: &Theme, status: button::Status) -> button::Style {
     };
     match status {
         button::Status::Active => base,
-        button::Status::Hovered => button::Style { background: Some(Color { a: 0.08, ..t.text }.into()), ..base },
-        button::Status::Pressed => button::Style { background: Some(Color { a: 0.14, ..t.text }.into()), ..base },
-        button::Status::Disabled => button::Style { text_color: t.text.scale_alpha(0.4), ..base },
+        button::Status::Hovered => button::Style {
+            background: Some(Color { a: 0.08, ..t.text }.into()),
+            ..base
+        },
+        button::Status::Pressed => button::Style {
+            background: Some(Color { a: 0.14, ..t.text }.into()),
+            ..base
+        },
+        button::Status::Disabled => button::Style {
+            text_color: t.text.scale_alpha(0.4),
+            ..base
+        },
     }
 }
 
@@ -360,7 +446,10 @@ pub fn button_toggle(open: bool) -> impl Fn(&Theme, button::Status) -> button::S
     move |theme, status| {
         let style = button_flat(theme, status);
         if open && matches!(status, button::Status::Active) {
-            button::Style { background: Some(tones(theme).selection.into()), ..style }
+            button::Style {
+                background: Some(tones(theme).selection.into()),
+                ..style
+            }
         } else {
             style
         }
@@ -391,11 +480,15 @@ pub fn nav_item(selected: bool) -> impl Fn(&Theme, button::Status) -> button::St
 // ---------------------------------------------------------------------------
 
 pub fn muted(theme: &Theme) -> text::Style {
-    text::Style { color: Some(tones(theme).muted) }
+    text::Style {
+        color: Some(tones(theme).muted),
+    }
 }
 
 pub fn danger_text(theme: &Theme) -> text::Style {
-    text::Style { color: Some(tones(theme).danger) }
+    text::Style {
+        color: Some(tones(theme).danger),
+    }
 }
 
 pub fn input(theme: &Theme, status: text_input::Status) -> text_input::Style {
@@ -408,7 +501,11 @@ pub fn input(theme: &Theme, status: text_input::Status) -> text_input::Style {
     };
     text_input::Style {
         background: t.surface.into(),
-        border: Border { width: 1.0, radius: RADIUS.into(), color: border_color },
+        border: Border {
+            width: 1.0,
+            radius: RADIUS.into(),
+            color: border_color,
+        },
         placeholder: t.muted,
         value: t.text,
         selection: t.selection,
@@ -418,7 +515,12 @@ pub fn input(theme: &Theme, status: text_input::Status) -> text_input::Style {
 
 /// Hairline separator between rows of a card.
 pub fn separator(theme: &Theme) -> rule::Style {
-    rule::Style { color: tones(theme).border, radius: 0.0.into(), fill_mode: rule::FillMode::Full, snap: true }
+    rule::Style {
+        color: tones(theme).border,
+        radius: 0.0.into(),
+        fill_mode: rule::FillMode::Full,
+        snap: true,
+    }
 }
 
 pub fn pick_list(theme: &Theme, status: pick::Status) -> pick::Style {
@@ -434,7 +536,11 @@ pub fn pick_list(theme: &Theme, status: pick::Status) -> pick::Style {
         border: Border {
             width: 1.0,
             radius: RADIUS.into(),
-            color: if matches!(status, pick::Status::Opened { .. }) { t.accent } else { t.border },
+            color: if matches!(status, pick::Status::Opened { .. }) {
+                t.accent
+            } else {
+                t.border
+            },
         },
     }
 }
@@ -443,11 +549,22 @@ pub fn menu(theme: &Theme) -> overlay::menu::Style {
     let t = tones(theme);
     overlay::menu::Style {
         background: t.surface.into(),
-        border: Border { width: 1.0, radius: RADIUS.into(), color: t.border },
+        border: Border {
+            width: 1.0,
+            radius: RADIUS.into(),
+            color: t.border,
+        },
         text_color: t.text,
         selected_text_color: t.text,
         selected_background: t.selection.into(),
-        shadow: Shadow { color: Color { a: 0.25, ..Color::BLACK }, offset: Vector::new(0.0, 4.0), blur_radius: 12.0 },
+        shadow: Shadow {
+            color: Color {
+                a: 0.25,
+                ..Color::BLACK
+            },
+            offset: Vector::new(0.0, 4.0),
+            blur_radius: 12.0,
+        },
     }
 }
 
@@ -466,7 +583,10 @@ pub fn cabinet(theme: &Theme) -> iced_fabi::Style {
         folder: t.muted,
         selected_folder: t.muted,
         selection: t.selection,
-        row_hover: Color { a: 0.5, ..t.selection },
+        row_hover: Color {
+            a: 0.5,
+            ..t.selection
+        },
         header: t.nav,
         line: t.border,
         // Subtle: every second row a little darker, well short of the header.
@@ -483,20 +603,44 @@ pub fn scrollbar(theme: &Theme, status: scrollable::Status) -> scrollable::Style
     let t = tones(theme);
     let alpha = match status {
         scrollable::Status::Active { .. } => 0.30,
-        scrollable::Status::Hovered { is_vertical_scrollbar_hovered: true, .. }
-        | scrollable::Status::Dragged { is_vertical_scrollbar_dragged: true, .. } => 0.65,
+        scrollable::Status::Hovered {
+            is_vertical_scrollbar_hovered: true,
+            ..
+        }
+        | scrollable::Status::Dragged {
+            is_vertical_scrollbar_dragged: true,
+            ..
+        } => 0.65,
         _ => 0.42,
     };
     let rail = scrollable::Rail {
         background: None,
         border: Border::default(),
-        scroller: scrollable::Scroller { background: Color { a: alpha, ..t.muted }.into(), border: border::rounded(4) },
+        scroller: scrollable::Scroller {
+            background: Color {
+                a: alpha,
+                ..t.muted
+            }
+            .into(),
+            border: border::rounded(4),
+        },
     };
     let base = scrollable::default(theme, status);
-    scrollable::Style { container: container::Style::default(), vertical_rail: rail, horizontal_rail: rail, gap: None, ..base }
+    scrollable::Style {
+        container: container::Style::default(),
+        vertical_rail: rail,
+        horizontal_rail: rail,
+        gap: None,
+        ..base
+    }
 }
 
 /// Vertical scrollbar geometry matching [`scrollbar`].
 pub fn slim_scrollbar() -> scrollable::Direction {
-    scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(6).scroller_width(6).margin(2))
+    scrollable::Direction::Vertical(
+        scrollable::Scrollbar::new()
+            .width(6)
+            .scroller_width(6)
+            .margin(2),
+    )
 }

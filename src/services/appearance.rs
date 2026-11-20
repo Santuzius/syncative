@@ -50,7 +50,12 @@ pub enum TrayIconChoice {
 }
 
 impl TrayIconChoice {
-    pub const ALL: [TrayIconChoice; 4] = [TrayIconChoice::System, TrayIconChoice::Reversed, TrayIconChoice::White, TrayIconChoice::Black];
+    pub const ALL: [TrayIconChoice; 4] = [
+        TrayIconChoice::System,
+        TrayIconChoice::Reversed,
+        TrayIconChoice::White,
+        TrayIconChoice::Black,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -91,7 +96,12 @@ pub enum SizeChoice {
 }
 
 impl SizeChoice {
-    pub const ALL: [SizeChoice; 4] = [SizeChoice::Smaller, SizeChoice::System, SizeChoice::Larger, SizeChoice::Largest];
+    pub const ALL: [SizeChoice; 4] = [
+        SizeChoice::Smaller,
+        SizeChoice::System,
+        SizeChoice::Larger,
+        SizeChoice::Largest,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -136,17 +146,22 @@ pub struct Appearance {
 
 impl Appearance {
     pub fn load(data_dir: &Path) -> Self {
-        std::fs::read_to_string(data_dir.join(FILE_NAME)).map_or_else(|_| Self::default(), |content| Self::parse(&content))
+        std::fs::read_to_string(data_dir.join(FILE_NAME))
+            .map_or_else(|_| Self::default(), |content| Self::parse(&content))
     }
 
     /// From `key=value` lines; unknown keys and values fall back to the defaults.
     pub fn parse(content: &str) -> Self {
         let mut appearance = Self::default();
         for line in content.lines() {
-            let Some((key, value)) = line.split_once('=') else { continue };
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
             match key.trim() {
                 "window" => appearance.window = ThemeChoice::parse(value).unwrap_or_default(),
-                "tray_icon" => appearance.tray_icon = TrayIconChoice::parse(value).unwrap_or_default(),
+                "tray_icon" => {
+                    appearance.tray_icon = TrayIconChoice::parse(value).unwrap_or_default()
+                }
                 "size" => appearance.size = SizeChoice::parse(value).unwrap_or_default(),
                 _ => {}
             }
@@ -163,7 +178,12 @@ impl Appearance {
 
     /// As `key=value` lines, the form [`parse`](Self::parse) reads.
     pub fn to_conf(&self) -> String {
-        format!("window={}\ntray_icon={}\nsize={}\n", self.window.key(), self.tray_icon.key(), self.size.key())
+        format!(
+            "window={}\ntray_icon={}\nsize={}\n",
+            self.window.key(),
+            self.tray_icon.key(),
+            self.size.key()
+        )
     }
 }
 
@@ -191,7 +211,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("syncative-appearance-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(Appearance::load(&dir), Appearance::default());
-        let chosen = Appearance { window: ThemeChoice::Dark, tray_icon: TrayIconChoice::Reversed, size: SizeChoice::Larger };
+        let chosen = Appearance {
+            window: ThemeChoice::Dark,
+            tray_icon: TrayIconChoice::Reversed,
+            size: SizeChoice::Larger,
+        };
         chosen.save(&dir).unwrap();
         assert_eq!(Appearance::load(&dir), chosen);
         let _ = std::fs::remove_dir_all(&dir);

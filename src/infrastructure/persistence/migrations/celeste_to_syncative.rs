@@ -29,11 +29,19 @@ pub fn move_data_dir(data_dir: &Path) -> Result<bool, CelesteRunning> {
     }
     match std::fs::rename(&old, data_dir) {
         Ok(()) => {
-            eprintln!("syncative: moved {} to {}", old.display(), data_dir.display());
+            eprintln!(
+                "syncative: moved {} to {}",
+                old.display(),
+                data_dir.display()
+            );
             Ok(true)
         }
         Err(err) => {
-            eprintln!("syncative: couldn't move {} to {}: {err}", old.display(), data_dir.display());
+            eprintln!(
+                "syncative: couldn't move {} to {}: {err}",
+                old.display(),
+                data_dir.display()
+            );
             Ok(false)
         }
     }
@@ -84,7 +92,8 @@ fn move_autostart_entry_at(old: &Path, new: &Path) {
 /// The value of `account` under the old service, moved to the current one. `Ok(None)` when there is none.
 #[cfg(not(target_os = "android"))]
 pub fn take_celeste_key(account: &str) -> Result<Option<String>, String> {
-    let old = keyring::Entry::new(CELESTE_SERVICE, account).map_err(|e| format!("keyring entry init failed: {e}"))?;
+    let old = keyring::Entry::new(CELESTE_SERVICE, account)
+        .map_err(|e| format!("keyring entry init failed: {e}"))?;
     let value = match old.get_password() {
         Ok(value) => value,
         Err(keyring::Error::NoEntry) => return Ok(None),
@@ -92,7 +101,9 @@ pub fn take_celeste_key(account: &str) -> Result<Option<String>, String> {
     };
     crate::services::secrets::store(account, &value)?;
     if let Err(err) = old.delete_credential() {
-        eprintln!("syncative: moved the keyring entry {account}, but couldn't delete it under {CELESTE_SERVICE}: {err}");
+        eprintln!(
+            "syncative: moved the keyring entry {account}, but couldn't delete it under {CELESTE_SERVICE}: {err}"
+        );
     }
     eprintln!("syncative: moved the keyring entry {account} from {CELESTE_SERVICE}");
     Ok(Some(value))
@@ -111,7 +122,8 @@ mod tests {
     use super::*;
 
     fn temp_root(name: &str) -> std::path::PathBuf {
-        let root = std::env::temp_dir().join(format!("syncative-rename-{name}-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("syncative-rename-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         root
@@ -123,7 +135,10 @@ mod tests {
         std::fs::create_dir(root.join("celeste")).unwrap();
         std::fs::write(root.join("celeste/data.sqlite"), "db").unwrap();
         assert_eq!(move_data_dir(&root.join("syncative")).ok(), Some(true));
-        assert_eq!(std::fs::read_to_string(root.join("syncative/data.sqlite")).unwrap(), "db");
+        assert_eq!(
+            std::fs::read_to_string(root.join("syncative/data.sqlite")).unwrap(),
+            "db"
+        );
         assert!(!root.join("celeste").exists());
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -135,7 +150,10 @@ mod tests {
         std::fs::create_dir(root.join("syncative")).unwrap();
         std::fs::write(root.join("syncative/data.sqlite"), "new").unwrap();
         assert_eq!(move_data_dir(&root.join("syncative")).ok(), Some(false));
-        assert_eq!(std::fs::read_to_string(root.join("syncative/data.sqlite")).unwrap(), "new");
+        assert_eq!(
+            std::fs::read_to_string(root.join("syncative/data.sqlite")).unwrap(),
+            "new"
+        );
         assert!(root.join("celeste").exists());
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -163,9 +181,17 @@ mod tests {
     fn a_running_celeste_blocks_the_move() {
         let root = temp_root("running");
         std::fs::create_dir(root.join("celeste")).unwrap();
-        let lock = File::options().create(true).truncate(false).write(true).open(root.join("celeste/instance.lock")).unwrap();
+        let lock = File::options()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(root.join("celeste/instance.lock"))
+            .unwrap();
         // flock locks belong to the open file description, so a second open in this process conflicts like another process would.
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+        assert_eq!(
+            unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+            0
+        );
         assert!(move_data_dir(&root.join("syncative")).is_err());
         assert!(!root.join("syncative").exists());
         drop(lock);

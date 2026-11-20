@@ -6,23 +6,43 @@ use std::borrow::Cow;
 const ACTIVE: bool = cfg!(target_os = "android");
 
 /// Characters FAT forbids (besides `/`, which never reaches a name) and their look-alikes.
-const MAP: [(char, char); 8] = [('"', '＂'), ('*', '＊'), (':', '：'), ('<', '＜'), ('>', '＞'), ('?', '？'), ('\\', '＼'), ('|', '｜')];
+const MAP: [(char, char); 8] = [
+    ('"', '＂'),
+    ('*', '＊'),
+    (':', '：'),
+    ('<', '＜'),
+    ('>', '＞'),
+    ('?', '？'),
+    ('\\', '＼'),
+    ('|', '｜'),
+];
 
 /// Marks a look-alike (or itself) that is part of the remote name.
 const QUOTE: char = '‛';
 
 /// The on-disk form of `remote` (a name or a `/`-separated relative path).
 pub fn to_local(remote: &str) -> Cow<'_, str> {
-    if ACTIVE { encode(remote) } else { Cow::Borrowed(remote) }
+    if ACTIVE {
+        encode(remote)
+    } else {
+        Cow::Borrowed(remote)
+    }
 }
 
 /// The remote form of the on-disk name `local`.
 pub fn from_local(local: &str) -> Cow<'_, str> {
-    if ACTIVE { decode(local) } else { Cow::Borrowed(local) }
+    if ACTIVE {
+        decode(local)
+    } else {
+        Cow::Borrowed(local)
+    }
 }
 
 fn encode(remote: &str) -> Cow<'_, str> {
-    if !remote.chars().any(|c| c == QUOTE || MAP.iter().any(|&(plain, wide)| c == plain || c == wide)) {
+    if !remote
+        .chars()
+        .any(|c| c == QUOTE || MAP.iter().any(|&(plain, wide)| c == plain || c == wide))
+    {
         return Cow::Borrowed(remote);
     }
     let mut out = String::with_capacity(remote.len() + 8);
@@ -34,7 +54,13 @@ fn encode(remote: &str) -> Cow<'_, str> {
         }
         // A look-alike, or a quote that would otherwise read as one, gets a quote of its own.
         let wide = MAP.iter().any(|&(_, wide)| wide == c);
-        let quote_before_special = c == QUOTE && chars.peek().is_some_and(|&next| next == QUOTE || MAP.iter().any(|&(plain, wide)| next == plain || next == wide));
+        let quote_before_special = c == QUOTE
+            && chars.peek().is_some_and(|&next| {
+                next == QUOTE
+                    || MAP
+                        .iter()
+                        .any(|&(plain, wide)| next == plain || next == wide)
+            });
         if wide || quote_before_special {
             out.push(QUOTE);
         }
@@ -44,7 +70,10 @@ fn encode(remote: &str) -> Cow<'_, str> {
 }
 
 fn decode(local: &str) -> Cow<'_, str> {
-    if !local.chars().any(|c| c == QUOTE || MAP.iter().any(|&(_, wide)| c == wide)) {
+    if !local
+        .chars()
+        .any(|c| c == QUOTE || MAP.iter().any(|&(_, wide)| c == wide))
+    {
         return Cow::Borrowed(local);
     }
     let mut out = String::with_capacity(local.len());
@@ -72,7 +101,17 @@ mod tests {
 
     #[test]
     fn forbidden_characters_get_look_alikes_and_come_back() {
-        for name in ["https:／／ok.ru／g.txt", "a\"b*c:d<e>f?g\\h|i", "plain.txt", "already：wide", "quote‛d", "‛：", "‛:", "‛‛", "dir:1/file?.txt"] {
+        for name in [
+            "https:／／ok.ru／g.txt",
+            "a\"b*c:d<e>f?g\\h|i",
+            "plain.txt",
+            "already：wide",
+            "quote‛d",
+            "‛：",
+            "‛:",
+            "‛‛",
+            "dir:1/file?.txt",
+        ] {
             let local = encode(name);
             assert!(!local.chars().any(|c| "\"*:<>?\\|".contains(c)), "{local}");
             assert_eq!(decode(&local), name);

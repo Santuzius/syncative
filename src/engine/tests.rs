@@ -87,7 +87,10 @@ impl Rig {
     /// Handle inputs until a shared file's upload reports back.
     async fn next_upload(&mut self) {
         loop {
-            let input = tokio::time::timeout(Duration::from_secs(10), self.rx.recv()).await.expect("upload hangs").expect("channel closed");
+            let input = tokio::time::timeout(Duration::from_secs(10), self.rx.recv())
+                .await
+                .expect("upload hangs")
+                .expect("channel closed");
             let uploaded = matches!(input, Input::Uploaded { .. });
             self.core.handle(input).await;
             if uploaded {
@@ -344,7 +347,11 @@ async fn an_unreachable_provider_shows_offline_not_a_problem() {
 async fn a_listing_that_cannot_reach_the_provider_marks_all_its_folders_offline() {
     let mut rig = rig().await;
     let other = TempDir::new("engine-3");
-    rig.repo.sync_dirs.lock().unwrap().push(sync_dir(3, 1, other.as_str(), "c"));
+    rig.repo
+        .sync_dirs
+        .lock()
+        .unwrap()
+        .push(sync_dir(3, 1, other.as_str(), "c"));
     rig.send(Command::Reload).await;
     rig.send(Command::SyncNow(R1)).await;
     // What the sync service sends when listing the first folder fails with a network error.
@@ -377,7 +384,11 @@ async fn removing_a_folder_stops_the_running_pass_and_a_folder_added_meanwhile_s
     rig.repo.sync_dirs.lock().unwrap().retain(|d| d.id != D1);
     rig.send(Command::Reload).await;
     let dir = TempDir::new("engine-3");
-    rig.repo.sync_dirs.lock().unwrap().push(sync_dir(3, 1, dir.as_str(), "c"));
+    rig.repo
+        .sync_dirs
+        .lock()
+        .unwrap()
+        .push(sync_dir(3, 1, dir.as_str(), "c"));
     rig.send(Command::Reload).await;
     rig.send(Command::SyncSoon(R1)).await;
     rig.settle().await;
@@ -432,7 +443,10 @@ async fn a_rejected_password_on_the_space_request_holds_the_remote() {
     let mut rig = rig().await;
     // rclone's WebDAV wording for Nextcloud with a wrong password.
     rig.core
-        .handle(Input::Usage(R1, Err("about call failed: 401 Unauthorized".into())))
+        .handle(Input::Usage(
+            R1,
+            Err("about call failed: 401 Unauthorized".into()),
+        ))
         .await;
     assert!(rig.snap().state.needs_reauth(R1));
     // Other failures, e.g. a backend without quota, don't.
@@ -556,11 +570,24 @@ async fn logs_keep_the_newest_lines() {
 }
 
 /// Shared files queued for `remote` into `folder`, as the share screen leaves them.
-fn queued_upload(data: &TempDir, remote: RemoteId, folder: &str, names: &[&str]) -> std::path::PathBuf {
+fn queued_upload(
+    data: &TempDir,
+    remote: RemoteId,
+    folder: &str,
+    names: &[&str],
+) -> std::path::PathBuf {
     for name in names {
         data.write_file(&format!("share/{name}"), name.as_bytes());
     }
-    crate::services::share::queue_upload(&data.path, &data.path.join("share"), true, &[], remote, folder).unwrap()
+    crate::services::share::queue_upload(
+        &data.path,
+        &data.path.join("share"),
+        true,
+        &[],
+        remote,
+        folder,
+    )
+    .unwrap()
 }
 
 #[tokio::test]
@@ -568,12 +595,22 @@ async fn shared_files_go_up_one_by_one_under_free_names_and_show_on_the_remote()
     let mut rig = rig().await;
     let data = TempDir::new("engine-upload");
     let dir = queued_upload(&data, R1, "a/Inbox", &["x.txt", "y.txt"]);
-    rig.backend.set_list("a/Inbox", Ok(vec![crate::test_support::remote_item("x.txt", false, 0)]));
+    rig.backend.set_list(
+        "a/Inbox",
+        Ok(vec![crate::test_support::remote_item("x.txt", false, 0)]),
+    );
     // Paused or not, what the user shared goes up.
     rig.set_enabled(R1, false);
     rig.send(Command::Reload).await;
     rig.send(Command::Upload(dir.clone())).await;
-    assert_eq!(rig.snap().uploads[&R1], super::UploadStatus { files: 2, active: false, error: None });
+    assert_eq!(
+        rig.snap().uploads[&R1],
+        super::UploadStatus {
+            files: 2,
+            active: false,
+            error: None
+        }
+    );
 
     rig.core.start_due(Instant::now());
     assert!(rig.snap().uploads[&R1].active);
@@ -582,7 +619,14 @@ async fn shared_files_go_up_one_by_one_under_free_names_and_show_on_the_remote()
     rig.core.start_due(Instant::now());
     rig.next_upload().await;
 
-    let copies: Vec<String> = rig.backend.copy_to_remote_calls.lock().unwrap().iter().map(|(_, to)| to.clone()).collect();
+    let copies: Vec<String> = rig
+        .backend
+        .copy_to_remote_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, to)| to.clone())
+        .collect();
     assert_eq!(copies, ["a/Inbox/x (1).txt", "a/Inbox/y.txt"]);
     assert!(rig.snap().uploads.is_empty());
     assert!(!dir.exists());
@@ -593,21 +637,29 @@ async fn a_failing_shared_file_is_tried_again_later_and_then_given_up() {
     let mut rig = rig().await;
     let data = TempDir::new("engine-upload");
     let dir = queued_upload(&data, R2, "", &["z.txt"]);
-    rig.backend.set_copy_to_remote(Err("quota exceeded".to_owned()));
+    rig.backend
+        .set_copy_to_remote(Err("quota exceeded".to_owned()));
     rig.send(Command::Upload(dir.clone())).await;
     let start = Instant::now();
     for tries in 1..=super::core::UPLOAD_TRIES {
-        rig.core.start_due(start + Duration::from_secs(1000 * u64::from(tries)));
+        rig.core
+            .start_due(start + Duration::from_secs(1000 * u64::from(tries)));
         rig.next_upload().await;
         if tries < super::core::UPLOAD_TRIES {
             let status = rig.snap().uploads[&R2].clone();
-            assert_eq!((status.active, status.error.as_deref()), (false, Some("quota exceeded")));
+            assert_eq!(
+                (status.active, status.error.as_deref()),
+                (false, Some("quota exceeded"))
+            );
             // Not again right away.
             rig.core.start_due(Instant::now());
             assert!(!rig.snap().uploads[&R2].active);
         }
     }
-    assert_eq!(rig.backend.copy_to_remote_calls.lock().unwrap().len(), super::core::UPLOAD_TRIES as usize);
+    assert_eq!(
+        rig.backend.copy_to_remote_calls.lock().unwrap().len(),
+        super::core::UPLOAD_TRIES as usize
+    );
     assert!(rig.snap().uploads.is_empty());
     assert!(!dir.exists());
 }
@@ -633,14 +685,23 @@ async fn originals_go_up_untouched_and_a_vanished_one_is_given_up_at_once() {
     let data = TempDir::new("engine-originals");
     let kept = data.write_file("docs/kept.txt", b"kept");
     let gone = data.path.join("docs/gone.txt");
-    let dir = crate::services::share::queue_upload(&data.path, std::path::Path::new("originals-1"), false, &[kept.clone(), gone.clone()], R1, "").unwrap();
+    let dir = crate::services::share::queue_upload(
+        &data.path,
+        std::path::Path::new("originals-1"),
+        false,
+        &[kept.clone(), gone.clone()],
+        R1,
+        "",
+    )
+    .unwrap();
     rig.backend.set_copy_to_remote(Ok(()));
     rig.send(Command::Upload(dir.clone())).await;
     rig.core.start_due(Instant::now());
     rig.next_upload().await;
     assert_eq!(std::fs::read(&kept).unwrap(), b"kept");
     // The next one no longer exists: its upload fails and isn't tried again.
-    rig.backend.set_copy_to_remote(Err("no such file".to_owned()));
+    rig.backend
+        .set_copy_to_remote(Err("no such file".to_owned()));
     rig.core.start_due(Instant::now());
     rig.next_upload().await;
     assert_eq!(rig.backend.copy_to_remote_calls.lock().unwrap().len(), 2);
@@ -654,7 +715,15 @@ async fn a_shared_file_saved_during_its_upload_goes_up_again_under_the_same_name
     let mut rig = rig().await;
     let data = TempDir::new("engine-changed");
     let original = data.write_file("docs/notes.txt", b"v1");
-    let dir = crate::services::share::queue_upload(&data.path, std::path::Path::new("originals-1"), false, std::slice::from_ref(&original), R1, "").unwrap();
+    let dir = crate::services::share::queue_upload(
+        &data.path,
+        std::path::Path::new("originals-1"),
+        false,
+        std::slice::from_ref(&original),
+        R1,
+        "",
+    )
+    .unwrap();
     // First try: the file is saved while it goes up.
     *rig.backend.during_copy_to_remote.lock().unwrap() = Some(Box::new(|local: &str| {
         std::fs::write(local, b"v2, longer").unwrap();
@@ -667,11 +736,20 @@ async fn a_shared_file_saved_during_its_upload_goes_up_again_under_the_same_name
     assert_eq!((status.files, status.active), (1, false));
     assert!(status.error.is_some());
     // The failed try left notes.txt in the cloud; the next one replaces it instead of adding "notes (1).txt".
-    rig.backend.set_list("", Ok(vec![crate::test_support::remote_item("notes.txt", false, 0)]));
+    rig.backend.set_list(
+        "",
+        Ok(vec![crate::test_support::remote_item(
+            "notes.txt",
+            false,
+            0,
+        )]),
+    );
     *rig.backend.during_copy_to_remote.lock().unwrap() = None;
     // rclone's own report of a save while it reads counts the same, and neither counts as a failed try.
     for _ in 0..super::core::UPLOAD_TRIES {
-        rig.backend.set_copy_to_remote(Err("can't copy - source file is being updated (size changed from 2 to 10)".to_owned()));
+        rig.backend.set_copy_to_remote(Err(
+            "can't copy - source file is being updated (size changed from 2 to 10)".to_owned(),
+        ));
         rig.core.start_due(start + Duration::from_secs(3600));
         rig.next_upload().await;
     }
@@ -680,7 +758,14 @@ async fn a_shared_file_saved_during_its_upload_goes_up_again_under_the_same_name
     rig.core.start_due(start + Duration::from_secs(7200));
     rig.next_upload().await;
 
-    let copies: Vec<String> = rig.backend.copy_to_remote_calls.lock().unwrap().iter().map(|(_, to)| to.clone()).collect();
+    let copies: Vec<String> = rig
+        .backend
+        .copy_to_remote_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, to)| to.clone())
+        .collect();
     assert_eq!(copies.len(), 2 + super::core::UPLOAD_TRIES as usize);
     assert!(copies.iter().all(|to| to == "notes.txt"), "{copies:?}");
     assert!(rig.snap().uploads.is_empty());

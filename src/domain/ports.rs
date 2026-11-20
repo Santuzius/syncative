@@ -11,18 +11,18 @@ use std::{
     collections::HashMap,
     future::Future,
     pin::Pin,
-    time::Duration,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
 
 use super::{
     remote::{Remote, RemoteId, RemoteUsage, SyncPolicy},
     sync::{
-        Changes, FileDetails, ListFilter, NestedFilter, RemoteCursor, RemoteItem, RemoteMeta, SyncDir,
-        SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId,
+        Changes, FileDetails, ListFilter, NestedFilter, RemoteCursor, RemoteItem, RemoteMeta,
+        SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId,
     },
 };
 
@@ -159,11 +159,21 @@ pub trait Repository: Send + Sync {
         remote_id: Option<String>,
     ) -> BoxFuture<'_, Result<(), RepositoryError>>;
     /// Replace what rows record about their remote items, all in one transaction.
-    fn set_remote_meta(&self, rows: Vec<(SyncItemId, RemoteMeta)>) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    fn set_remote_meta(
+        &self,
+        rows: Vec<(SyncItemId, RemoteMeta)>,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>>;
     /// Where the sync folder's remote stood at the last pass whose listing matched the database.
-    fn remote_cursor(&self, sync_dir: SyncDirId) -> BoxFuture<'_, Result<Option<RemoteCursor>, RepositoryError>>;
+    fn remote_cursor(
+        &self,
+        sync_dir: SyncDirId,
+    ) -> BoxFuture<'_, Result<Option<RemoteCursor>, RepositoryError>>;
     /// Replace [`Self::remote_cursor`]; `None` makes the next pass list the folder.
-    fn set_remote_cursor(&self, sync_dir: SyncDirId, cursor: Option<RemoteCursor>) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    fn set_remote_cursor(
+        &self,
+        sync_dir: SyncDirId,
+        cursor: Option<RemoteCursor>,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>>;
     fn delete_sync_item_by_paths(
         &self,
         sync_dir: SyncDirId,
@@ -193,14 +203,29 @@ pub trait Repository: Send + Sync {
     ) -> BoxFuture<'_, Result<(), RepositoryError>>;
 
     /// Sub-folders of the sync_dir kept out of Android's media scanner by a `.nomedia` file, relative to its `local_path`.
-    fn list_hidden_folders(&self, sync_dir: SyncDirId) -> BoxFuture<'_, Result<Vec<String>, RepositoryError>>;
+    fn list_hidden_folders(
+        &self,
+        sync_dir: SyncDirId,
+    ) -> BoxFuture<'_, Result<Vec<String>, RepositoryError>>;
     /// Replace the sync_dir's hidden folders.
-    fn set_hidden_folders(&self, sync_dir: SyncDirId, paths: Vec<String>) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    fn set_hidden_folders(
+        &self,
+        sync_dir: SyncDirId,
+        paths: Vec<String>,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>>;
 
     /// What the sync_dir does with each sync_dir nested in its remote folder that the user decided on.
-    fn list_nested_filters(&self, sync_dir: SyncDirId) -> BoxFuture<'_, Result<HashMap<SyncDirId, NestedFilter>, RepositoryError>>;
+    fn list_nested_filters(
+        &self,
+        sync_dir: SyncDirId,
+    ) -> BoxFuture<'_, Result<HashMap<SyncDirId, NestedFilter>, RepositoryError>>;
     /// Set or, with `None`, clear what `sync_dir` does with `nested`.
-    fn set_nested_filter(&self, sync_dir: SyncDirId, nested: SyncDirId, filter: Option<NestedFilter>) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    fn set_nested_filter(
+        &self,
+        sync_dir: SyncDirId,
+        nested: SyncDirId,
+        filter: Option<NestedFilter>,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>>;
 }
 
 pub trait BackendClient: Send + Sync {
@@ -280,7 +305,13 @@ pub trait BackendClient: Send + Sync {
     }
 
     /// What changed below the folder `path` since `cursor`, a cursor from an earlier answer; without one, where the backend stands now. The default can't tell, so every pass lists in full.
-    fn changes(&self, _remote: &str, _path: &str, _cursor: Option<&str>, _cancel: &Cancel) -> Result<Changes, String> {
+    fn changes(
+        &self,
+        _remote: &str,
+        _path: &str,
+        _cursor: Option<&str>,
+        _cancel: &Cancel,
+    ) -> Result<Changes, String> {
         Ok(Changes::Unknown { cursor: None })
     }
 
@@ -290,7 +321,12 @@ pub trait BackendClient: Send + Sync {
     }
 
     /// The change tags ([`RemoteItem::tag`]) of the folders directly in folder `path`, by path; `None` for a backend without them. Read before listing the folder, so a change in between makes a tag look older, never newer.
-    fn folder_tags(&self, _remote: &str, _path: &str, _cancel: &Cancel) -> Result<Option<HashMap<String, String>>, String> {
+    fn folder_tags(
+        &self,
+        _remote: &str,
+        _path: &str,
+        _cancel: &Cancel,
+    ) -> Result<Option<HashMap<String, String>>, String> {
         Ok(None)
     }
 

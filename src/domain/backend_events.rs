@@ -57,6 +57,9 @@ pub trait EventTranslator: Send + Sync {
     /// Return `true` when `msg` (from stderr or an error return) indicates
     /// an auth failure. Shortcut for callers that only need a boolean.
     fn is_auth_failure(&self, msg: &str) -> bool {
-        matches!(self.classify(Operation::Auth, msg), BackendEvent::AuthExpired)
+        matches!(
+            self.classify(Operation::Auth, msg),
+            BackendEvent::AuthExpired
+        )
     }
 }

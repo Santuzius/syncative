@@ -78,15 +78,7 @@ pub(super) fn plan(snapshot: &Snapshot, sync_dir: &SyncDir) -> Vec<Action> {
         let local = snapshot.local.get(key);
         let remote = snapshot.remote.get(key);
         let db = snapshot.db.get(key);
-        if let Some(action) = plan_one(
-            key,
-            local,
-            remote,
-            db,
-            sync_dir,
-            snapshot,
-            &db_by_parent,
-        ) {
+        if let Some(action) = plan_one(key, local, remote, db, sync_dir, snapshot, &db_by_parent) {
             out.push(action);
         }
     }
@@ -101,9 +93,7 @@ fn parent_of(path: &str) -> &str {
     path.rfind('/').map_or("", |i| &path[..i])
 }
 
-fn group_db_keys_by_parent(
-    db: &HashMap<String, SyncItem>,
-) -> HashMap<&str, Vec<&str>> {
+fn group_db_keys_by_parent(db: &HashMap<String, SyncItem>) -> HashMap<&str, Vec<&str>> {
     let mut out: HashMap<&str, Vec<&str>> = HashMap::new();
     for key in db.keys() {
         out.entry(parent_of(key)).or_default().push(key.as_str());
@@ -312,9 +302,17 @@ fn plan_one(
             if l.is_dir != r.is_dir {
                 // A file on one side, a folder on the other: no content to compare, keep the old newer-wins rule.
                 return Some(if l.mtime_secs > r.mod_time.unix_timestamp() {
-                    Action::Upload { local_path: l.absolute_path.clone(), remote_path: remote_path.to_owned(), is_dir: l.is_dir }
+                    Action::Upload {
+                        local_path: l.absolute_path.clone(),
+                        remote_path: remote_path.to_owned(),
+                        is_dir: l.is_dir,
+                    }
                 } else {
-                    Action::Download { local_path: l.absolute_path.clone(), remote_path: remote_path.to_owned(), is_dir: r.is_dir }
+                    Action::Download {
+                        local_path: l.absolute_path.clone(),
+                        remote_path: remote_path.to_owned(),
+                        is_dir: r.is_dir,
+                    }
                 });
             }
             Some(Action::Conflict {
@@ -331,11 +329,9 @@ fn plan_one(
         // 6117026, adapted to the snapshot algorithm.
         (Some(l), None, Some(db)) => {
             // Reported gone by the change source is certain; only an absence from a full listing needs a sibling as proof.
-            if !snapshot.reported_gone.contains(remote_path) && !parent_is_verified(
-                remote_path,
-                &snapshot.remote,
-                db_by_parent,
-            ) {
+            if !snapshot.reported_gone.contains(remote_path)
+                && !parent_is_verified(remote_path, &snapshot.remote, db_by_parent)
+            {
                 eprintln!(
                     "sync: SKIP DeleteLocal for '{remote_path}' — listing enumerated no entries under '{}' (likely rate-limited / cache flush); preserving local copy.",
                     parent_of(remote_path),
@@ -395,12 +391,11 @@ fn plan_one(
                 return None;
             }
             // A sub-folder the walk read without error and found empty was emptied on purpose, so its files go remotely too. The sync folder itself is never in the walk and keeps the stricter check: an empty root more likely means an unmounted disk.
-            let parent_walked = snapshot.local.get(parent_of(&r.path)).is_some_and(|p| p.is_dir);
-            if !parent_walked && !parent_is_verified(
-                &r.path,
-                &snapshot.local,
-                db_by_parent,
-            ) {
+            let parent_walked = snapshot
+                .local
+                .get(parent_of(&r.path))
+                .is_some_and(|p| p.is_dir);
+            if !parent_walked && !parent_is_verified(&r.path, &snapshot.local, db_by_parent) {
                 eprintln!(
                     "sync: SKIP DeleteRemote for '{}' — walk found no entries under '{}' (likely concurrent-write race); preserving remote copy.",
                     r.path,
@@ -420,8 +415,7 @@ fn plan_one(
         (Some(l), Some(r), Some(db)) => {
             // Any other time counts, not only a newer one: a file put back from a backup keeps its old time, and Google Drive takes over the time of the file uploaded.
             let local_changed = l.mtime_secs != db.last_local_timestamp;
-            let remote_changed =
-                r.mod_time.unix_timestamp() != db.last_remote_timestamp;
+            let remote_changed = r.mod_time.unix_timestamp() != db.last_remote_timestamp;
             match (local_changed, remote_changed) {
                 (false, false) => None,
                 (true, false) => Some(Action::Upload {
@@ -441,9 +435,17 @@ fn plan_one(
                     } else if l.is_dir != r.is_dir {
                         // File on one side, folder on the other: nothing to compare, the newer one wins.
                         Some(if l.mtime_secs >= r.mod_time.unix_timestamp() {
-                            Action::Upload { local_path: l.absolute_path.clone(), remote_path: remote_path.to_owned(), is_dir: l.is_dir }
+                            Action::Upload {
+                                local_path: l.absolute_path.clone(),
+                                remote_path: remote_path.to_owned(),
+                                is_dir: l.is_dir,
+                            }
                         } else {
-                            Action::Download { local_path: l.absolute_path.clone(), remote_path: remote_path.to_owned(), is_dir: r.is_dir }
+                            Action::Download {
+                                local_path: l.absolute_path.clone(),
+                                remote_path: remote_path.to_owned(),
+                                is_dir: r.is_dir,
+                            }
                         })
                     } else {
                         Some(Action::Conflict {
@@ -463,7 +465,11 @@ fn derive_local_path(remote_path: &str, sync_dir: &SyncDir) -> String {
     if relative.is_empty() {
         sync_dir.local_path.clone()
     } else {
-        format!("{}/{}", sync_dir.local_path, local_names::to_local(relative))
+        format!(
+            "{}/{}",
+            sync_dir.local_path,
+            local_names::to_local(relative)
+        )
     }
 }
 

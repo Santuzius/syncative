@@ -56,17 +56,28 @@ pub(crate) fn enabled_at(path: &Path) -> bool {
     let Ok(content) = std::fs::read_to_string(path) else {
         return true;
     };
-    !content.lines().map(str::trim).any(|line| line.eq_ignore_ascii_case("Hidden=true") || line.eq_ignore_ascii_case("X-GNOME-Autostart-enabled=false"))
+    !content.lines().map(str::trim).any(|line| {
+        line.eq_ignore_ascii_case("Hidden=true")
+            || line.eq_ignore_ascii_case("X-GNOME-Autostart-enabled=false")
+    })
 }
 
 pub(crate) fn hidden_at(path: &Path) -> bool {
     let Ok(content) = std::fs::read_to_string(path) else {
         return true;
     };
-    !content.lines().map(str::trim).any(|line| line.eq_ignore_ascii_case("X-Syncative-Start-Hidden=false"))
+    !content
+        .lines()
+        .map(str::trim)
+        .any(|line| line.eq_ignore_ascii_case("X-Syncative-Start-Hidden=false"))
 }
 
-pub(crate) fn write_at(path: &Path, enabled: bool, start_hidden: bool, exec: &str) -> io::Result<()> {
+pub(crate) fn write_at(
+    path: &Path,
+    enabled: bool,
+    start_hidden: bool,
+    exec: &str,
+) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -94,21 +105,35 @@ pub(crate) fn exec_command() -> String {
     };
     let exe = nix_wrapper(&exe).unwrap_or(exe);
     let on_path = std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join("syncative").canonicalize().is_ok_and(|p| p == exe)))
+        .map(|paths| {
+            std::env::split_paths(&paths)
+                .any(|dir| dir.join("syncative").canonicalize().is_ok_and(|p| p == exe))
+        })
         .unwrap_or(false);
-    if on_path { "syncative".to_owned() } else { quote(&exe.to_string_lossy()) }
+    if on_path {
+        "syncative".to_owned()
+    } else {
+        quote(&exe.to_string_lossy())
+    }
 }
 
 /// The script `bin/syncative` that Nix's `wrapProgram` puts in front of the real binary `bin/.syncative-wrapped`. Only the script sets `LD_LIBRARY_PATH`, so started directly the binary finds no Wayland library and panics.
 fn nix_wrapper(exe: &Path) -> Option<PathBuf> {
-    let name = exe.file_name()?.to_str()?.strip_prefix('.')?.strip_suffix("-wrapped")?;
+    let name = exe
+        .file_name()?
+        .to_str()?
+        .strip_prefix('.')?
+        .strip_suffix("-wrapped")?;
     let wrapper = exe.with_file_name(name);
     wrapper.is_file().then_some(wrapper)
 }
 
 /// Quote an `Exec` argument as the Desktop Entry spec asks when it contains anything but plain path characters.
 fn quote(arg: &str) -> String {
-    if arg.chars().all(|c| c.is_ascii_alphanumeric() || "/._-+".contains(c)) {
+    if arg
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/._-+".contains(c))
+    {
         return arg.to_owned();
     }
     let mut out = String::from("\"");
@@ -127,7 +152,8 @@ mod tests {
     use super::*;
 
     fn temp_entry(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("syncative-autostart-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("syncative-autostart-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir.join("autostart").join(FILE_NAME)
     }
@@ -142,7 +168,11 @@ mod tests {
         let path = temp_entry("toggle");
         write_at(&path, false, true, "syncative").unwrap();
         assert!(!enabled_at(&path));
-        assert!(std::fs::read_to_string(&path).unwrap().contains("Hidden=true"));
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("Hidden=true")
+        );
         write_at(&path, true, true, "syncative").unwrap();
         assert!(enabled_at(&path));
         let _ = std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap());
@@ -157,16 +187,27 @@ mod tests {
         assert!(hidden_at(&path));
         write_at(&path, true, false, "syncative").unwrap();
         assert!(!hidden_at(&path) && enabled_at(&path));
-        assert!(std::fs::read_to_string(&path).unwrap().contains("Exec=syncative\n"));
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("Exec=syncative\n")
+        );
         write_at(&path, true, true, "syncative").unwrap();
         assert!(hidden_at(&path));
-        assert!(std::fs::read_to_string(&path).unwrap().contains("Exec=syncative --hidden\n"));
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("Exec=syncative --hidden\n")
+        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap());
     }
 
     #[test]
     fn nix_binary_is_replaced_by_its_wrapper() {
-        let dir = std::env::temp_dir().join(format!("syncative-autostart-wrapper-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "syncative-autostart-wrapper-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let binary = dir.join(".syncative-wrapped");
         assert_eq!(nix_wrapper(&binary), None);

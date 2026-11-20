@@ -64,7 +64,13 @@ impl RunState {
     /// Whether `self` should remain instead of being replaced by `next`.
     /// Warning and Error survive a later Synced — a clean apply step does not erase a per-file error that fired earlier in the same pass. Offline also survives the Warning its failed actions end the pass with.
     fn is_sticky_over(self, next: RunState) -> bool {
-        matches!((self, next), (RunState::Warning | RunState::Error | RunState::Offline, RunState::Synced) | (RunState::Offline, RunState::Warning))
+        matches!(
+            (self, next),
+            (
+                RunState::Warning | RunState::Error | RunState::Offline,
+                RunState::Synced
+            ) | (RunState::Offline, RunState::Warning)
+        )
     }
 
     /// Something the user should look at.
@@ -176,7 +182,11 @@ impl RemoteState {
     pub fn finish_pass(&mut self) {
         for (id, state) in &mut self.dirs {
             if matches!(state, RunState::Syncing(_)) {
-                *state = if self.problems_in_pass.contains(id) { RunState::Warning } else { RunState::Waiting };
+                *state = if self.problems_in_pass.contains(id) {
+                    RunState::Warning
+                } else {
+                    RunState::Waiting
+                };
             }
         }
         self.problems_in_pass.clear();
@@ -254,7 +264,9 @@ impl AppState {
     }
 
     fn remote_mut(&mut self, id: RemoteId) -> &mut RemoteState {
-        self.remotes.entry(id).or_insert_with(|| RemoteState::new(true))
+        self.remotes
+            .entry(id)
+            .or_insert_with(|| RemoteState::new(true))
     }
 
     /// Create a `RemoteState` entry for `id` if one does not yet exist, and synchronise `enabled`.
@@ -357,7 +369,9 @@ impl AppState {
 
     /// `true` when `remote_id` needs reauthentication.
     pub fn needs_reauth(&self, remote_id: RemoteId) -> bool {
-        self.remotes.get(&remote_id).is_some_and(|rs| rs.auth_needed)
+        self.remotes
+            .get(&remote_id)
+            .is_some_and(|rs| rs.auth_needed)
     }
 
     /// Roll-up for one remote; `None` before the remote is known.
@@ -398,7 +412,10 @@ mod tests {
             RunState::AuthNeeded,
         ];
         for w in states.windows(2) {
-            assert!(w[0].severity() < w[1].severity(), "{w:?} — severity not strictly increasing");
+            assert!(
+                w[0].severity() < w[1].severity(),
+                "{w:?} — severity not strictly increasing"
+            );
         }
     }
 

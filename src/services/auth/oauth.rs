@@ -2,8 +2,8 @@
 
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
         Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
@@ -83,8 +83,7 @@ pub fn add_oauth_remote(
     .to_string();
 
     client.create_config(payload)?;
-    util::await_future(repo.insert_remote(name.to_owned()))
-        .map_err(|e| e.to_string())
+    util::await_future(repo.insert_remote(name.to_owned())).map_err(|e| e.to_string())
 }
 
 /// Reauthenticate an existing OAuth-backed remote (Dropbox / Google
@@ -134,7 +133,8 @@ fn run_rclone_authorize(
     };
     // rclone's flow runs in-process (there is no rclone binary on Android) and waits for the browser on its own thread; this one opens the link and passes on a cancel.
     std::thread::scope(|scope| {
-        let flow = scope.spawn(|| syncative_go::authorize(provider.rclone_type(), client_id, client_secret));
+        let flow = scope
+            .spawn(|| syncative_go::authorize(provider.rclone_type(), client_id, client_secret));
         let mut cancelled = false;
         while !flow.is_finished() {
             if handle.cancelled.load(Ordering::Acquire) {
@@ -151,7 +151,13 @@ fn run_rclone_authorize(
             }
             std::thread::sleep(Duration::from_millis(100));
         }
-        let token = flow.join().unwrap_or_else(|_| Err("rclone's authorization crashed".to_owned()));
-        if cancelled { Err(AUTHORIZE_CANCELLED.to_owned()) } else { token }
+        let token = flow
+            .join()
+            .unwrap_or_else(|_| Err("rclone's authorization crashed".to_owned()));
+        if cancelled {
+            Err(AUTHORIZE_CANCELLED.to_owned())
+        } else {
+            token
+        }
     })
 }

@@ -99,7 +99,10 @@ fn nav_item<'a>(entry: NavEntry<'a>, selected: Option<RemoteId>) -> Element<'a, 
             .size(TEXT)
             .wrapping(Wrapping::WordOrGlyph),
         text(
-            if entry.has_folders || entry.state.is_problem() || matches!(entry.state, RunState::Paused | RunState::Syncing(_)) {
+            if entry.has_folders
+                || entry.state.is_problem()
+                || matches!(entry.state, RunState::Paused | RunState::Syncing(_))
+            {
                 status_label(entry.state)
             } else {
                 NO_FOLDERS

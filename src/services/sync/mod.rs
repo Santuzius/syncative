@@ -34,9 +34,9 @@ mod remote_view;
 mod snapshot;
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod remote_view_tests;
+#[cfg(test)]
+mod tests;
 
 /// Outcome of a single [`run`] call.
 ///
@@ -57,7 +57,8 @@ pub enum Outcome {
 #[cfg(target_os = "android")]
 const NOT_READABLE: &str = "Syncative may not read this. Allow All files access, or on GrapheneOS add the folder to Storage Scopes, then sync again.";
 #[cfg(not(target_os = "android"))]
-const NOT_READABLE: &str = "Syncative may not read this. Change its permissions or exclude it, then sync again.";
+const NOT_READABLE: &str =
+    "Syncative may not read this. Change its permissions or exclude it, then sync again.";
 
 /// Entry point. Builds the snapshot, plans, applies. `cancel` is polled
 /// at the start of each destructive action so the pass can bail out
@@ -138,7 +139,10 @@ where
         Ok(s) => s,
         Err(err) if crate::infrastructure::translators::is_offline(&err) => {
             eprintln!("sync: offline, list failed for {}: {err}", remote.name);
-            emit_status(tr::tr!("Offline — couldn't reach {}; trying again later.", remote.name));
+            emit_status(tr::tr!(
+                "Offline — couldn't reach {}; trying again later.",
+                remote.name
+            ));
             emit_state(RunState::Offline);
             return Outcome::Aborted;
         }
@@ -156,12 +160,21 @@ where
 
     // The backend finds items by path in this pass's listing until the pass ends.
     client.use_listing(&remote.name, Some(snapshot.remote.clone()));
-    let _listing_in_use = ListingInUse { client, remote: &remote.name };
+    let _listing_in_use = ListingInUse {
+        client,
+        remote: &remote.name,
+    };
 
     // A directory Syncative may not read hides everything below it, which would look deleted or never synced. Do nothing for this folder until a later pass can read it all.
     if let Some(dir) = &snapshot.walk_denied {
-        eprintln!("sync: STOP for '{}' — not allowed to read '{dir}'; nothing is synced until a pass can read the whole folder.", sync_dir.local_path);
-        emit_error(SyncError::General(crate::util::fmt_home(dir), NOT_READABLE.to_owned()));
+        eprintln!(
+            "sync: STOP for '{}' — not allowed to read '{dir}'; nothing is synced until a pass can read the whole folder.",
+            sync_dir.local_path
+        );
+        emit_error(SyncError::General(
+            crate::util::fmt_home(dir),
+            NOT_READABLE.to_owned(),
+        ));
         emit_state(RunState::Error);
         return Outcome::Aborted;
     }
@@ -169,9 +182,13 @@ where
     // Hidden folders get their `.nomedia` before new files arrive in them, and again below for folders this pass created.
     let ensure_nomedia = || {
         if nomedia::APPLIES {
-            let hidden = crate::util::await_future(repo.list_hidden_folders(sync_dir.id)).unwrap_or_default();
+            let hidden = crate::util::await_future(repo.list_hidden_folders(sync_dir.id))
+                .unwrap_or_default();
             for file in nomedia::ensure(&sync_dir.local_path, &hidden) {
-                emit_status(tr::tr!("Hidden from the gallery: {}", crate::util::fmt_home(&file.parent().unwrap_or(&file).display().to_string())));
+                emit_status(tr::tr!(
+                    "Hidden from the gallery: {}",
+                    crate::util::fmt_home(&file.parent().unwrap_or(&file).display().to_string())
+                ));
             }
         }
     };
@@ -243,7 +260,12 @@ where
         emit_status(if failed == 0 {
             tr::tr!("Done — {} changes synced.", total)
         } else {
-            tr::tr!("Done — {} of {} changes synced, {} failed.", total - failed, total, failed)
+            tr::tr!(
+                "Done — {} of {} changes synced, {} failed.",
+                total - failed,
+                total,
+                failed
+            )
         });
     }
     emit_state(RunState::Synced);
@@ -267,11 +289,27 @@ fn plan_text(actions: &[planner::Action]) -> String {
     use planner::Action;
     let count = |f: fn(&Action) -> bool| actions.iter().filter(|a| f(a)).count();
     let parts = [
-        (count(|a| matches!(a, Action::Upload { .. })), tr::tr!("to upload")),
-        (count(|a| matches!(a, Action::Download { .. })), tr::tr!("to download")),
-        (count(|a| matches!(a, Action::DeleteLocal { .. } | Action::DeleteRemote { .. })), tr::tr!("to delete")),
-        (count(|a| matches!(a, Action::Conflict { .. })), tr::tr!("to compare on both sides")),
+        (
+            count(|a| matches!(a, Action::Upload { .. })),
+            tr::tr!("to upload"),
+        ),
+        (
+            count(|a| matches!(a, Action::Download { .. })),
+            tr::tr!("to download"),
+        ),
+        (
+            count(|a| matches!(a, Action::DeleteLocal { .. } | Action::DeleteRemote { .. })),
+            tr::tr!("to delete"),
+        ),
+        (
+            count(|a| matches!(a, Action::Conflict { .. })),
+            tr::tr!("to compare on both sides"),
+        ),
     ];
-    let parts: Vec<String> = parts.into_iter().filter(|(n, _)| *n > 0).map(|(n, what)| format!("{n} {what}")).collect();
+    let parts: Vec<String> = parts
+        .into_iter()
+        .filter(|(n, _)| *n > 0)
+        .map(|(n, what)| format!("{n} {what}"))
+        .collect();
     tr::tr!("To do: {}.", parts.join(", "))
 }

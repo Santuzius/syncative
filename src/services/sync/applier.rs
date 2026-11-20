@@ -12,7 +12,10 @@ use crate::{
         ports::{BackendClient, Cancel, Repository, is_cancelled as cancel_check},
         remote::Remote,
         run_state::{RunState, SyncActivity},
-        sync::{Conflict, ConflictChoice, FileDetails, Link, LinkTarget, RemoteItem, Resolution, SyncDir, SyncError, SyncItem},
+        sync::{
+            Conflict, ConflictChoice, FileDetails, Link, LinkTarget, RemoteItem, Resolution,
+            SyncDir, SyncError, SyncItem,
+        },
     },
     util,
 };
@@ -76,7 +79,11 @@ where
     let mut conflicts = Vec::new();
     for (idx, action) in actions.into_iter().enumerate() {
         if is_cancelled() {
-            return Applied { failures: failures.get(), conflicts, cancelled: true };
+            return Applied {
+                failures: failures.get(),
+                conflicts,
+                cancelled: true,
+            };
         }
         // The listing may be a few seconds old (cached until the provider's change log reports something), so re-check the target right before anything gets overwritten or deleted.
         let mut action = preflight(action, &snapshot.db, remote, client, cancel);
@@ -101,288 +108,443 @@ where
         let pos = idx + 1;
         // A resolved conflict turns into a transfer: `continue 'action` runs that transfer, `break 'action` moves on to the next planned action.
         'action: loop {
-        match std::mem::replace(&mut action, Action::ClearDbRow { local_path: String::new(), remote_path: String::new() }) {
-            Action::Upload {
-                local_path,
-                remote_path,
-                is_dir,
-            } => {
-                if !Path::new(&local_path).exists() {
-                    // Raced with a local delete between planning and now.
-                    break 'action;
-                }
-                if is_dir {
-                    if let Err(err) = client.mkdir(&remote.name, &remote_path, cancel) {
-                        emit_error(SyncError::General(remote_path.clone(), err));
+            match std::mem::replace(
+                &mut action,
+                Action::ClearDbRow {
+                    local_path: String::new(),
+                    remote_path: String::new(),
+                },
+            ) {
+                Action::Upload {
+                    local_path,
+                    remote_path,
+                    is_dir,
+                } => {
+                    if !Path::new(&local_path).exists() {
+                        // Raced with a local delete between planning and now.
                         break 'action;
                     }
-                } else {
-                    if snapshot.db.contains_key(&remote_path) && same_content(&local_path, &remote_path, remote, client, cancel).is_some() {
-                        let recorded = snapshot.db.get(&remote_path).map_or(0, |row| row.last_local_timestamp);
-                        let local_ts = local_timestamp(Path::new(&local_path));
-                        eprintln!("sync: '{remote_path}' only changed its time here (recorded {recorded}, now {}); the content is the same on both sides — recording it as synced.", local_ts.unwrap_or(0));
-                        // The listing's time, as for a change on the remote (see Download).
-                        match (snapshot.remote.get(&remote_path), local_ts) {
-                            (Some(item), Some(local_ts)) => save_row(repo, sync_dir, &local_path, &remote_path, local_ts as i64, item),
-                            _ => record_upsert(repo, sync_dir, &local_path, &remote_path, client, &remote.name, cancel),
+                    if is_dir {
+                        if let Err(err) = client.mkdir(&remote.name, &remote_path, cancel) {
+                            emit_error(SyncError::General(remote_path.clone(), err));
+                            break 'action;
                         }
+                    } else {
+                        if snapshot.db.contains_key(&remote_path)
+                            && same_content(&local_path, &remote_path, remote, client, cancel)
+                                .is_some()
+                        {
+                            let recorded = snapshot
+                                .db
+                                .get(&remote_path)
+                                .map_or(0, |row| row.last_local_timestamp);
+                            let local_ts = local_timestamp(Path::new(&local_path));
+                            eprintln!(
+                                "sync: '{remote_path}' only changed its time here (recorded {recorded}, now {}); the content is the same on both sides — recording it as synced.",
+                                local_ts.unwrap_or(0)
+                            );
+                            // The listing's time, as for a change on the remote (see Download).
+                            match (snapshot.remote.get(&remote_path), local_ts) {
+                                (Some(item), Some(local_ts)) => save_row(
+                                    repo,
+                                    sync_dir,
+                                    &local_path,
+                                    &remote_path,
+                                    local_ts as i64,
+                                    item,
+                                ),
+                                _ => record_upsert(
+                                    repo,
+                                    sync_dir,
+                                    &local_path,
+                                    &remote_path,
+                                    client,
+                                    &remote.name,
+                                    cancel,
+                                ),
+                            }
+                            break 'action;
+                        }
+                        emit_status(tr::tr!(
+                            "[{}/{}] Uploading '{}'…",
+                            pos,
+                            total,
+                            util::fmt_home(&local_path)
+                        ));
+                        let before = file_state(Path::new(&local_path));
+                        if let Err(err) =
+                            client.copy_to_remote(&local_path, &remote.name, &remote_path, cancel)
+                        {
+                            if !Path::new(&local_path).exists() {
+                                eprintln!(
+                                    "sync: copy_to_remote raced with local delete for '{local_path}' — swallowing '{err}'.",
+                                );
+                                break 'action;
+                            }
+                            // rclone stops reading a file that is written into while it reads; the remote keeps its version.
+                            if err.contains("source file is being updated") {
+                                eprintln!(
+                                    "sync: '{local_path}' changed during its upload; it is uploaded again in a later pass ({err})."
+                                );
+                                break 'action;
+                            }
+                            emit_error(SyncError::General(local_path.clone(), err));
+                            break 'action;
+                        }
+                        // Recorded with the time from before the upload: a save during it leaves the file newer than its row, so the next pass uploads it again.
+                        if file_state(Path::new(&local_path)) != before {
+                            eprintln!(
+                                "sync: '{local_path}' changed during its upload; it is uploaded again in the next pass."
+                            );
+                        }
+                        let local_ts = before.and_then(|(_, modified)| timestamp(modified));
+                        record_uploaded(
+                            repo,
+                            sync_dir,
+                            &local_path,
+                            &remote_path,
+                            local_ts,
+                            client,
+                            &remote.name,
+                            cancel,
+                        );
                         break 'action;
                     }
+                    record_upsert(
+                        repo,
+                        sync_dir,
+                        &local_path,
+                        &remote_path,
+                        client,
+                        &remote.name,
+                        cancel,
+                    );
+                }
+                Action::Download {
+                    local_path,
+                    remote_path,
+                    is_dir,
+                } => {
+                    if is_dir {
+                        if !Path::new(&local_path).exists()
+                            && let Err(err) = fs::create_dir_all(&local_path)
+                        {
+                            emit_error(SyncError::General(local_path.clone(), err.to_string()));
+                            break 'action;
+                        }
+                    } else {
+                        // Only the remote's time changed: take over the time the file was last modified instead of the same bytes again.
+                        if snapshot.db.contains_key(&remote_path)
+                            && let Some(details) =
+                                same_content(&local_path, &remote_path, remote, client, cancel)
+                        {
+                            let recorded = snapshot
+                                .db
+                                .get(&remote_path)
+                                .map_or(0, |row| row.last_remote_timestamp);
+                            let listed = snapshot.remote.get(&remote_path);
+                            eprintln!(
+                                "sync: '{remote_path}' only changed its time on the remote (recorded {recorded}, listed {}); the content is the same on both sides — taking over its time.",
+                                listed.map_or(0, |item| item.mod_time.unix_timestamp())
+                            );
+                            if let Err(err) =
+                                set_mtime(&local_path, details.mod_time.unix_timestamp())
+                            {
+                                eprintln!(
+                                    "sync: could not give '{local_path}' the remote's modification time: {err}"
+                                );
+                            }
+                            // The row gets the listing's time, the one the next pass compares against: a time asked for separately could differ from it and plan the same check again on every pass.
+                            match (listed, local_timestamp(Path::new(&local_path))) {
+                                (Some(listed), Some(local_ts)) => save_row(
+                                    repo,
+                                    sync_dir,
+                                    &local_path,
+                                    &remote_path,
+                                    local_ts as i64,
+                                    listed,
+                                ),
+                                _ => record_upsert(
+                                    repo,
+                                    sync_dir,
+                                    &local_path,
+                                    &remote_path,
+                                    client,
+                                    &remote.name,
+                                    cancel,
+                                ),
+                            }
+                            break 'action;
+                        }
+                        if let Some(parent) = Path::new(&local_path).parent() {
+                            let _ = fs::create_dir_all(parent);
+                        }
+                        emit_status(tr::tr!(
+                            "[{}/{}] Downloading '{}'…",
+                            pos,
+                            total,
+                            util::fmt_home(&local_path)
+                        ));
+                        if let Err(err) =
+                            client.copy_to_local(&local_path, &remote.name, &remote_path, cancel)
+                        {
+                            emit_error(SyncError::General(remote_path.clone(), err));
+                            break 'action;
+                        }
+                        record_download(
+                            repo,
+                            sync_dir,
+                            &local_path,
+                            &remote_path,
+                            client,
+                            &remote.name,
+                            cancel,
+                        );
+                        break 'action;
+                    }
+                    record_upsert(
+                        repo,
+                        sync_dir,
+                        &local_path,
+                        &remote_path,
+                        client,
+                        &remote.name,
+                        cancel,
+                    );
+                }
+                Action::DeleteLocal {
+                    local_path,
+                    remote_path,
+                    is_dir,
+                } => {
+                    eprintln!(
+                        "sync: DELETE mirror-local remote={} path={}",
+                        remote.name, remote_path
+                    );
                     emit_status(tr::tr!(
-                        "[{}/{}] Uploading '{}'…",
+                        "[{}/{}] Removing '{}' locally…",
                         pos,
                         total,
                         util::fmt_home(&local_path)
                     ));
-                    let before = file_state(Path::new(&local_path));
-                    if let Err(err) =
-                        client.copy_to_remote(&local_path, &remote.name, &remote_path, cancel)
-                    {
-                        if !Path::new(&local_path).exists() {
-                            eprintln!(
-                                "sync: copy_to_remote raced with local delete for '{local_path}' — swallowing '{err}'.",
-                            );
-                            break 'action;
-                        }
-                        // rclone stops reading a file that is written into while it reads; the remote keeps its version.
-                        if err.contains("source file is being updated") {
-                            eprintln!("sync: '{local_path}' changed during its upload; it is uploaded again in a later pass ({err}).");
-                            break 'action;
-                        }
-                        emit_error(SyncError::General(local_path.clone(), err));
-                        break 'action;
-                    }
-                    // Recorded with the time from before the upload: a save during it leaves the file newer than its row, so the next pass uploads it again.
-                    if file_state(Path::new(&local_path)) != before {
-                        eprintln!("sync: '{local_path}' changed during its upload; it is uploaded again in the next pass.");
-                    }
-                    let local_ts = before.and_then(|(_, modified)| timestamp(modified));
-                    record_uploaded(repo, sync_dir, &local_path, &remote_path, local_ts, client, &remote.name, cancel);
-                    break 'action;
-                }
-                record_upsert(repo, sync_dir, &local_path, &remote_path, client, &remote.name, cancel);
-            }
-            Action::Download {
-                local_path,
-                remote_path,
-                is_dir,
-            } => {
-                if is_dir {
-                    if !Path::new(&local_path).exists()
-                        && let Err(err) = fs::create_dir_all(&local_path)
+                    let res = if is_dir {
+                        fs::remove_dir_all(&local_path)
+                    } else {
+                        fs::remove_file(&local_path)
+                    };
+                    if let Err(err) = res
+                        && err.kind() != std::io::ErrorKind::NotFound
                     {
                         emit_error(SyncError::General(local_path.clone(), err.to_string()));
                         break 'action;
                     }
-                } else {
-                    // Only the remote's time changed: take over the time the file was last modified instead of the same bytes again.
-                    if snapshot.db.contains_key(&remote_path)
-                        && let Some(details) = same_content(&local_path, &remote_path, remote, client, cancel)
-                    {
-                        let recorded = snapshot.db.get(&remote_path).map_or(0, |row| row.last_remote_timestamp);
-                        let listed = snapshot.remote.get(&remote_path);
-                        eprintln!("sync: '{remote_path}' only changed its time on the remote (recorded {recorded}, listed {}); the content is the same on both sides — taking over its time.", listed.map_or(0, |item| item.mod_time.unix_timestamp()));
-                        if let Err(err) = set_mtime(&local_path, details.mod_time.unix_timestamp()) {
-                            eprintln!("sync: could not give '{local_path}' the remote's modification time: {err}");
-                        }
-                        // The row gets the listing's time, the one the next pass compares against: a time asked for separately could differ from it and plan the same check again on every pass.
-                        match (listed, local_timestamp(Path::new(&local_path))) {
-                            (Some(listed), Some(local_ts)) => save_row(repo, sync_dir, &local_path, &remote_path, local_ts as i64, listed),
-                            _ => record_upsert(repo, sync_dir, &local_path, &remote_path, client, &remote.name, cancel),
-                        }
-                        break 'action;
-                    }
-                    if let Some(parent) = Path::new(&local_path).parent() {
-                        let _ = fs::create_dir_all(parent);
-                    }
+                    forget_rows(repo, sync_dir, &local_path, &remote_path, is_dir);
+                }
+                Action::DeleteRemote {
+                    local_path,
+                    remote_path,
+                    is_dir,
+                } => {
+                    eprintln!(
+                        "sync: DELETE mirror-remote remote={} path={}",
+                        remote.name, remote_path
+                    );
                     emit_status(tr::tr!(
-                        "[{}/{}] Downloading '{}'…",
+                        "[{}/{}] Removing '{}' on remote…",
                         pos,
                         total,
-                        util::fmt_home(&local_path)
+                        remote_path
                     ));
-                    if let Err(err) =
-                        client.copy_to_local(&local_path, &remote.name, &remote_path, cancel)
-                    {
-                        emit_error(SyncError::General(remote_path.clone(), err));
-                        break 'action;
-                    }
-                    record_download(repo, sync_dir, &local_path, &remote_path, client, &remote.name, cancel);
-                    break 'action;
-                }
-                record_upsert(repo, sync_dir, &local_path, &remote_path, client, &remote.name, cancel);
-            }
-            Action::DeleteLocal {
-                local_path,
-                remote_path,
-                is_dir,
-            } => {
-                eprintln!(
-                    "sync: DELETE mirror-local remote={} path={}",
-                    remote.name, remote_path
-                );
-                emit_status(tr::tr!(
-                    "[{}/{}] Removing '{}' locally…",
-                    pos,
-                    total,
-                    util::fmt_home(&local_path)
-                ));
-                let res = if is_dir {
-                    fs::remove_dir_all(&local_path)
-                } else {
-                    fs::remove_file(&local_path)
-                };
-                if let Err(err) = res
-                    && err.kind() != std::io::ErrorKind::NotFound
-                {
-                    emit_error(SyncError::General(local_path.clone(), err.to_string()));
-                    break 'action;
-                }
-                forget_rows(repo, sync_dir, &local_path, &remote_path, is_dir);
-            }
-            Action::DeleteRemote {
-                local_path,
-                remote_path,
-                is_dir,
-            } => {
-                eprintln!(
-                    "sync: DELETE mirror-remote remote={} path={}",
-                    remote.name, remote_path
-                );
-                emit_status(tr::tr!(
-                    "[{}/{}] Removing '{}' on remote…",
-                    pos,
-                    total,
-                    remote_path
-                ));
-                let res = if is_dir {
-                    client.purge(&remote.name, &remote_path, cancel)
-                } else {
-                    client.delete_file(&remote.name, &remote_path, cancel)
-                };
-                // Already gone, e.g. deleted elsewhere since the listing: that is what this action wanted.
-                if let Err(err) = res {
-                    if is_gone(&err) {
-                        eprintln!("sync: '{remote_path}' was already gone on the remote.");
+                    let res = if is_dir {
+                        client.purge(&remote.name, &remote_path, cancel)
                     } else {
-                        emit_error(SyncError::General(remote_path.clone(), err));
-                        break 'action;
+                        client.delete_file(&remote.name, &remote_path, cancel)
+                    };
+                    // Already gone, e.g. deleted elsewhere since the listing: that is what this action wanted.
+                    if let Err(err) = res {
+                        if is_gone(&err) {
+                            eprintln!("sync: '{remote_path}' was already gone on the remote.");
+                        } else {
+                            emit_error(SyncError::General(remote_path.clone(), err));
+                            break 'action;
+                        }
+                    }
+                    forget_rows(repo, sync_dir, &local_path, &remote_path, is_dir);
+                }
+                Action::ClearDbRow {
+                    local_path,
+                    remote_path,
+                } => {
+                    let _ = util::await_future(repo.delete_sync_item_by_paths(
+                        sync_dir.id,
+                        &local_path,
+                        &remote_path,
+                    ));
+                }
+                Action::RecordDbRow {
+                    local_path,
+                    remote_path,
+                    local_mtime,
+                    remote_mtime: _,
+                } => {
+                    eprintln!(
+                        "sync: RECORD '{remote_path}' — present on both sides but untracked; tracking it from now on."
+                    );
+                    match snapshot.remote.get(&remote_path) {
+                        Some(item) => {
+                            save_row(repo, sync_dir, &local_path, &remote_path, local_mtime, item)
+                        }
+                        None => eprintln!(
+                            "sync: could not record '{remote_path}': it is missing from the listing."
+                        ),
                     }
                 }
-                forget_rows(repo, sync_dir, &local_path, &remote_path, is_dir);
-            }
-            Action::ClearDbRow {
-                local_path,
-                remote_path,
-            } => {
-                let _ = util::await_future(repo.delete_sync_item_by_paths(
-                    sync_dir.id,
-                    &local_path,
-                    &remote_path,
-                ));
-            }
-            Action::RecordDbRow {
-                local_path,
-                remote_path,
-                local_mtime,
-                remote_mtime: _,
-            } => {
-                eprintln!("sync: RECORD '{remote_path}' — present on both sides but untracked; tracking it from now on.");
-                match snapshot.remote.get(&remote_path) {
-                    Some(item) => save_row(repo, sync_dir, &local_path, &remote_path, local_mtime, item),
-                    None => eprintln!("sync: could not record '{remote_path}': it is missing from the listing."),
-                }
-            }
-            Action::Conflict {
-                local_path,
-                remote_path,
-                kind,
-            } => {
-                let inspected = if kind == ConflictKind::Link {
-                    inspect_link(&local_path, &remote_path, remote, client, cancel)
-                } else {
-                    inspect_conflict(&local_path, &remote_path, kind, remote, client, cancel)
-                };
-                let conflict = match inspected {
-                    Inspected::Gone => break 'action,
-                    Inspected::Failed(err) => {
-                        emit_error(SyncError::General(remote_path.clone(), err));
-                        break 'action;
-                    }
-                    Inspected::Identical => {
-                        eprintln!("sync: '{remote_path}' is identical on both sides — recording it as synced.");
-                        record_upsert(repo, sync_dir, &local_path, &remote_path, client, &remote.name, cancel);
-                        break 'action;
-                    }
-                    Inspected::Differs(conflict) => conflict,
-                };
-                let chosen = resolutions
-                    .iter()
-                    .find(|r| r.remote_path == remote_path && r.local_stamp == conflict.local_stamp && r.remote_stamp == conflict.remote_stamp)
-                    .map(|r| r.choice.clone())
-                    // Never-synced pair on a backend without content digests: the newer copy wins, as before.
-                    .or_else(|| {
-                        (kind == ConflictKind::BothNew && conflict.remote.as_ref().is_some_and(|r| r.sha1.is_none())).then_some({
-                            if conflict.local_stamp > conflict.remote_stamp { ConflictChoice::KeepLocal } else { ConflictChoice::KeepRemote }
+                Action::Conflict {
+                    local_path,
+                    remote_path,
+                    kind,
+                } => {
+                    let inspected = if kind == ConflictKind::Link {
+                        inspect_link(&local_path, &remote_path, remote, client, cancel)
+                    } else {
+                        inspect_conflict(&local_path, &remote_path, kind, remote, client, cancel)
+                    };
+                    let conflict = match inspected {
+                        Inspected::Gone => break 'action,
+                        Inspected::Failed(err) => {
+                            emit_error(SyncError::General(remote_path.clone(), err));
+                            break 'action;
+                        }
+                        Inspected::Identical => {
+                            eprintln!(
+                                "sync: '{remote_path}' is identical on both sides — recording it as synced."
+                            );
+                            record_upsert(
+                                repo,
+                                sync_dir,
+                                &local_path,
+                                &remote_path,
+                                client,
+                                &remote.name,
+                                cancel,
+                            );
+                            break 'action;
+                        }
+                        Inspected::Differs(conflict) => conflict,
+                    };
+                    let chosen = resolutions
+                        .iter()
+                        .find(|r| {
+                            r.remote_path == remote_path
+                                && r.local_stamp == conflict.local_stamp
+                                && r.remote_stamp == conflict.remote_stamp
                         })
-                    });
-                match chosen {
-                    // No Warning state from here: the app sets it for the conflicts it still shows, which leaves out files the user decided on while this pass ran.
-                    None if conflict.link.is_some() => {
-                        eprintln!("sync: CONFLICT '{remote_path}' is a symbolic link — waiting for the user.");
-                        conflicts.push(conflict);
-                    }
-                    None => {
-                        eprintln!("sync: CONFLICT '{remote_path}' changed on both sides — waiting for the user.");
-                        conflicts.push(conflict);
-                    }
-                    Some(ConflictChoice::ReplaceLink) => {
-                        if conflict.link.is_none() {
-                            break 'action;
+                        .map(|r| r.choice.clone())
+                        // Never-synced pair on a backend without content digests: the newer copy wins, as before.
+                        .or_else(|| {
+                            (kind == ConflictKind::BothNew
+                                && conflict.remote.as_ref().is_some_and(|r| r.sha1.is_none()))
+                            .then_some({
+                                if conflict.local_stamp > conflict.remote_stamp {
+                                    ConflictChoice::KeepLocal
+                                } else {
+                                    ConflictChoice::KeepRemote
+                                }
+                            })
+                        });
+                    match chosen {
+                        // No Warning state from here: the app sets it for the conflicts it still shows, which leaves out files the user decided on while this pass ran.
+                        None if conflict.link.is_some() => {
+                            eprintln!(
+                                "sync: CONFLICT '{remote_path}' is a symbolic link — waiting for the user."
+                            );
+                            conflicts.push(conflict);
                         }
-                        match replace_link(&local_path) {
-                            Ok(note) => {
-                                // Without the rows, the result counts as new on this side: the next pass uploads it, or puts it to the user if the remote has a different version.
-                                let _ = util::await_future(repo.delete_sync_items_with_local_prefix(sync_dir.id, &local_path));
-                                emit_status(note);
+                        None => {
+                            eprintln!(
+                                "sync: CONFLICT '{remote_path}' changed on both sides — waiting for the user."
+                            );
+                            conflicts.push(conflict);
+                        }
+                        Some(ConflictChoice::ReplaceLink) => {
+                            if conflict.link.is_none() {
+                                break 'action;
                             }
-                            Err(err) => emit_error(SyncError::General(local_path.clone(), err)),
-                        }
-                        break 'action;
-                    }
-                    Some(_) if conflict.link.is_some() => {
-                        conflicts.push(conflict);
-                    }
-                    Some(ConflictChoice::KeepLocal) => {
-                        action = Action::Upload { local_path, remote_path, is_dir: false };
-                        continue 'action;
-                    }
-                    Some(ConflictChoice::KeepRemote) => {
-                        action = Action::Download { local_path, remote_path, is_dir: false };
-                        continue 'action;
-                    }
-                    Some(ConflictChoice::KeepBoth { local_name }) => {
-                        let renamed = Path::new(&local_path).with_file_name(&*local_names::to_local(&local_name));
-                        if local_name.is_empty() || local_name.contains('/') || renamed.exists() {
-                            emit_error(SyncError::General(local_path.clone(), tr::tr!("Can't keep both: '{}' is not a free file name.", local_name)));
+                            match replace_link(&local_path) {
+                                Ok(note) => {
+                                    // Without the rows, the result counts as new on this side: the next pass uploads it, or puts it to the user if the remote has a different version.
+                                    let _ = util::await_future(
+                                        repo.delete_sync_items_with_local_prefix(
+                                            sync_dir.id,
+                                            &local_path,
+                                        ),
+                                    );
+                                    emit_status(note);
+                                }
+                                Err(err) => emit_error(SyncError::General(local_path.clone(), err)),
+                            }
                             break 'action;
                         }
-                        if let Err(err) = fs::rename(&local_path, &renamed) {
-                            emit_error(SyncError::General(local_path.clone(), err.to_string()));
-                            break 'action;
+                        Some(_) if conflict.link.is_some() => {
+                            conflicts.push(conflict);
                         }
-                        emit_status(tr::tr!("Kept both versions: the local one is now '{}'.", util::fmt_home(&renamed.to_string_lossy())));
-                        // The renamed copy is a new local file and goes up on the next pass.
-                        action = Action::Download { local_path, remote_path, is_dir: false };
-                        continue 'action;
+                        Some(ConflictChoice::KeepLocal) => {
+                            action = Action::Upload {
+                                local_path,
+                                remote_path,
+                                is_dir: false,
+                            };
+                            continue 'action;
+                        }
+                        Some(ConflictChoice::KeepRemote) => {
+                            action = Action::Download {
+                                local_path,
+                                remote_path,
+                                is_dir: false,
+                            };
+                            continue 'action;
+                        }
+                        Some(ConflictChoice::KeepBoth { local_name }) => {
+                            let renamed = Path::new(&local_path)
+                                .with_file_name(&*local_names::to_local(&local_name));
+                            if local_name.is_empty() || local_name.contains('/') || renamed.exists()
+                            {
+                                emit_error(SyncError::General(
+                                    local_path.clone(),
+                                    tr::tr!(
+                                        "Can't keep both: '{}' is not a free file name.",
+                                        local_name
+                                    ),
+                                ));
+                                break 'action;
+                            }
+                            if let Err(err) = fs::rename(&local_path, &renamed) {
+                                emit_error(SyncError::General(local_path.clone(), err.to_string()));
+                                break 'action;
+                            }
+                            emit_status(tr::tr!(
+                                "Kept both versions: the local one is now '{}'.",
+                                util::fmt_home(&renamed.to_string_lossy())
+                            ));
+                            // The renamed copy is a new local file and goes up on the next pass.
+                            action = Action::Download {
+                                local_path,
+                                remote_path,
+                                is_dir: false,
+                            };
+                            continue 'action;
+                        }
                     }
                 }
             }
-        }
-        break 'action;
+            break 'action;
         }
     }
-    Applied { failures: failures.get(), conflicts, cancelled: false }
+    Applied {
+        failures: failures.get(),
+        conflicts,
+        cancelled: false,
+    }
 }
 
 /// Re-check an overwrite or delete against the live state. Turns
@@ -390,29 +552,83 @@ where
 /// - a download over a local copy that changed since the last sync into a conflict,
 /// - a remote delete of a copy edited remotely into a download (the edit wins),
 /// - a local delete of a copy edited locally into an upload.
-fn preflight(action: Action, db: &HashMap<String, SyncItem>, remote: &Remote, client: &dyn BackendClient, cancel: &Cancel) -> Action {
-    let remote_changed = |remote_path: &str, row: &SyncItem| {
-        matches!(client.stat(&remote.name, remote_path, cancel), Ok(Some(item)) if !item.is_dir && item.mod_time.unix_timestamp() != row.last_remote_timestamp)
-    };
+fn preflight(
+    action: Action,
+    db: &HashMap<String, SyncItem>,
+    remote: &Remote,
+    client: &dyn BackendClient,
+    cancel: &Cancel,
+) -> Action {
+    let remote_changed = |remote_path: &str, row: &SyncItem| matches!(client.stat(&remote.name, remote_path, cancel), Ok(Some(item)) if !item.is_dir && item.mod_time.unix_timestamp() != row.last_remote_timestamp);
     let local_changed = |local_path: &str, row: &SyncItem| {
-        fs::metadata(local_path).is_ok_and(|m| m.is_file()) && local_timestamp(Path::new(local_path)).is_some_and(|ts| ts as i64 != row.last_local_timestamp)
+        fs::metadata(local_path).is_ok_and(|m| m.is_file())
+            && local_timestamp(Path::new(local_path))
+                .is_some_and(|ts| ts as i64 != row.last_local_timestamp)
     };
     match action {
-        Action::Upload { local_path, remote_path, is_dir: false } => match db.get(&remote_path) {
-            Some(row) if remote_changed(&remote_path, row) => Action::Conflict { local_path, remote_path, kind: ConflictKind::BothChanged },
-            _ => Action::Upload { local_path, remote_path, is_dir: false },
+        Action::Upload {
+            local_path,
+            remote_path,
+            is_dir: false,
+        } => match db.get(&remote_path) {
+            Some(row) if remote_changed(&remote_path, row) => Action::Conflict {
+                local_path,
+                remote_path,
+                kind: ConflictKind::BothChanged,
+            },
+            _ => Action::Upload {
+                local_path,
+                remote_path,
+                is_dir: false,
+            },
         },
-        Action::Download { local_path, remote_path, is_dir: false } => match db.get(&remote_path) {
-            Some(row) if local_changed(&local_path, row) => Action::Conflict { local_path, remote_path, kind: ConflictKind::BothChanged },
-            _ => Action::Download { local_path, remote_path, is_dir: false },
+        Action::Download {
+            local_path,
+            remote_path,
+            is_dir: false,
+        } => match db.get(&remote_path) {
+            Some(row) if local_changed(&local_path, row) => Action::Conflict {
+                local_path,
+                remote_path,
+                kind: ConflictKind::BothChanged,
+            },
+            _ => Action::Download {
+                local_path,
+                remote_path,
+                is_dir: false,
+            },
         },
-        Action::DeleteRemote { local_path, remote_path, is_dir: false } => match db.get(&remote_path) {
-            Some(row) if remote_changed(&remote_path, row) => Action::Download { local_path, remote_path, is_dir: false },
-            _ => Action::DeleteRemote { local_path, remote_path, is_dir: false },
+        Action::DeleteRemote {
+            local_path,
+            remote_path,
+            is_dir: false,
+        } => match db.get(&remote_path) {
+            Some(row) if remote_changed(&remote_path, row) => Action::Download {
+                local_path,
+                remote_path,
+                is_dir: false,
+            },
+            _ => Action::DeleteRemote {
+                local_path,
+                remote_path,
+                is_dir: false,
+            },
         },
-        Action::DeleteLocal { local_path, remote_path, is_dir: false } => match db.get(&remote_path) {
-            Some(row) if local_changed(&local_path, row) => Action::Upload { local_path, remote_path, is_dir: false },
-            _ => Action::DeleteLocal { local_path, remote_path, is_dir: false },
+        Action::DeleteLocal {
+            local_path,
+            remote_path,
+            is_dir: false,
+        } => match db.get(&remote_path) {
+            Some(row) if local_changed(&local_path, row) => Action::Upload {
+                local_path,
+                remote_path,
+                is_dir: false,
+            },
+            _ => Action::DeleteLocal {
+                local_path,
+                remote_path,
+                is_dir: false,
+            },
         },
         other => other,
     }
@@ -427,7 +643,14 @@ enum Inspected {
 }
 
 /// Gather both sides of a conflict fresh and compare content where both SHA-1s are known.
-fn inspect_conflict(local_path: &str, remote_path: &str, kind: ConflictKind, remote: &Remote, client: &dyn BackendClient, cancel: &Cancel) -> Inspected {
+fn inspect_conflict(
+    local_path: &str,
+    remote_path: &str,
+    kind: ConflictKind,
+    remote: &Remote,
+    client: &dyn BackendClient,
+    cancel: &Cancel,
+) -> Inspected {
     let Ok(meta) = fs::metadata(local_path) else {
         return Inspected::Gone;
     };
@@ -448,7 +671,11 @@ fn inspect_conflict(local_path: &str, remote_path: &str, kind: ConflictKind, rem
         Err(err) => return Inspected::Failed(err),
     };
     let size_may_match = remote_details.size.is_none_or(|size| size == meta.len());
-    let local_sha1 = if remote_details.sha1.is_some() && size_may_match { sha1_of(Path::new(local_path)) } else { None };
+    let local_sha1 = if remote_details.sha1.is_some() && size_may_match {
+        sha1_of(Path::new(local_path))
+    } else {
+        None
+    };
     if local_sha1.is_some() && local_sha1 == remote_details.sha1 {
         return Inspected::Identical;
     }
@@ -461,7 +688,8 @@ fn inspect_conflict(local_path: &str, remote_path: &str, kind: ConflictKind, rem
         remote_path: remote_path.to_owned(),
         local: FileDetails {
             size: Some(meta.len()),
-            mod_time: OffsetDateTime::from_unix_timestamp(local_stamp as i64).unwrap_or(OffsetDateTime::UNIX_EPOCH),
+            mod_time: OffsetDateTime::from_unix_timestamp(local_stamp as i64)
+                .unwrap_or(OffsetDateTime::UNIX_EPOCH),
             sha1: local_sha1,
         },
         remote: Some(remote_details),
@@ -473,7 +701,13 @@ fn inspect_conflict(local_path: &str, remote_path: &str, kind: ConflictKind, rem
 }
 
 /// Gather what the dialog shows about a symbolic link: where it points, and what the remote has under its name.
-fn inspect_link(local_path: &str, remote_path: &str, remote: &Remote, client: &dyn BackendClient, cancel: &Cancel) -> Inspected {
+fn inspect_link(
+    local_path: &str,
+    remote_path: &str,
+    remote: &Remote,
+    client: &dyn BackendClient,
+    cancel: &Cancel,
+) -> Inspected {
     let Ok(meta) = fs::symlink_metadata(local_path) else {
         return Inspected::Gone;
     };
@@ -484,43 +718,55 @@ fn inspect_link(local_path: &str, remote_path: &str, remote: &Remote, client: &d
         return Inspected::Gone;
     };
     // A relative target counts from the folder the link is in.
-    let target = Path::new(local_path).parent().map_or(target.clone(), |parent| parent.join(&target));
+    let target = Path::new(local_path)
+        .parent()
+        .map_or(target.clone(), |parent| parent.join(&target));
     let (target_kind, size) = match fs::metadata(local_path) {
         Ok(m) if m.is_dir() => (LinkTarget::Folder, None),
         Ok(m) => (LinkTarget::File, Some(m.len())),
         Err(_) => (LinkTarget::Missing, None),
     };
     let local_stamp = meta.modified().ok().and_then(timestamp).unwrap_or(0) as i64;
-    let (remote_details, remote_is_dir, remote_stamp) = match client.stat(&remote.name, remote_path, cancel) {
-        Ok(Some(item)) => {
-            // A folder has no details beyond its time; a file's size comes from the details where the backend has them.
-            let bare = FileDetails { size: None, mod_time: item.mod_time, sha1: None };
-            let details = if item.is_dir {
-                bare
-            } else {
-                match client.details(&remote.name, remote_path, cancel) {
-                    Ok(details) => details.unwrap_or(bare),
-                    Err(err) => return Inspected::Failed(err),
-                }
-            };
-            (Some(details), item.is_dir, item.mod_time.unix_timestamp())
-        }
-        Ok(None) => (None, false, 0),
-        Err(err) => return Inspected::Failed(err),
-    };
+    let (remote_details, remote_is_dir, remote_stamp) =
+        match client.stat(&remote.name, remote_path, cancel) {
+            Ok(Some(item)) => {
+                // A folder has no details beyond its time; a file's size comes from the details where the backend has them.
+                let bare = FileDetails {
+                    size: None,
+                    mod_time: item.mod_time,
+                    sha1: None,
+                };
+                let details = if item.is_dir {
+                    bare
+                } else {
+                    match client.details(&remote.name, remote_path, cancel) {
+                        Ok(details) => details.unwrap_or(bare),
+                        Err(err) => return Inspected::Failed(err),
+                    }
+                };
+                (Some(details), item.is_dir, item.mod_time.unix_timestamp())
+            }
+            Ok(None) => (None, false, 0),
+            Err(err) => return Inspected::Failed(err),
+        };
     Inspected::Differs(Conflict {
         local_path: local_path.to_owned(),
         remote_path: remote_path.to_owned(),
         local: FileDetails {
             size,
-            mod_time: OffsetDateTime::from_unix_timestamp(local_stamp).unwrap_or(OffsetDateTime::UNIX_EPOCH),
+            mod_time: OffsetDateTime::from_unix_timestamp(local_stamp)
+                .unwrap_or(OffsetDateTime::UNIX_EPOCH),
             sha1: None,
         },
         remote: remote_details,
         local_stamp,
         remote_stamp,
         first_sync: false,
-        link: Some(Link { target: lexical(&target), target_kind, remote_is_dir }),
+        link: Some(Link {
+            target: lexical(&target),
+            target_kind,
+            remote_is_dir,
+        }),
     })
 }
 
@@ -550,13 +796,22 @@ fn replace_link(local_path: &str) -> Result<String, String> {
     match fs::metadata(path) {
         Err(_) => {
             fs::remove_file(path).map_err(|e| e.to_string())?;
-            Ok(tr::tr!("Removed the broken link '{}'.", util::fmt_home(local_path)))
+            Ok(tr::tr!(
+                "Removed the broken link '{}'.",
+                util::fmt_home(local_path)
+            ))
         }
         Ok(meta) if meta.is_dir() => {
             let target = fs::canonicalize(path).map_err(|e| e.to_string())?;
-            let parent = path.parent().and_then(|p| fs::canonicalize(p).ok()).unwrap_or_default();
+            let parent = path
+                .parent()
+                .and_then(|p| fs::canonicalize(p).ok())
+                .unwrap_or_default();
             if parent.starts_with(&target) {
-                return Err(tr::tr!("Can't replace the link with a copy: '{}' contains the link itself.", util::fmt_home(&target.to_string_lossy())));
+                return Err(tr::tr!(
+                    "Can't replace the link with a copy: '{}' contains the link itself.",
+                    util::fmt_home(&target.to_string_lossy())
+                ));
             }
             let _ = fs::remove_dir_all(&temp);
             if let Err(err) = copy_tree(&target, &temp) {
@@ -565,7 +820,10 @@ fn replace_link(local_path: &str) -> Result<String, String> {
             }
             fs::remove_file(path).map_err(|e| e.to_string())?;
             fs::rename(&temp, path).map_err(|e| e.to_string())?;
-            Ok(tr::tr!("Replaced the link '{}' with a copy of the folder it pointed to.", util::fmt_home(local_path)))
+            Ok(tr::tr!(
+                "Replaced the link '{}' with a copy of the folder it pointed to.",
+                util::fmt_home(local_path)
+            ))
         }
         Ok(meta) => {
             if let Err(err) = copy_file(path, &temp, &meta) {
@@ -574,7 +832,10 @@ fn replace_link(local_path: &str) -> Result<String, String> {
             }
             // Renaming onto the link replaces the link, not the file it points to.
             fs::rename(&temp, path).map_err(|e| e.to_string())?;
-            Ok(tr::tr!("Replaced the link '{}' with a copy of the file it pointed to.", util::fmt_home(local_path)))
+            Ok(tr::tr!(
+                "Replaced the link '{}' with a copy of the file it pointed to.",
+                util::fmt_home(local_path)
+            ))
         }
     }
 }
@@ -583,7 +844,10 @@ fn replace_link(local_path: &str) -> Result<String, String> {
 fn copy_file(from: &Path, to: &Path, meta: &fs::Metadata) -> std::io::Result<()> {
     fs::copy(from, to)?;
     if let Ok(modified) = meta.modified() {
-        fs::File::options().write(true).open(to)?.set_modified(modified)?;
+        fs::File::options()
+            .write(true)
+            .open(to)?
+            .set_modified(modified)?;
     }
     Ok(())
 }
@@ -607,9 +871,20 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
 }
 
 /// The remote copy's details when it holds the same content as the local file, by SHA-1 where the backend keeps one; a transfer would then only move the same bytes again.
-fn same_content(local_path: &str, remote_path: &str, remote: &Remote, client: &dyn BackendClient, cancel: &Cancel) -> Option<FileDetails> {
-    let meta = fs::metadata(local_path).ok().filter(fs::Metadata::is_file)?;
-    let details = client.details(&remote.name, remote_path, cancel).ok().flatten()?;
+fn same_content(
+    local_path: &str,
+    remote_path: &str,
+    remote: &Remote,
+    client: &dyn BackendClient,
+    cancel: &Cancel,
+) -> Option<FileDetails> {
+    let meta = fs::metadata(local_path)
+        .ok()
+        .filter(fs::Metadata::is_file)?;
+    let details = client
+        .details(&remote.name, remote_path, cancel)
+        .ok()
+        .flatten()?;
     let remote_sha1 = details.sha1.as_deref()?;
     if details.size.is_some_and(|size| size != meta.len()) {
         return None;
@@ -619,8 +894,12 @@ fn same_content(local_path: &str, remote_path: &str, remote: &Remote, client: &d
 
 /// Sets a file's modification time to `secs` after 1970.
 fn set_mtime(path: &str, secs: i64) -> std::io::Result<()> {
-    let secs = u64::try_from(secs).map_err(|_| std::io::Error::other("modification time before 1970"))?;
-    fs::File::options().write(true).open(path)?.set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs))
+    let secs =
+        u64::try_from(secs).map_err(|_| std::io::Error::other("modification time before 1970"))?;
+    fs::File::options()
+        .write(true)
+        .open(path)?
+        .set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs))
 }
 
 fn sha1_of(path: &Path) -> Option<String> {
@@ -635,7 +914,13 @@ fn sha1_of(path: &Path) -> Option<String> {
         }
         hasher.update(&buf[..n]);
     }
-    Some(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Some(
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
+    )
 }
 
 /// The progress line every 16 actions, naming what the pass is doing.
@@ -644,13 +929,23 @@ fn progress_text(activity: Option<SyncActivity>, done: usize, total: usize) -> S
         Some(SyncActivity::Downloading) => tr::tr!("Downloading: {} of {} done…", done, total),
         Some(SyncActivity::Uploading) => tr::tr!("Uploading: {} of {} done…", done, total),
         Some(SyncActivity::Deleting) => tr::tr!("Deleting: {} of {} done…", done, total),
-        Some(SyncActivity::Resolving) => tr::tr!("Comparing files present on both sides: {} of {} done…", done, total),
+        Some(SyncActivity::Resolving) => tr::tr!(
+            "Comparing files present on both sides: {} of {} done…",
+            done,
+            total
+        ),
         Some(SyncActivity::Listing) | None => tr::tr!("{} of {} done…", done, total),
     }
 }
 
 /// Forgets the row of an item deleted on both sides now, and for a folder those of everything that was below it: the planner may have left their own deletes out (no sibling to prove the listing complete), and a row left over would stand for a remote item that no longer exists once the database stands in for the listing.
-fn forget_rows(repo: &dyn Repository, sync_dir: &SyncDir, local_path: &str, remote_path: &str, is_dir: bool) {
+fn forget_rows(
+    repo: &dyn Repository,
+    sync_dir: &SyncDir,
+    local_path: &str,
+    remote_path: &str,
+    is_dir: bool,
+) {
     let forgotten = if is_dir {
         util::await_future(repo.delete_sync_items_with_local_prefix(sync_dir.id, local_path))
     } else {
@@ -680,7 +975,16 @@ fn record_upsert(
     remote_name: &str,
     cancel: &Cancel,
 ) {
-    record_uploaded(repo, sync_dir, local_path, remote_path, local_timestamp(Path::new(local_path)), client, remote_name, cancel);
+    record_uploaded(
+        repo,
+        sync_dir,
+        local_path,
+        remote_path,
+        local_timestamp(Path::new(local_path)),
+        client,
+        remote_name,
+        cancel,
+    );
 }
 
 /// Record the item with `local_ts`, the local time of what the remote now holds.
@@ -703,7 +1007,9 @@ fn record_uploaded(
     let rstat = match client.stat(remote_name, remote_path, cancel) {
         Ok(Some(rstat)) => rstat,
         Ok(None) => {
-            eprintln!("sync: could not record '{remote_path}': the remote reports no such item although its listing has it.");
+            eprintln!(
+                "sync: could not record '{remote_path}': the remote reports no such item although its listing has it."
+            );
             return;
         }
         Err(err) => {
@@ -711,7 +1017,14 @@ fn record_uploaded(
             return;
         }
     };
-    save_row(repo, sync_dir, local_path, remote_path, local_ts as i64, &rstat);
+    save_row(
+        repo,
+        sync_dir,
+        local_path,
+        remote_path,
+        local_ts as i64,
+        &rstat,
+    );
 }
 
 /// After a download: give the local copy the remote's modification time, then record both. Syncative's own Proton client writes the file with the time of the download, which made the copy look newer than the original: after a fresh start without a database, a first pass then uploaded it again.
@@ -727,7 +1040,9 @@ fn record_download(
     let rstat = match client.stat(remote_name, remote_path, cancel) {
         Ok(Some(rstat)) => rstat,
         Ok(None) => {
-            eprintln!("sync: could not record '{remote_path}': the remote reports no such item although its listing has it.");
+            eprintln!(
+                "sync: could not record '{remote_path}': the remote reports no such item although its listing has it."
+            );
             return;
         }
         Err(err) => {
@@ -737,7 +1052,11 @@ fn record_download(
     };
     let remote_ts = rstat.mod_time.unix_timestamp();
     // The file gets the time it was last modified, which Proton keeps apart from the listing's time (the upload's); the row keeps the listing's time to compare against.
-    let file_ts = client.details(remote_name, remote_path, cancel).ok().flatten().map_or(remote_ts, |d| d.mod_time.unix_timestamp());
+    let file_ts = client
+        .details(remote_name, remote_path, cancel)
+        .ok()
+        .flatten()
+        .map_or(remote_ts, |d| d.mod_time.unix_timestamp());
     if let Err(err) = set_mtime(local_path, file_ts) {
         eprintln!("sync: could not give '{local_path}' the remote's modification time: {err}");
     }
@@ -745,15 +1064,49 @@ fn record_download(
         eprintln!("sync: could not record '{remote_path}': no modification time for {local_path}.");
         return;
     };
-    save_row(repo, sync_dir, local_path, remote_path, local_ts as i64, &rstat);
+    save_row(
+        repo,
+        sync_dir,
+        local_path,
+        remote_path,
+        local_ts as i64,
+        &rstat,
+    );
 }
 
 /// Inserts or updates the item's row with the remote item `rstat` as it is now; a failure is logged, as the next pass would plan the same again.
-fn save_row(repo: &dyn Repository, sync_dir: &SyncDir, local_path: &str, remote_path: &str, local_ts: i64, rstat: &RemoteItem) {
+fn save_row(
+    repo: &dyn Repository,
+    sync_dir: &SyncDir,
+    local_path: &str,
+    remote_path: &str,
+    local_ts: i64,
+    rstat: &RemoteItem,
+) {
     let remote_ts = rstat.mod_time.unix_timestamp();
-    let saved = match util::await_future(repo.find_sync_item_by_paths(sync_dir.id, local_path, remote_path)) {
-        Ok(Some(existing)) => util::await_future(repo.update_sync_item_timestamps(existing.id, local_ts, remote_ts, rstat.is_dir, rstat.id.clone())).map(|_| ()),
-        Ok(None) => util::await_future(repo.insert_sync_item(sync_dir.id, local_path.to_owned(), remote_path.to_owned(), local_ts, remote_ts, rstat.is_dir, rstat.id.clone())).map(|_| ()),
+    let saved = match util::await_future(repo.find_sync_item_by_paths(
+        sync_dir.id,
+        local_path,
+        remote_path,
+    )) {
+        Ok(Some(existing)) => util::await_future(repo.update_sync_item_timestamps(
+            existing.id,
+            local_ts,
+            remote_ts,
+            rstat.is_dir,
+            rstat.id.clone(),
+        ))
+        .map(|_| ()),
+        Ok(None) => util::await_future(repo.insert_sync_item(
+            sync_dir.id,
+            local_path.to_owned(),
+            remote_path.to_owned(),
+            local_ts,
+            remote_ts,
+            rstat.is_dir,
+            rstat.id.clone(),
+        ))
+        .map(|_| ()),
         Err(err) => Err(err),
     };
     if let Err(err) = saved {
@@ -766,7 +1119,9 @@ fn local_timestamp(path: &Path) -> Option<u64> {
 }
 
 fn timestamp(time: SystemTime) -> Option<u64> {
-    time.duration_since(SystemTime::UNIX_EPOCH).ok().map(|d| d.as_secs())
+    time.duration_since(SystemTime::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
 }
 
 /// Size and modification time of a file, to tell whether it changed in between.

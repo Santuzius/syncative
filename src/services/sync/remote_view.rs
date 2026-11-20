@@ -13,7 +13,10 @@ use crate::{
     domain::{
         ports::{BackendClient, Cancel, Repository},
         remote::Remote,
-        sync::{Changes, ListFilter, RemoteChange, RemoteCursor, RemoteItem, RemoteMeta, SyncDir, SyncItem},
+        sync::{
+            Changes, ListFilter, RemoteChange, RemoteCursor, RemoteItem, RemoteMeta, SyncDir,
+            SyncItem,
+        },
     },
     util,
 };
@@ -54,27 +57,74 @@ pub(super) fn build(
     let filter = fingerprint(excluded);
     let mut reported_gone = HashSet::new();
     let now = unix_now();
-    let stored = util::await_future(repo.remote_cursor(sync_dir.id)).ok().flatten();
+    let stored = util::await_future(repo.remote_cursor(sync_dir.id))
+        .ok()
+        .flatten();
     let max_age = client.full_listing_every(&remote.name);
     let usable = stored.as_ref().filter(|c| {
-        c.filter == filter && max_age.is_none_or(|every| now - c.listed_at < every.as_secs() as i64) && db.values().all(|row| row.remote.is_dir.is_some())
+        c.filter == filter
+            && max_age.is_none_or(|every| now - c.listed_at < every.as_secs() as i64)
+            && db.values().all(|row| row.remote.is_dir.is_some())
     });
-    let changes = client.changes(&remote.name, &sync_dir.remote_path, usable.map(|c| c.cursor.as_str()), cancel)?;
+    let changes = client.changes(
+        &remote.name,
+        &sync_dir.remote_path,
+        usable.map(|c| c.cursor.as_str()),
+        cancel,
+    )?;
 
     let (items, next) = match (changes, usable) {
         (Changes::None, Some(_)) => (from_db(db), Next::Keep),
-        (Changes::Some { cursor, root_id, changes }, Some(stored)) => {
+        (
+            Changes::Some {
+                cursor,
+                root_id,
+                changes,
+            },
+            Some(stored),
+        ) => {
             let mut items = from_db(db);
-            match apply(&mut items, &changes, root_id.as_deref(), remote, sync_dir, client, excluded, cancel) {
+            match apply(
+                &mut items,
+                &changes,
+                root_id.as_deref(),
+                remote,
+                sync_dir,
+                client,
+                excluded,
+                cancel,
+            ) {
                 Ok(()) => {
-                    eprintln!("sync: '{}' applied {} remote change(s) instead of listing.", sync_dir.remote_path, changes.len());
-                    reported_gone = db.keys().filter(|path| !items.contains_key(*path)).cloned().collect();
-                    (items, Next::Advance { cursor, listed_at: stored.listed_at })
+                    eprintln!(
+                        "sync: '{}' applied {} remote change(s) instead of listing.",
+                        sync_dir.remote_path,
+                        changes.len()
+                    );
+                    reported_gone = db
+                        .keys()
+                        .filter(|path| !items.contains_key(*path))
+                        .cloned()
+                        .collect();
+                    (
+                        items,
+                        Next::Advance {
+                            cursor,
+                            listed_at: stored.listed_at,
+                        },
+                    )
                 }
                 Err(Problem::ListInstead(why)) => {
-                    eprintln!("sync: '{}' lists the remote folder again: {why}.", sync_dir.remote_path);
+                    eprintln!(
+                        "sync: '{}' lists the remote folder again: {why}.",
+                        sync_dir.remote_path
+                    );
                     drop(items);
-                    (by_path(list()?), Next::Listed { cursor: Some(cursor) })
+                    (
+                        by_path(list()?),
+                        Next::Listed {
+                            cursor: Some(cursor),
+                        },
+                    )
                 }
                 Err(Problem::Failed(err)) => return Err(err),
             }
@@ -88,31 +138,58 @@ pub(super) fn build(
                     (Some(c), None) if c.filter != filter => "other parts of it are left out now",
                     (Some(_), None) => "the last full listing is too old, or rows lack details",
                 };
-                eprintln!("sync: '{}' lists the remote folder: {why}.", sync_dir.remote_path);
+                eprintln!(
+                    "sync: '{}' lists the remote folder: {why}.",
+                    sync_dir.remote_path
+                );
             }
             (by_path(list()?), Next::Listed { cursor })
         }
         // A backend answering without a cursor to compare against: nothing to rely on.
         (_, None) => (by_path(list()?), Next::Listed { cursor: None }),
     };
-    let items: HashMap<String, RemoteItem> = items.into_iter().filter(|(path, _)| !super::snapshot::path_is_excluded(path, excluded)).collect();
+    let items: HashMap<String, RemoteItem> = items
+        .into_iter()
+        .filter(|(path, _)| !super::snapshot::path_is_excluded(path, excluded))
+        .collect();
 
     let level = level(&items, db);
     match next {
         Next::Keep if !level => {
-            eprintln!("sync: '{}' — the database no longer matches the remote state it stood in for; listing again next pass.", sync_dir.remote_path);
+            eprintln!(
+                "sync: '{}' — the database no longer matches the remote state it stood in for; listing again next pass.",
+                sync_dir.remote_path
+            );
             store(repo, sync_dir, None);
         }
         Next::Keep => {}
         Next::Advance { cursor, listed_at } if level => {
             record_meta(repo, &items, db);
-            store(repo, sync_dir, Some(RemoteCursor { cursor, listed_at, filter }));
+            store(
+                repo,
+                sync_dir,
+                Some(RemoteCursor {
+                    cursor,
+                    listed_at,
+                    filter,
+                }),
+            );
         }
         // The older cursor stays, so the next pass fetches these changes again.
         Next::Advance { .. } => {}
-        Next::Listed { cursor: Some(cursor) } if level => {
+        Next::Listed {
+            cursor: Some(cursor),
+        } if level => {
             record_meta(repo, &items, db);
-            store(repo, sync_dir, Some(RemoteCursor { cursor, listed_at: now, filter }));
+            store(
+                repo,
+                sync_dir,
+                Some(RemoteCursor {
+                    cursor,
+                    listed_at: now,
+                    filter,
+                }),
+            );
         }
         Next::Listed { .. } => {
             if stored.is_some() {
@@ -120,7 +197,10 @@ pub(super) fn build(
             }
         }
     }
-    Ok(RemoteSide { items, reported_gone })
+    Ok(RemoteSide {
+        items,
+        reported_gone,
+    })
 }
 
 /// The remote side of a pass.
@@ -134,17 +214,28 @@ pub(super) struct RemoteSide {
 fn level(items: &HashMap<String, RemoteItem>, db: &HashMap<String, SyncItem>) -> bool {
     items.len() == db.len()
         && items.iter().all(|(path, item)| {
-            db.get(path).is_some_and(|row| row.remote.is_dir.is_none_or(|is_dir| is_dir == item.is_dir) && (item.is_dir || row.last_remote_timestamp == item.mod_time.unix_timestamp()))
+            db.get(path).is_some_and(|row| {
+                row.remote.is_dir.is_none_or(|is_dir| is_dir == item.is_dir)
+                    && (item.is_dir || row.last_remote_timestamp == item.mod_time.unix_timestamp())
+            })
         })
 }
 
 /// Bring the rows' kind, ID and change tag up to the remote state, which matches the rows otherwise.
-fn record_meta(repo: &dyn Repository, items: &HashMap<String, RemoteItem>, db: &HashMap<String, SyncItem>) {
+fn record_meta(
+    repo: &dyn Repository,
+    items: &HashMap<String, RemoteItem>,
+    db: &HashMap<String, SyncItem>,
+) {
     let rows: Vec<_> = db
         .iter()
         .filter_map(|(path, row)| {
             let item = items.get(path)?;
-            let meta = RemoteMeta { is_dir: Some(item.is_dir), id: item.id.clone(), tag: item.tag.clone() };
+            let meta = RemoteMeta {
+                is_dir: Some(item.is_dir),
+                id: item.id.clone(),
+                tag: item.tag.clone(),
+            };
             (meta != row.remote).then_some((row.id, meta))
         })
         .collect();
@@ -158,12 +249,18 @@ fn record_meta(repo: &dyn Repository, items: &HashMap<String, RemoteItem>, db: &
 
 fn store(repo: &dyn Repository, sync_dir: &SyncDir, cursor: Option<RemoteCursor>) {
     if let Err(err) = util::await_future(repo.set_remote_cursor(sync_dir.id, cursor)) {
-        eprintln!("sync: could not record where '{}' stands on the remote: {err}", sync_dir.remote_path);
+        eprintln!(
+            "sync: could not record where '{}' stands on the remote: {err}",
+            sync_dir.remote_path
+        );
     }
 }
 
 fn by_path(items: Vec<RemoteItem>) -> HashMap<String, RemoteItem> {
-    items.into_iter().map(|item| (item.path.clone(), item)).collect()
+    items
+        .into_iter()
+        .map(|item| (item.path.clone(), item))
+        .collect()
 }
 
 /// The remote state the rows recorded. Every row knows its kind ([`build`] checks).
@@ -174,7 +271,8 @@ fn from_db(db: &HashMap<String, SyncItem>) -> HashMap<String, RemoteItem> {
                 is_dir: row.remote.is_dir.unwrap_or(false),
                 path: path.clone(),
                 name: base_name(path).to_owned(),
-                mod_time: OffsetDateTime::from_unix_timestamp(row.last_remote_timestamp).unwrap_or(OffsetDateTime::UNIX_EPOCH),
+                mod_time: OffsetDateTime::from_unix_timestamp(row.last_remote_timestamp)
+                    .unwrap_or(OffsetDateTime::UNIX_EPOCH),
                 id: row.remote.id.clone(),
                 tag: row.remote.tag.clone(),
             };
@@ -195,7 +293,13 @@ fn apply(
     cancel: &Cancel,
 ) -> Result<(), Problem> {
     let root = sync_dir.remote_path.as_str();
-    let mut walk = Walk { remote, client, cancel, excluded, folders: 0 };
+    let mut walk = Walk {
+        remote,
+        client,
+        cancel,
+        excluded,
+        folders: 0,
+    };
 
     // Folders to fetch again, parents before children.
     let mut folders: Vec<&str> = changes
@@ -209,7 +313,10 @@ fn apply(
     folders.sort_by(|a, b| a.len().cmp(&b.len()).then(a.cmp(b)));
     folders.dedup();
     if folders.len() > MAX_FOLDERS {
-        return Err(Problem::ListInstead(format!("{} folders changed", folders.len())));
+        return Err(Problem::ListInstead(format!(
+            "{} folders changed",
+            folders.len()
+        )));
     }
     for folder in folders {
         // A folder the database doesn't know is new: its nearest known ancestor shows it.
@@ -220,14 +327,23 @@ fn apply(
         walk.refresh(items, known, root)?;
     }
 
-    let by_id = changes.iter().any(|c| matches!(c, RemoteChange::Item { .. } | RemoteChange::Gone(_)));
+    let by_id = changes
+        .iter()
+        .any(|c| matches!(c, RemoteChange::Item { .. } | RemoteChange::Gone(_)));
     if by_id {
-        let root_id = root_id.ok_or_else(|| Problem::ListInstead("the backend named no ID for the folder".to_owned()))?;
+        let root_id = root_id.ok_or_else(|| {
+            Problem::ListInstead("the backend named no ID for the folder".to_owned())
+        })?;
         // Rows from before IDs were recorded can't be matched to changes naming items by ID.
         if items.values().any(|item| item.id.is_none()) {
-            return Err(Problem::ListInstead("the database lacks the provider's IDs".to_owned()));
+            return Err(Problem::ListInstead(
+                "the database lacks the provider's IDs".to_owned(),
+            ));
         }
-        let mut paths: HashMap<String, String> = items.iter().filter_map(|(path, item)| Some((item.id.clone()?, path.clone()))).collect();
+        let mut paths: HashMap<String, String> = items
+            .iter()
+            .filter_map(|(path, item)| Some((item.id.clone()?, path.clone())))
+            .collect();
         for change in changes {
             match change {
                 RemoteChange::Folder(_) => {}
@@ -239,11 +355,26 @@ fn apply(
                         remove_below(items, &mut paths, &path);
                     }
                 }
-                RemoteChange::Item { id, parent_id, name, is_dir, mod_time } => {
+                RemoteChange::Item {
+                    id,
+                    parent_id,
+                    name,
+                    is_dir,
+                    mod_time,
+                } => {
                     if id == root_id {
-                        return Err(Problem::ListInstead("the folder itself was renamed or moved".to_owned()));
+                        return Err(Problem::ListInstead(
+                            "the folder itself was renamed or moved".to_owned(),
+                        ));
                     }
-                    let parent = if parent_id == root_id { Some(root.to_owned()) } else { paths.get(parent_id).filter(|p| items.get(*p).is_some_and(|i| i.is_dir)).cloned() };
+                    let parent = if parent_id == root_id {
+                        Some(root.to_owned())
+                    } else {
+                        paths
+                            .get(parent_id)
+                            .filter(|p| items.get(*p).is_some_and(|i| i.is_dir))
+                            .cloned()
+                    };
                     let old = paths.get(id).cloned();
                     let Some(parent) = parent else {
                         // Outside the folder now: moved out, or never in it.
@@ -274,7 +405,17 @@ fn apply(
                         remove_below(items, &mut paths, &path);
                     }
                     let moved_in = old.is_none() && *is_dir;
-                    items.insert(path.clone(), RemoteItem { is_dir: *is_dir, path: path.clone(), name: name.clone(), mod_time: *mod_time, id: Some(id.clone()), tag: None });
+                    items.insert(
+                        path.clone(),
+                        RemoteItem {
+                            is_dir: *is_dir,
+                            path: path.clone(),
+                            name: name.clone(),
+                            mod_time: *mod_time,
+                            id: Some(id.clone()),
+                            tag: None,
+                        },
+                    );
                     paths.insert(id.clone(), path.clone());
                     if moved_in {
                         // A new folder, or one moved in from elsewhere with content the database has never seen.
@@ -305,24 +446,46 @@ impl Walk<'_> {
     fn list(&mut self, folder: &str, recursive: bool) -> Result<Vec<RemoteItem>, Problem> {
         self.folders += 1;
         if self.folders > MAX_FOLDERS {
-            return Err(Problem::ListInstead(format!("more than {MAX_FOLDERS} folders changed")));
+            return Err(Problem::ListInstead(format!(
+                "more than {MAX_FOLDERS} folders changed"
+            )));
         }
-        self.client.list(&self.remote.name, folder, recursive, ListFilter::All, self.cancel).map_err(Problem::Failed)
+        self.client
+            .list(
+                &self.remote.name,
+                folder,
+                recursive,
+                ListFilter::All,
+                self.cancel,
+            )
+            .map_err(Problem::Failed)
     }
 
     /// Replace the content of `folder` with what the remote holds now. A subfolder that is new, or whose change tag changed, is fetched too; an unchanged one keeps its content. `root` is the sync folder.
-    fn refresh(&mut self, items: &mut HashMap<String, RemoteItem>, folder: &str, root: &str) -> Result<(), Problem> {
+    fn refresh(
+        &mut self,
+        items: &mut HashMap<String, RemoteItem>,
+        folder: &str,
+        root: &str,
+    ) -> Result<(), Problem> {
         if folder != root && super::snapshot::path_is_excluded(folder, self.excluded) {
             return Ok(());
         }
         // Tags first: a change between the two then makes a tag look older, which only costs another look.
-        let listed = self.client.folder_tags(&self.remote.name, folder, self.cancel).map_err(Problem::Failed).and_then(|tags| Ok((tags, self.list(folder, false)?)));
+        let listed = self
+            .client
+            .folder_tags(&self.remote.name, folder, self.cancel)
+            .map_err(Problem::Failed)
+            .and_then(|tags| Ok((tags, self.list(folder, false)?)));
         let fresh = match listed {
             Ok((tags, mut fresh)) => {
                 if let Some(tags) = tags {
                     for item in fresh.iter_mut().filter(|item| item.is_dir) {
                         let Some(tag) = tags.get(&item.path) else {
-                            return Err(Problem::ListInstead(format!("no change tag for '{}'", item.path)));
+                            return Err(Problem::ListInstead(format!(
+                                "no change tag for '{}'",
+                                item.path
+                            )));
                         };
                         item.tag = Some(tag.clone());
                     }
@@ -332,7 +495,9 @@ impl Walk<'_> {
             Err(Problem::Failed(err)) if super::snapshot::is_directory_missing_error(&err) => {
                 // For the sync folder itself, the full listing decides what a missing folder means.
                 if folder == root {
-                    return Err(Problem::ListInstead(format!("the folder itself is missing ({err})")));
+                    return Err(Problem::ListInstead(format!(
+                        "the folder itself is missing ({err})"
+                    )));
                 }
                 remove_subtree(items, folder);
                 return self.refresh(items, parent_of(folder), root);
@@ -340,14 +505,26 @@ impl Walk<'_> {
             Err(problem) => return Err(problem),
         };
         let names: HashSet<&str> = fresh.iter().map(|item| item.path.as_str()).collect();
-        let gone: Vec<String> = items.keys().filter(|path| parent_of(path) == folder && *path != folder && !names.contains(path.as_str())).cloned().collect();
+        let gone: Vec<String> = items
+            .keys()
+            .filter(|path| {
+                parent_of(path) == folder && *path != folder && !names.contains(path.as_str())
+            })
+            .cloned()
+            .collect();
         for path in gone {
             remove_subtree(items, &path);
         }
         for item in fresh {
-            let old = items.get(&item.path).map(|old| (old.is_dir, old.tag.clone()));
+            let old = items
+                .get(&item.path)
+                .map(|old| (old.is_dir, old.tag.clone()));
             match old {
-                Some((true, old_tag)) if item.is_dir && item.tag.is_some() && item.tag != old_tag => self.refresh(items, &item.path, root)?,
+                Some((true, old_tag))
+                    if item.is_dir && item.tag.is_some() && item.tag != old_tag =>
+                {
+                    self.refresh(items, &item.path, root)?
+                }
                 Some((true, _)) if item.is_dir => {}
                 Some((true, _)) => remove_subtree(items, &item.path),
                 _ if item.is_dir => {
@@ -370,7 +547,11 @@ fn remove_subtree(items: &mut HashMap<String, RemoteItem>, path: &str) {
 }
 
 /// [`remove_subtree`], also forgetting the IDs.
-fn remove_below(items: &mut HashMap<String, RemoteItem>, paths: &mut HashMap<String, String>, path: &str) {
+fn remove_below(
+    items: &mut HashMap<String, RemoteItem>,
+    paths: &mut HashMap<String, String>,
+    path: &str,
+) {
     let prefix = format!("{path}/");
     items.retain(|p, item| {
         let gone = p == path || p.starts_with(&prefix);
@@ -382,11 +563,22 @@ fn remove_below(items: &mut HashMap<String, RemoteItem>, paths: &mut HashMap<Str
 }
 
 /// A folder renamed or moved: everything below goes along.
-fn move_below(items: &mut HashMap<String, RemoteItem>, paths: &mut HashMap<String, String>, from: &str, to: &str) {
+fn move_below(
+    items: &mut HashMap<String, RemoteItem>,
+    paths: &mut HashMap<String, String>,
+    from: &str,
+    to: &str,
+) {
     let prefix = format!("{from}/");
-    let moved: Vec<String> = items.keys().filter(|p| *p == from || p.starts_with(&prefix)).cloned().collect();
+    let moved: Vec<String> = items
+        .keys()
+        .filter(|p| *p == from || p.starts_with(&prefix))
+        .cloned()
+        .collect();
     for old in moved {
-        let Some(mut item) = items.remove(&old) else { continue };
+        let Some(mut item) = items.remove(&old) else {
+            continue;
+        };
         item.path = format!("{to}{}", &old[from.len()..]);
         if let Some(id) = &item.id {
             paths.insert(id.clone(), item.path.clone());
@@ -396,7 +588,11 @@ fn move_below(items: &mut HashMap<String, RemoteItem>, paths: &mut HashMap<Strin
 }
 
 fn is_within(path: &str, root: &str) -> bool {
-    root.is_empty() || path == root || path.strip_prefix(root).is_some_and(|rest| rest.starts_with('/'))
+    root.is_empty()
+        || path == root
+        || path
+            .strip_prefix(root)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 fn parent_of(path: &str) -> &str {
@@ -408,11 +604,17 @@ fn base_name(path: &str) -> &str {
 }
 
 fn join(parent: &str, name: &str) -> String {
-    if parent.is_empty() { name.to_owned() } else { format!("{parent}/{name}") }
+    if parent.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{parent}/{name}")
+    }
 }
 
 fn unix_now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 /// A short stand-in for the set of excluded paths, stable across builds (FNV-1a).

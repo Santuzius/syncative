@@ -1,8 +1,8 @@
 //! Per-remote settings card: interval, account status and removal (automatic sync is switched by the Start / Pause button on the remote page) — one labelled row each, in the style of KDE / Windows 11 settings pages.
 
 use iced::{
-    widget::{button, column, container, row, rule, tooltip},
     Alignment, Element, Length,
+    widget::{button, column, container, row, rule, tooltip},
 };
 
 use crate::{
@@ -32,27 +32,49 @@ pub fn policy_from(msg: &Msg, current: &SyncPolicy) -> Option<SyncPolicy> {
 }
 
 pub fn view(remote: &Remote, auth_needed: bool) -> Element<'_, Msg> {
-    let warn_below = remote.provider_kind.and_then(|k| k.short_interval_threshold());
-    let mut interval_control = row![duration_picker::view(remote.policy.interval, warn_below, Msg::IntervalChanged)]
-        .spacing(8)
-        .align_y(Alignment::Center);
+    let warn_below = remote
+        .provider_kind
+        .and_then(|k| k.short_interval_threshold());
+    let mut interval_control = row![duration_picker::view(
+        remote.policy.interval,
+        warn_below,
+        Msg::IntervalChanged
+    )]
+    .spacing(8)
+    .align_y(Alignment::Center);
     // Providers with a short-interval tripwire get a hoverable explanation next to the picker.
-    if let Some(warning) = remote.provider_kind.and_then(|k| k.short_interval_warning()) {
+    if let Some(warning) = remote
+        .provider_kind
+        .and_then(|k| k.short_interval_warning())
+    {
         interval_control = interval_control.push(tooltip(
             icon(icondata::TbAlertTriangleOutline, 16.0),
-            container(text(warning).size(CAPTION)).padding(10).max_width(320).style(theme::card),
+            container(text(warning).size(CAPTION))
+                .padding(10)
+                .max_width(320)
+                .style(theme::card),
             tooltip::Position::Left,
         ));
     }
 
     let (account_detail, account_button) = if auth_needed {
-        ("Not signed in — syncing is on hold until you sign in again.", theme::button_primary as fn(&_, _) -> _)
+        (
+            "Not signed in — syncing is on hold until you sign in again.",
+            theme::button_primary as fn(&_, _) -> _,
+        )
     } else {
-        ("Signed in. Sign in again to switch the account or refresh the session.", theme::button_secondary as fn(&_, _) -> _)
+        (
+            "Signed in. Sign in again to switch the account or refresh the session.",
+            theme::button_secondary as fn(&_, _) -> _,
+        )
     };
 
     let rows = column![
-        setting_row("Interval", "How often Syncative checks for changes on both sides.", interval_control.into()),
+        setting_row(
+            "Interval",
+            "How often Syncative checks for changes on both sides.",
+            interval_control.into()
+        ),
         rule::horizontal(1).style(theme::separator),
         setting_row(
             "Account",
@@ -75,14 +97,21 @@ pub fn view(remote: &Remote, auth_needed: bool) -> Element<'_, Msg> {
         ),
     ];
 
-    container(rows).padding([2, 0]).width(Length::Fill).style(theme::card).into()
+    container(rows)
+        .padding([2, 0])
+        .width(Length::Fill)
+        .style(theme::card)
+        .into()
 }
 
 fn setting_row<'a>(title: &'a str, detail: &'a str, control: Element<'a, Msg>) -> Element<'a, Msg> {
     row![
-        column![text(title).size(TEXT), text(detail).size(CAPTION).style(theme::muted)]
-            .spacing(2)
-            .width(Length::Fill),
+        column![
+            text(title).size(TEXT),
+            text(detail).size(CAPTION).style(theme::muted)
+        ]
+        .spacing(2)
+        .width(Length::Fill),
         control,
     ]
     .spacing(16)

@@ -29,7 +29,10 @@ use crate::{
         single_instance,
         tray::{self, TrayAction, TrayUpdate},
     },
-    screens::{about, add_remote, conflict, folder_picker, main_page, preferences, remote_page, settings, share},
+    screens::{
+        about, add_remote, conflict, folder_picker, main_page, preferences, remote_page, settings,
+        share,
+    },
     services::{
         appearance::{Appearance, ThemeChoice, TrayIconChoice},
         autostart, leftovers,
@@ -72,9 +75,18 @@ pub enum Message {
     LocalPathPicked(Option<String>),
     FolderPicker(folder_picker::Msg),
     /// Folders in a directory the folder picker asked for, tagged with the picker's generation.
-    FolderListed(u64, iced_fabi::NodeId, Result<Vec<iced_fabi::Entry>, String>),
+    FolderListed(
+        u64,
+        iced_fabi::NodeId,
+        Result<Vec<iced_fabi::Entry>, String>,
+    ),
     /// A folder the picker created inside a directory, tagged with the picker's generation: the outer error is the creation's, the inner result the directory's new listing.
-    FolderCreated(u64, iced_fabi::NodeId, String, Result<Result<Vec<iced_fabi::Entry>, String>, String>),
+    FolderCreated(
+        u64,
+        iced_fabi::NodeId,
+        String,
+        Result<Result<Vec<iced_fabi::Entry>, String>, String>,
+    ),
     /// A sync folder's hidden folders, read to open the picker with them ticked.
     HiddenFoldersLoaded(SyncDirId, Vec<String>),
     /// The hidden folders were stored and their `.nomedia` files brought in line.
@@ -308,7 +320,9 @@ impl SyncativeApp {
             beta: crate::services::beta::enabled(),
             beta_dialog_open: false,
             #[cfg(not(target_os = "android"))]
-            file_manager_menu: crate::services::file_manager_menu::offer(crate::services::beta::enabled()),
+            file_manager_menu: crate::services::file_manager_menu::offer(
+                crate::services::beta::enabled(),
+            ),
             #[cfg(target_os = "android")]
             file_manager_menu: None,
             preferences_note: None,
@@ -583,7 +597,9 @@ impl SyncativeApp {
             Message::Remote(remote_page::Msg::BrowseHidden(sd_id)) => {
                 self.handle_open_folder_picker(folder_picker::Target::Hidden(sd_id))
             }
-            Message::HiddenFoldersLoaded(sd_id, hidden) => self.handle_hidden_folders_loaded(sd_id, hidden),
+            Message::HiddenFoldersLoaded(sd_id, hidden) => {
+                self.handle_hidden_folders_loaded(sd_id, hidden)
+            }
             Message::HiddenFoldersSaved => Task::none(),
             Message::FolderPicker(msg) => self.handle_folder_picker_msg(msg),
             Message::FolderListed(generation, id, result) => {
@@ -604,7 +620,9 @@ impl SyncativeApp {
             Message::Remote(remote_page::Msg::SetNestedFilter(sd_id, nested, filter)) => {
                 self.handle_set_nested_filter(sd_id, nested, filter)
             }
-            Message::NestedFilterSet(sd_id, nested, result) => self.handle_nested_filter_set(sd_id, nested, result),
+            Message::NestedFilterSet(sd_id, nested, result) => {
+                self.handle_nested_filter_set(sd_id, nested, result)
+            }
             Message::Remote(remote_page::Msg::OpenFilters(sd_id)) => self.open_filters(sd_id),
             Message::Remote(remote_page::Msg::RequestCleanLeftovers(sd_id, relative)) => {
                 self.handle_request_clean_leftovers(sd_id, relative)
@@ -818,13 +836,17 @@ impl SyncativeApp {
         } else {
             content
         };
-        let with_dialog: Element<'_, Message> = if let Some(draft) = self.add_remote_draft.as_ref() {
+        let with_dialog: Element<'_, Message> = if let Some(draft) = self.add_remote_draft.as_ref()
+        {
             let dismiss = draft
                 .can_cancel()
                 .then_some(Message::AddRemote(add_remote::Msg::Cancel));
             stack![
                 base,
-                remote_page::modal(add_remote::view(draft, self.beta).map(Message::AddRemote), dismiss)
+                remote_page::modal(
+                    add_remote::view(draft, self.beta).map(Message::AddRemote),
+                    dismiss
+                )
             ]
             .into()
         } else if let Some(dialog) = self.conflict_dialog.as_ref() {
@@ -901,14 +923,15 @@ impl SyncativeApp {
                 preferences.into()
             }
         } else if self.about_open {
-            stack![
-                base,
-                {
-                    let dialog = about::view(self.about_page, &self.about_text).map(Message::About);
-                    let close = Some(Message::About(about::Msg::Close));
-                    if self.about_page.is_framed() { remote_page::modal_framed(dialog, close) } else { remote_page::modal(dialog, close) }
+            stack![base, {
+                let dialog = about::view(self.about_page, &self.about_text).map(Message::About);
+                let close = Some(Message::About(about::Msg::Close));
+                if self.about_page.is_framed() {
+                    remote_page::modal_framed(dialog, close)
+                } else {
+                    remote_page::modal(dialog, close)
                 }
-            ]
+            }]
             .into()
         } else if let Some(remote) = (compact && self.add_folder_open)
             .then(|| self.selected_remote())
@@ -940,7 +963,10 @@ impl SyncativeApp {
         let with_dialog: Element<'_, Message> = match self.share.as_ref() {
             Some(share) if share.step != share::Step::Folder => stack![
                 with_dialog,
-                remote_page::modal(share::dialog(share, self.share_accounts()).map(Message::Share), Some(Message::Share(share::Msg::Close)))
+                remote_page::modal(
+                    share::dialog(share, self.share_accounts()).map(Message::Share),
+                    Some(Message::Share(share::Msg::Close))
+                )
             ]
             .into(),
             _ => with_dialog,
@@ -961,21 +987,38 @@ impl SyncativeApp {
 
     /// The share screen in place of everything else: its bar, below it the folder picker while that's open, else the step's body.
     fn share_screen<'a>(&'a self, share: &'a share::Share) -> Element<'a, Message> {
-        let body = match self.folder_picker.as_ref().filter(|p| p.target == folder_picker::Target::Share) {
+        let body = match self
+            .folder_picker
+            .as_ref()
+            .filter(|p| p.target == folder_picker::Target::Share)
+        {
             Some(picker) => folder_picker::view(picker, true).map(Message::FolderPicker),
             None => share::body(share, self.share_accounts()).map(Message::Share),
         };
-        iced::widget::column![share::header(share).map(Message::Share), rule::horizontal(1).style(theme::separator), body].into()
+        iced::widget::column![
+            share::header(share).map(Message::Share),
+            rule::horizontal(1).style(theme::separator),
+            body
+        ]
+        .into()
     }
 
     /// Back or Escape on the share screen: the picker's new folder dialog closes first, the picker goes back to the accounts, else the screen closes. `None` while no share is open.
     fn share_back(&mut self) -> Option<Task<Message>> {
         self.share.as_ref()?;
-        if let Some(picker) = self.folder_picker.as_mut().filter(|p| p.browser.new_folder_dialog_open()) {
+        if let Some(picker) = self
+            .folder_picker
+            .as_mut()
+            .filter(|p| p.browser.new_folder_dialog_open())
+        {
             picker.browser.close_new_folder_dialog();
             return Some(Task::none());
         }
-        if self.folder_picker.as_ref().is_some_and(|p| p.target == folder_picker::Target::Share) {
+        if self
+            .folder_picker
+            .as_ref()
+            .is_some_and(|p| p.target == folder_picker::Target::Share)
+        {
             return Some(self.handle_folder_picker_msg(folder_picker::Msg::Cancel));
         }
         Some(self.close_share())
@@ -984,7 +1027,11 @@ impl SyncativeApp {
     /// Close the topmost dialog, drawer or open panel; `false` when nothing was open.
     fn close_topmost(&mut self) -> bool {
         // The new folder dialog lies over the picker's cabinet and closes first.
-        if let Some(picker) = self.folder_picker.as_mut().filter(|p| p.browser.new_folder_dialog_open()) {
+        if let Some(picker) = self
+            .folder_picker
+            .as_mut()
+            .filter(|p| p.browser.new_folder_dialog_open())
+        {
             picker.browser.close_new_folder_dialog();
             return true;
         }
@@ -1107,9 +1154,21 @@ impl SyncativeApp {
                 exclusions_open: self.exclusion_panel == Some(dir.id),
                 nested: remote_page_auto_excluded(dir, &self.all_known_sync_dirs)
                     .into_iter()
-                    .map(|d| (d, self.nested_filters.get(&dir.id).and_then(|f| f.get(&d.id)).copied()))
+                    .map(|d| {
+                        (
+                            d,
+                            self.nested_filters
+                                .get(&dir.id)
+                                .and_then(|f| f.get(&d.id))
+                                .copied(),
+                        )
+                    })
                     .collect(),
-                nested_problem: self.nested_filter_problem.as_ref().filter(|(sd, _, _)| *sd == dir.id).map(|(_, nested, why)| (*nested, why.as_str())),
+                nested_problem: self
+                    .nested_filter_problem
+                    .as_ref()
+                    .filter(|(sd, _, _)| *sd == dir.id)
+                    .map(|(_, nested, why)| (*nested, why.as_str())),
                 custom_excluded: self
                     .sync_dir_exclusions
                     .get(&dir.id)

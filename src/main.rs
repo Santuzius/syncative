@@ -16,6 +16,10 @@ struct Cli {
 fn main() {
     let cli = <Cli as clap::Parser>::parse();
     // The running Syncative may have another working directory.
-    let save = cli.save.into_iter().map(|path| std::path::absolute(&path).unwrap_or(path)).collect();
+    let save = cli
+        .save
+        .into_iter()
+        .map(|path| std::path::absolute(&path).unwrap_or(path))
+        .collect();
     syncative::start_saving(!cli.hidden || cli.show, save);
 }

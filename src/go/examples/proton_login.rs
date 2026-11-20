@@ -116,16 +116,17 @@ fn main() {
     // download the first file (if any) to a temp path.
     if let Some(first) = entries.first() {
         match proton::stat(&resumed.uid, &first.link_id) {
-            Ok(Some(entry)) => eprintln!("  stat({}) = {} bytes, is_dir={}", entry.name, entry.size, entry.is_dir),
+            Ok(Some(entry)) => eprintln!(
+                "  stat({}) = {} bytes, is_dir={}",
+                entry.name, entry.size, entry.is_dir
+            ),
             Ok(None) => eprintln!("  stat({}) returned None (non-active)", first.name),
             Err(err) => eprintln!("  stat failed: {err}"),
         }
     }
     if let Some(first_file) = entries.iter().find(|e| !e.is_dir) {
-        let dl_path = env::temp_dir().join(format!(
-            "syncative-proton-dl-smoke-{}",
-            std::process::id()
-        ));
+        let dl_path =
+            env::temp_dir().join(format!("syncative-proton-dl-smoke-{}", std::process::id()));
         eprintln!(
             "  downloading '{}' ({} bytes) → {}…",
             first_file.name,

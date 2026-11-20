@@ -184,7 +184,12 @@ pub fn set_change_poll_interval(interval: Option<std::time::Duration>) {
 pub fn change_cursor(remote: &str, cancel: &std::sync::atomic::AtomicBool) -> Option<String> {
     let c_remote = CString::new(remote).ok()?;
     let flag = cancel.as_ptr() as *mut std::os::raw::c_uchar;
-    let cursor = unsafe { take_string(ffi::RcloneChangeCursor(c_remote.as_ptr() as *mut c_char, flag)) };
+    let cursor = unsafe {
+        take_string(ffi::RcloneChangeCursor(
+            c_remote.as_ptr() as *mut c_char,
+            flag,
+        ))
+    };
     (!cursor.is_empty()).then_some(cursor)
 }
 
@@ -206,9 +211,16 @@ pub fn changes_since(remote: &str, cursor: &str) -> Option<(String, Vec<Changed>
     }
     let c_remote = CString::new(remote).ok()?;
     let c_cursor = CString::new(cursor).ok()?;
-    let json = unsafe { take_string(ffi::RcloneChangesSince(c_remote.as_ptr() as *mut c_char, c_cursor.as_ptr() as *mut c_char)) };
+    let json = unsafe {
+        take_string(ffi::RcloneChangesSince(
+            c_remote.as_ptr() as *mut c_char,
+            c_cursor.as_ptr() as *mut c_char,
+        ))
+    };
     let reply: Reply = serde_json::from_str(&json).ok()?;
-    reply.ok.then(|| (reply.cursor, reply.changes.unwrap_or_default()))
+    reply
+        .ok
+        .then(|| (reply.cursor, reply.changes.unwrap_or_default()))
 }
 
 /// The change tags (ETags) of a Nextcloud or ownCloud folder, see [`folder_tags`].
@@ -222,16 +234,31 @@ pub struct FolderTags {
 }
 
 /// The ETag of folder `path` on the WebDAV remote `remote` and, with `depth` 1, those of its subfolders. `Ok(None)` when the remote isn't a Nextcloud or ownCloud remote, whose folders get a new ETag with every change below them.
-pub fn folder_tags(remote: &str, path: &str, depth: u8, cancel: &std::sync::atomic::AtomicBool) -> Result<Option<FolderTags>, String> {
+pub fn folder_tags(
+    remote: &str,
+    path: &str,
+    depth: u8,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<Option<FolderTags>, String> {
     let c_remote = CString::new(remote).map_err(|e| e.to_string())?;
     let c_path = CString::new(path).map_err(|e| e.to_string())?;
     let flag = cancel.as_ptr() as *mut std::os::raw::c_uchar;
-    let json = unsafe { take_string(ffi::RcloneFolderTags(c_remote.as_ptr() as *mut c_char, c_path.as_ptr() as *mut c_char, i32::from(depth), flag)) };
-    let reply: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("folder tags: {e}: {json}"))?;
+    let json = unsafe {
+        take_string(ffi::RcloneFolderTags(
+            c_remote.as_ptr() as *mut c_char,
+            c_path.as_ptr() as *mut c_char,
+            i32::from(depth),
+            flag,
+        ))
+    };
+    let reply: serde_json::Value =
+        serde_json::from_str(&json).map_err(|e| format!("folder tags: {e}: {json}"))?;
     match reply.get("error").and_then(|e| e.as_str()) {
         Some(NO_FOLDER_TAGS) => Ok(None),
         Some(err) => Err(err.to_owned()),
-        None => serde_json::from_value(reply).map(Some).map_err(|e| format!("folder tags: {e}")),
+        None => serde_json::from_value(reply)
+            .map(Some)
+            .map_err(|e| format!("folder tags: {e}")),
     }
 }
 
@@ -269,7 +296,10 @@ pub mod proton {
 
     /// The cursor of the volume's event log as it stands now.
     pub fn latest_event_id(uid: &str) -> Result<String, String> {
-        call_json::<_, String>(|payload| unsafe { ffi::ProtonDrive_LatestEventID(payload) }, &serde_json::json!({ "uid": uid }))
+        call_json::<_, String>(
+            |payload| unsafe { ffi::ProtonDrive_LatestEventID(payload) },
+            &serde_json::json!({ "uid": uid }),
+        )
     }
 
     /// One link of the volume's event log as it is now (`drive.Change` in src/go/proton/drive/events.go).
@@ -298,7 +328,10 @@ pub mod proton {
 
     /// The links that changed after event `cursor`, in the log's order.
     pub fn changes_since(uid: &str, cursor: &str) -> Result<Changes, String> {
-        call_json::<_, Changes>(|payload| unsafe { ffi::ProtonDrive_ChangesSince(payload) }, &serde_json::json!({ "uid": uid, "cursor": cursor }))
+        call_json::<_, Changes>(
+            |payload| unsafe { ffi::ProtonDrive_ChangesSince(payload) },
+            &serde_json::json!({ "uid": uid, "cursor": cursor }),
+        )
     }
 
     /// Close every connection to Proton after a network change: requests cut off by it fail at once instead of waiting for data that never comes, and their retries dial over the new network.

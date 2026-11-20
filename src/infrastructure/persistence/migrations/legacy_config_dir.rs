@@ -42,10 +42,7 @@ fn migrate_sqlite_db(legacy: &Path, data_dir: &Path) {
         return;
     }
     match std::fs::rename(&legacy_db, &new_db) {
-        Ok(()) => eprintln!(
-            "syncative: migrated SQLite DB to {}",
-            new_db.display(),
-        ),
+        Ok(()) => eprintln!("syncative: migrated SQLite DB to {}", new_db.display(),),
         Err(err) => eprintln!(
             "syncative: couldn't move {} → {}: {err}",
             legacy_db.display(),

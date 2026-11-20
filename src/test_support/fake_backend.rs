@@ -103,7 +103,10 @@ impl FakeBackend {
             .insert(path.to_owned(), responses);
     }
     pub fn set_sha1(&self, path: &str, sha1: &str) {
-        self.sha1_map.lock().unwrap().insert(path.to_owned(), sha1.to_owned());
+        self.sha1_map
+            .lock()
+            .unwrap()
+            .insert(path.to_owned(), sha1.to_owned());
     }
     pub fn set_list(&self, path: &str, resp: Result<Vec<RemoteItem>, String>) {
         self.list_map.lock().unwrap().insert(path.to_owned(), resp);
@@ -160,14 +163,24 @@ impl BackendClient for FakeBackend {
             None => Ok(vec![]),
         }
     }
-    fn details(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<Option<FileDetails>, String> {
+    fn details(
+        &self,
+        remote: &str,
+        path: &str,
+        cancel: &Cancel,
+    ) -> Result<Option<FileDetails>, String> {
         let sha1 = self.sha1_map.lock().unwrap().get(path).cloned();
         let recorded = self.details_time_map.lock().unwrap().get(path).copied();
-        Ok(self.stat(remote, path, cancel)?.filter(|item| !item.is_dir).map(|item| FileDetails {
-            size: None,
-            mod_time: recorded.map_or(item.mod_time, |t| time::OffsetDateTime::from_unix_timestamp(t).unwrap()),
-            sha1,
-        }))
+        Ok(self
+            .stat(remote, path, cancel)?
+            .filter(|item| !item.is_dir)
+            .map(|item| FileDetails {
+                size: None,
+                mod_time: recorded.map_or(item.mod_time, |t| {
+                    time::OffsetDateTime::from_unix_timestamp(t).unwrap()
+                }),
+                sha1,
+            }))
     }
     fn mkdir(&self, _remote: &str, path: &str, _cancel: &Cancel) -> Result<(), String> {
         self.mkdir_calls.lock().unwrap().push(path.to_owned());
@@ -224,12 +237,30 @@ impl BackendClient for FakeBackend {
     fn remote_type(&self, _remote: &str) -> Result<Option<String>, String> {
         Ok(None)
     }
-    fn changes(&self, _remote: &str, _path: &str, cursor: Option<&str>, _cancel: &Cancel) -> Result<Changes, String> {
-        self.changes_calls.lock().unwrap().push(cursor.map(str::to_owned));
+    fn changes(
+        &self,
+        _remote: &str,
+        _path: &str,
+        cursor: Option<&str>,
+        _cancel: &Cancel,
+    ) -> Result<Changes, String> {
+        self.changes_calls
+            .lock()
+            .unwrap()
+            .push(cursor.map(str::to_owned));
         let mut answers = self.changes_answers.lock().unwrap();
-        Ok(if answers.is_empty() { Changes::Unknown { cursor: None } } else { answers.remove(0) })
+        Ok(if answers.is_empty() {
+            Changes::Unknown { cursor: None }
+        } else {
+            answers.remove(0)
+        })
     }
-    fn folder_tags(&self, _remote: &str, path: &str, _cancel: &Cancel) -> Result<Option<HashMap<String, String>>, String> {
+    fn folder_tags(
+        &self,
+        _remote: &str,
+        path: &str,
+        _cancel: &Cancel,
+    ) -> Result<Option<HashMap<String, String>>, String> {
         Ok(self.folder_tags.lock().unwrap().get(path).cloned())
     }
     fn full_listing_every(&self, _remote: &str) -> Option<std::time::Duration> {

@@ -145,7 +145,11 @@ pub fn view(dialog: &Dialog, compact: bool) -> Element<'_, Msg> {
         return link_view(dialog, link, compact);
     }
     // Set for every conflict between two versions; only a link may have nothing on the remote.
-    let remote_details = c.remote.clone().unwrap_or(FileDetails { size: None, mod_time: OffsetDateTime::UNIX_EPOCH, sha1: None });
+    let remote_details = c.remote.clone().unwrap_or(FileDetails {
+        size: None,
+        mod_time: OffsetDateTime::UNIX_EPOCH,
+        sha1: None,
+    });
 
     let side = |title: String, path: String, glyph: icondata::Icon, details: &FileDetails| {
         column![
@@ -306,7 +310,14 @@ pub fn view(dialog: &Dialog, compact: bool) -> Element<'_, Msg> {
         .into()
     };
 
-    let header = header(dialog, if c.first_sync { "File exists on both sides" } else { "File changed on both sides" });
+    let header = header(
+        dialog,
+        if c.first_sync {
+            "File exists on both sides"
+        } else {
+            "File changed on both sides"
+        },
+    );
 
     let mut content = column![
         header,
@@ -328,10 +339,10 @@ pub fn view(dialog: &Dialog, compact: bool) -> Element<'_, Msg> {
         }
     }
     container(content.push(buttons))
-    .padding(22)
-    .max_width(760)
-    .style(theme::dialog)
-    .into()
+        .padding(22)
+        .max_width(760)
+        .style(theme::dialog)
+        .into()
 }
 
 /// "Apply to all" while the folder has other conflicts of the same kind.
@@ -384,14 +395,35 @@ fn link_view<'a>(dialog: &'a Dialog, link: &'a Link, compact: bool) -> Element<'
     let target = fmt_home(&link.target);
     let size = |size: Option<u64>| size.map_or_else(|| "size unknown".to_owned(), fmt_size);
     let points_to = match link.target_kind {
-        LinkTarget::File => format!("'{name}' is a link to the file {target} ({}).", size(c.local.size)),
+        LinkTarget::File => format!(
+            "'{name}' is a link to the file {target} ({}).",
+            size(c.local.size)
+        ),
         LinkTarget::Folder => format!("'{name}' is a link to the folder {target}."),
-        LinkTarget::Missing => format!("'{name}' is a link to {target}, which doesn't exist anymore."),
+        LinkTarget::Missing => {
+            format!("'{name}' is a link to {target}, which doesn't exist anymore.")
+        }
     };
-    let mut body = column![text(format!("{points_to} Syncative can't sync links, so its content isn't synced.")).size(TEXT)].spacing(12);
+    let mut body = column![
+        text(format!(
+            "{points_to} Syncative can't sync links, so its content isn't synced."
+        ))
+        .size(TEXT)
+    ]
+    .spacing(12);
     if let Some(details) = &c.remote {
-        let what = if link.remote_is_dir { "a folder".to_owned() } else { format!("a file ({})", size(details.size)) };
-        body = body.push(text(format!("{remote} has {what} of the same name, last modified {}.", fmt_date(details.mod_time))).size(TEXT));
+        let what = if link.remote_is_dir {
+            "a folder".to_owned()
+        } else {
+            format!("a file ({})", size(details.size))
+        };
+        body = body.push(
+            text(format!(
+                "{remote} has {what} of the same name, last modified {}.",
+                fmt_date(details.mod_time)
+            ))
+            .size(TEXT),
+        );
     }
 
     let (replace_glyph, replace_label) = match link.target_kind {
@@ -406,26 +438,49 @@ fn link_view<'a>(dialog: &'a Dialog, link: &'a Link, compact: bool) -> Element<'
         (_, false) => "The copy takes the link's place and is uploaded; the original stays where it is, separate from the copy.".to_owned(),
     };
     let leave_note = if c.remote.is_some() {
-        format!("The link stays as it is, and so does the version on {remote}. Both are added to this folder's filters, where you can remove them again.")
+        format!(
+            "The link stays as it is, and so does the version on {remote}. Both are added to this folder's filters, where you can remove them again."
+        )
     } else {
         "The link stays and its content isn't synced. It's added to this folder's filters, where you can remove it again.".to_owned()
     };
     let choice = |glyph: icondata::Icon, label: &'a str, note: String, msg: Msg| {
         column![
-            button(row![icon(glyph, 16.0), text(label).size(TEXT)].spacing(6).align_y(Alignment::Center))
-                .padding([6, 12])
-                .style(theme::button_secondary)
-                .on_press(msg),
+            button(
+                row![icon(glyph, 16.0), text(label).size(TEXT)]
+                    .spacing(6)
+                    .align_y(Alignment::Center)
+            )
+            .padding([6, 12])
+            .style(theme::button_secondary)
+            .on_press(msg),
             text(note).size(TEXT),
         ]
         .spacing(6)
     };
     body = body
-        .push(choice(replace_glyph, replace_label, replace_note, Msg::ReplaceLink))
-        .push(choice(icondata::TbLinkOutline, "Leave the link", leave_note, Msg::LeaveLink));
+        .push(choice(
+            replace_glyph,
+            replace_label,
+            replace_note,
+            Msg::ReplaceLink,
+        ))
+        .push(choice(
+            icondata::TbLinkOutline,
+            "Leave the link",
+            leave_note,
+            Msg::LeaveLink,
+        ));
 
-    let cancel = button(text("Cancel").size(TEXT)).padding([6, 14]).style(theme::button_secondary).on_press(Msg::Cancel);
-    let cancel: Element<'_, Msg> = if compact { cancel.width(Length::Fill).into() } else { row![Space::new().width(Length::Fill), cancel].into() };
+    let cancel = button(text("Cancel").size(TEXT))
+        .padding([6, 14])
+        .style(theme::button_secondary)
+        .on_press(Msg::Cancel);
+    let cancel: Element<'_, Msg> = if compact {
+        cancel.width(Length::Fill).into()
+    } else {
+        row![Space::new().width(Length::Fill), cancel].into()
+    };
     let mut content = column![header(dialog, "Link can't be synced"), body].spacing(16);
     if let Some(all) = apply_to_all(dialog, "links") {
         content = content.push(all);

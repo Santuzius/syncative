@@ -32,7 +32,12 @@ impl SyncativeApp {
             }
             // The type alone can't tell the WebDAV vendors apart; the config's `vendor` can.
             if r.provider_kind == Some(ProviderKind::WebDav)
-                && let Some(vendor) = self.rclone.config(&r.name).as_ref().and_then(|c| c.get("vendor")).and_then(|v| v.as_str())
+                && let Some(vendor) = self
+                    .rclone
+                    .config(&r.name)
+                    .as_ref()
+                    .and_then(|c| c.get("vendor"))
+                    .and_then(|v| v.as_str())
             {
                 r.provider_kind = Some(ProviderKind::from_webdav_vendor(vendor));
             }

@@ -21,7 +21,9 @@ pub fn relative_file(folder: &str) -> String {
 
 /// Whether `folder` stays inside the sync folder: relative, without `..`. Imported files are checked with it.
 pub fn is_inside(folder: &str) -> bool {
-    Path::new(folder).components().all(|c| matches!(c, Component::Normal(_)))
+    Path::new(folder)
+        .components()
+        .all(|c| matches!(c, Component::Normal(_)))
 }
 
 /// Create the missing `.nomedia` files in the hidden folders that exist; a folder that is not there yet gets its file once a pass has created it. Returns the files created.
@@ -63,7 +65,11 @@ mod tests {
     fn missing_files_are_created_in_existing_folders_only() {
         let root = TempDir::new("nomedia_ensure");
         fs::create_dir_all(root.path.join("Pictures/Raw")).unwrap();
-        let hidden = vec!["Pictures/Raw".to_owned(), "Videos".to_owned(), String::new()];
+        let hidden = vec![
+            "Pictures/Raw".to_owned(),
+            "Videos".to_owned(),
+            String::new(),
+        ];
         let base = root.path.to_str().unwrap();
 
         assert_eq!(ensure(base, &hidden).len(), 2);

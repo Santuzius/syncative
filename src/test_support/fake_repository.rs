@@ -9,7 +9,10 @@ use std::{collections::HashMap, sync::Mutex};
 use crate::domain::{
     ports::{BoxFuture, Repository, RepositoryError},
     remote::{Remote, RemoteId, SyncPolicy},
-    sync::{NestedFilter, RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId},
+    sync::{
+        NestedFilter, RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId,
+        SyncDirId, SyncItem, SyncItemId,
+    },
 };
 
 #[derive(Default)]
@@ -65,7 +68,12 @@ impl FakeRepo {
 
     /// The row of `remote_path`, for assertions.
     pub fn item(&self, remote_path: &str) -> Option<SyncItem> {
-        self.items.lock().unwrap().iter().find(|it| it.remote_path == remote_path).cloned()
+        self.items
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|it| it.remote_path == remote_path)
+            .cloned()
     }
 
     pub fn cursor(&self, sync_dir: SyncDirId) -> Option<RemoteCursor> {
@@ -90,11 +98,14 @@ impl Repository for FakeRepo {
         let remotes = self.remotes.lock().unwrap().clone();
         Box::pin(async move { Ok(remotes) })
     }
-    fn find_remote(
-        &self,
-        id: RemoteId,
-    ) -> BoxFuture<'_, Result<Option<Remote>, RepositoryError>> {
-        let remote = self.remotes.lock().unwrap().iter().find(|r| r.id == id).cloned();
+    fn find_remote(&self, id: RemoteId) -> BoxFuture<'_, Result<Option<Remote>, RepositoryError>> {
+        let remote = self
+            .remotes
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.id == id)
+            .cloned();
         Box::pin(async move { Ok(remote) })
     }
     fn find_remote_by_name(
@@ -116,10 +127,7 @@ impl Repository for FakeRepo {
     fn delete_remote(&self, _id: RemoteId) -> BoxFuture<'_, Result<(), RepositoryError>> {
         Box::pin(async { Ok(()) })
     }
-    fn cascade_delete_remote(
-        &self,
-        _id: RemoteId,
-    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    fn cascade_delete_remote(&self, _id: RemoteId) -> BoxFuture<'_, Result<(), RepositoryError>> {
         Box::pin(async { Ok(()) })
     }
     fn cascade_delete_sync_dir(
@@ -139,22 +147,22 @@ impl Repository for FakeRepo {
         }
         Box::pin(async { Ok(()) })
     }
-    fn list_sync_dirs(
-        &self,
-        r: RemoteId,
-    ) -> BoxFuture<'_, Result<Vec<SyncDir>, RepositoryError>> {
-        let dirs = self.sync_dirs.lock().unwrap().iter().filter(|d| d.remote_id == r).cloned().collect();
+    fn list_sync_dirs(&self, r: RemoteId) -> BoxFuture<'_, Result<Vec<SyncDir>, RepositoryError>> {
+        let dirs = self
+            .sync_dirs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|d| d.remote_id == r)
+            .cloned()
+            .collect();
         Box::pin(async move { Ok(dirs) })
     }
     fn list_all_sync_dirs(&self) -> BoxFuture<'_, Result<Vec<SyncDir>, RepositoryError>> {
         let dirs = self.sync_dirs.lock().unwrap().clone();
         Box::pin(async move { Ok(dirs) })
     }
-    fn sync_dir_exists(
-        &self,
-        _l: &str,
-        _r: &str,
-    ) -> BoxFuture<'_, Result<bool, RepositoryError>> {
+    fn sync_dir_exists(&self, _l: &str, _r: &str) -> BoxFuture<'_, Result<bool, RepositoryError>> {
         let exists = *self.sync_dir_exists.lock().unwrap();
         Box::pin(async move { Ok(exists) })
     }
@@ -257,7 +265,10 @@ impl Repository for FakeRepo {
         }
         Box::pin(async { Ok(()) })
     }
-    fn set_remote_meta(&self, rows: Vec<(SyncItemId, RemoteMeta)>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    fn set_remote_meta(
+        &self,
+        rows: Vec<(SyncItemId, RemoteMeta)>,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         let mut items = self.items.lock().unwrap();
         for (id, meta) in rows {
             if let Some(item) = items.iter_mut().find(|it| it.id == id) {
@@ -266,11 +277,18 @@ impl Repository for FakeRepo {
         }
         Box::pin(async { Ok(()) })
     }
-    fn remote_cursor(&self, sd: SyncDirId) -> BoxFuture<'_, Result<Option<RemoteCursor>, RepositoryError>> {
+    fn remote_cursor(
+        &self,
+        sd: SyncDirId,
+    ) -> BoxFuture<'_, Result<Option<RemoteCursor>, RepositoryError>> {
         let cursor = self.cursor(sd);
         Box::pin(async move { Ok(cursor) })
     }
-    fn set_remote_cursor(&self, sd: SyncDirId, cursor: Option<RemoteCursor>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    fn set_remote_cursor(
+        &self,
+        sd: SyncDirId,
+        cursor: Option<RemoteCursor>,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         let mut cursors = self.cursors.lock().unwrap();
         match cursor {
             Some(c) => cursors.insert(sd, c),
@@ -278,10 +296,7 @@ impl Repository for FakeRepo {
         };
         Box::pin(async { Ok(()) })
     }
-    fn delete_sync_item(
-        &self,
-        id: SyncItemId,
-    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    fn delete_sync_item(&self, id: SyncItemId) -> BoxFuture<'_, Result<(), RepositoryError>> {
         self.items.lock().unwrap().retain(|it| it.id != id);
         Box::pin(async { Ok(()) })
     }
@@ -291,10 +306,9 @@ impl Repository for FakeRepo {
         local: &str,
         remote: &str,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
-        self.items
-            .lock()
-            .unwrap()
-            .retain(|it| !(it.sync_dir_id == sd && it.local_path == local && it.remote_path == remote));
+        self.items.lock().unwrap().retain(|it| {
+            !(it.sync_dir_id == sd && it.local_path == local && it.remote_path == remote)
+        });
         Box::pin(async { Ok(()) })
     }
     fn list_exclusions(
@@ -316,22 +330,41 @@ impl Repository for FakeRepo {
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         Box::pin(async { Ok(()) })
     }
-    fn list_hidden_folders(&self, _sd: SyncDirId) -> BoxFuture<'_, Result<Vec<String>, RepositoryError>> {
+    fn list_hidden_folders(
+        &self,
+        _sd: SyncDirId,
+    ) -> BoxFuture<'_, Result<Vec<String>, RepositoryError>> {
         let hidden = self.hidden.lock().unwrap().clone();
         Box::pin(async { Ok(hidden) })
     }
-    fn set_hidden_folders(&self, _sd: SyncDirId, _paths: Vec<String>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    fn set_hidden_folders(
+        &self,
+        _sd: SyncDirId,
+        _paths: Vec<String>,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         Box::pin(async { Ok(()) })
     }
-    fn list_nested_filters(&self, _sd: SyncDirId) -> BoxFuture<'_, Result<HashMap<SyncDirId, NestedFilter>, RepositoryError>> {
+    fn list_nested_filters(
+        &self,
+        _sd: SyncDirId,
+    ) -> BoxFuture<'_, Result<HashMap<SyncDirId, NestedFilter>, RepositoryError>> {
         let filters = self.nested_filters.lock().unwrap().clone();
         Box::pin(async { Ok(filters) })
     }
-    fn set_nested_filter(&self, _sd: SyncDirId, nested: SyncDirId, filter: Option<NestedFilter>) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    fn set_nested_filter(
+        &self,
+        _sd: SyncDirId,
+        nested: SyncDirId,
+        filter: Option<NestedFilter>,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         let mut filters = self.nested_filters.lock().unwrap();
         match filter {
-            Some(f) => { filters.insert(nested, f); }
-            None => { filters.remove(&nested); }
+            Some(f) => {
+                filters.insert(nested, f);
+            }
+            None => {
+                filters.remove(&nested);
+            }
         }
         Box::pin(async { Ok(()) })
     }

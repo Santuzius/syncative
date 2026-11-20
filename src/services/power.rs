@@ -20,7 +20,11 @@ pub enum PowerMode {
 }
 
 impl PowerMode {
-    pub const ALL: [PowerMode; 3] = [PowerMode::PowerSave, PowerMode::Balanced, PowerMode::SyncSpeed];
+    pub const ALL: [PowerMode; 3] = [
+        PowerMode::PowerSave,
+        PowerMode::Balanced,
+        PowerMode::SyncSpeed,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -33,20 +37,31 @@ impl PowerMode {
     /// What the mode does, as bullet points below the choice.
     pub fn points(self) -> &'static [&'static str] {
         match self {
-            PowerMode::PowerSave => &["Screen on: at most once a minute", "Screen off: no syncing; it catches up when the screen turns on", "While charging: as often as set for each remote"],
+            PowerMode::PowerSave => &[
+                "Screen on: at most once a minute",
+                "Screen off: no syncing; it catches up when the screen turns on",
+                "While charging: as often as set for each remote",
+            ],
             PowerMode::Balanced => &[
                 "Screen on: as often as set for each remote",
                 "Screen off: at most every 5 minutes",
                 "Android's battery saver on: like “Power save”",
                 "While charging: as often as set for each remote",
             ],
-            PowerMode::SyncSpeed => &["Always as often as set for each remote, even with the screen off", "Uses the most battery"],
+            PowerMode::SyncSpeed => &[
+                "Always as often as set for each remote, even with the screen off",
+                "Uses the most battery",
+            ],
         }
     }
 
     /// The engine's cadence in this mode under `now`.
     pub fn cadence(self, now: Conditions) -> Cadence {
-        let mode = if self == PowerMode::Balanced && now.battery_saver { PowerMode::PowerSave } else { self };
+        let mode = if self == PowerMode::Balanced && now.battery_saver {
+            PowerMode::PowerSave
+        } else {
+            self
+        };
         match mode {
             _ if now.charging => Cadence::Full,
             PowerMode::SyncSpeed => Cadence::Full,
@@ -92,20 +107,27 @@ pub struct PowerSettings {
 
 impl Default for PowerSettings {
     fn default() -> Self {
-        Self { mode: PowerMode::default(), sync_metered: true, asked_battery: false }
+        Self {
+            mode: PowerMode::default(),
+            sync_metered: true,
+            asked_battery: false,
+        }
     }
 }
 
 impl PowerSettings {
     pub fn load(data_dir: &Path) -> Self {
-        std::fs::read_to_string(data_dir.join(FILE_NAME)).map_or_else(|_| Self::default(), |content| Self::parse(&content))
+        std::fs::read_to_string(data_dir.join(FILE_NAME))
+            .map_or_else(|_| Self::default(), |content| Self::parse(&content))
     }
 
     /// From `key=value` lines; unknown keys and values fall back to the defaults.
     pub fn parse(content: &str) -> Self {
         let mut settings = Self::default();
         for line in content.lines() {
-            let Some((key, value)) = line.split_once('=') else { continue };
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
             match key.trim() {
                 "mode" => settings.mode = PowerMode::parse(value).unwrap_or_default(),
                 "sync_metered" => settings.sync_metered = value.trim() != "no",
@@ -126,12 +148,21 @@ impl PowerSettings {
     /// As `key=value` lines, the form [`parse`](Self::parse) reads.
     pub fn to_conf(&self) -> String {
         let yes_no = |on: bool| if on { "yes" } else { "no" };
-        format!("mode={}\nsync_metered={}\nasked_battery={}\n", self.mode.key(), yes_no(self.sync_metered), yes_no(self.asked_battery))
+        format!(
+            "mode={}\nsync_metered={}\nasked_battery={}\n",
+            self.mode.key(),
+            yes_no(self.sync_metered),
+            yes_no(self.asked_battery)
+        )
     }
 
     /// The engine's cadence under `now`: held on a metered network if so chosen, otherwise as the power mode says.
     pub fn cadence(self, now: Conditions) -> Cadence {
-        if self.held_on_metered(now) { Cadence::Held } else { self.mode.cadence(now) }
+        if self.held_on_metered(now) {
+            Cadence::Held
+        } else {
+            self.mode.cadence(now)
+        }
     }
 
     /// Scheduled passes wait because the network is metered.
@@ -146,7 +177,10 @@ pub fn conditions() -> Conditions {
     let now = crate::infrastructure::android::conditions();
     #[cfg(not(target_os = "android"))]
     let now = Conditions::default();
-    Conditions { metered: crate::services::network::metered(), ..now }
+    Conditions {
+        metered: crate::services::network::metered(),
+        ..now
+    }
 }
 
 /// Whether scheduled passes wait for an unmetered network right now.
@@ -228,24 +262,61 @@ mod tests {
     #[test]
     fn modes_stretch_or_hold_with_the_screen_off_and_charging_lifts_them() {
         let on = Conditions::default();
-        let off = Conditions { screen_off: true, ..on };
+        let off = Conditions {
+            screen_off: true,
+            ..on
+        };
         assert_eq!(PowerMode::SyncSpeed.cadence(off), Cadence::Full);
         assert_eq!(PowerMode::Balanced.cadence(on), Cadence::Full);
-        assert_eq!(PowerMode::Balanced.cadence(off), Cadence::AtMost(SCREEN_OFF_FLOOR));
-        assert_eq!(PowerMode::Balanced.cadence(Conditions { battery_saver: true, ..off }), Cadence::Held);
-        assert_eq!(PowerMode::PowerSave.cadence(on), Cadence::AtMost(POWER_SAVE_FLOOR));
+        assert_eq!(
+            PowerMode::Balanced.cadence(off),
+            Cadence::AtMost(SCREEN_OFF_FLOOR)
+        );
+        assert_eq!(
+            PowerMode::Balanced.cadence(Conditions {
+                battery_saver: true,
+                ..off
+            }),
+            Cadence::Held
+        );
+        assert_eq!(
+            PowerMode::PowerSave.cadence(on),
+            Cadence::AtMost(POWER_SAVE_FLOOR)
+        );
         assert_eq!(PowerMode::PowerSave.cadence(off), Cadence::Held);
-        assert_eq!(PowerMode::PowerSave.cadence(Conditions { charging: true, ..off }), Cadence::Full);
+        assert_eq!(
+            PowerMode::PowerSave.cadence(Conditions {
+                charging: true,
+                ..off
+            }),
+            Cadence::Full
+        );
     }
 
     #[test]
     fn a_metered_network_holds_syncing_only_when_chosen_even_while_charging() {
-        let metered = Conditions { metered: true, charging: true, ..Conditions::default() };
-        let everywhere = PowerSettings { mode: PowerMode::SyncSpeed, ..PowerSettings::default() };
+        let metered = Conditions {
+            metered: true,
+            charging: true,
+            ..Conditions::default()
+        };
+        let everywhere = PowerSettings {
+            mode: PowerMode::SyncSpeed,
+            ..PowerSettings::default()
+        };
         assert_eq!(everywhere.cadence(metered), Cadence::Full);
-        let unmetered_only = PowerSettings { sync_metered: false, ..everywhere };
+        let unmetered_only = PowerSettings {
+            sync_metered: false,
+            ..everywhere
+        };
         assert_eq!(unmetered_only.cadence(metered), Cadence::Held);
-        assert_eq!(unmetered_only.cadence(Conditions { metered: false, ..metered }), Cadence::Full);
+        assert_eq!(
+            unmetered_only.cadence(Conditions {
+                metered: false,
+                ..metered
+            }),
+            Cadence::Full
+        );
     }
 
     #[test]
@@ -258,7 +329,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("syncative-power-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(PowerSettings::load(&dir), PowerSettings::default());
-        let chosen = PowerSettings { mode: PowerMode::PowerSave, sync_metered: false, asked_battery: true };
+        let chosen = PowerSettings {
+            mode: PowerMode::PowerSave,
+            sync_metered: false,
+            asked_battery: true,
+        };
         chosen.save(&dir).unwrap();
         assert_eq!(PowerSettings::load(&dir), chosen);
         let _ = std::fs::remove_dir_all(&dir);

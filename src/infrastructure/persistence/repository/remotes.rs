@@ -1,8 +1,6 @@
 //! Remote-row CRUD against `remotes`.
 
-use sea_orm::{
-    ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, QueryFilter,
-};
+use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, QueryFilter};
 
 use crate::domain::{
     ports::{BoxFuture, RepositoryError},
@@ -10,8 +8,8 @@ use crate::domain::{
 };
 
 use super::super::models::{
-    RemotesActiveModel, RemotesColumn, RemotesEntity, SyncDirExclusionsColumn, SyncDirExclusionsEntity, SyncDirsColumn, SyncDirsEntity,
-    SyncItemsColumn, SyncItemsEntity,
+    RemotesActiveModel, RemotesColumn, RemotesEntity, SyncDirExclusionsColumn,
+    SyncDirExclusionsEntity, SyncDirsColumn, SyncDirsEntity, SyncItemsColumn, SyncItemsEntity,
 };
 use super::{map_err, map_remote};
 
@@ -123,8 +121,10 @@ pub(super) fn cascade_delete_remote(
                 .exec(db)
                 .await
                 .map_err(map_err)?;
-            super::hidden_folders::delete_hidden_folders(db, crate::domain::sync::SyncDirId(sd.id)).await?;
-            super::nested_filters::delete_nested_filters(db, crate::domain::sync::SyncDirId(sd.id)).await?;
+            super::hidden_folders::delete_hidden_folders(db, crate::domain::sync::SyncDirId(sd.id))
+                .await?;
+            super::nested_filters::delete_nested_filters(db, crate::domain::sync::SyncDirId(sd.id))
+                .await?;
             sd.delete(db).await.map_err(map_err)?;
         }
         RemotesEntity::delete_by_id(id.0)

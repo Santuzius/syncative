@@ -2,7 +2,7 @@
 
 use std::{
     collections::HashMap,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Instant,
 };
 
@@ -43,7 +43,15 @@ pub(crate) struct Pass {
 impl Pass {
     /// Load the remote and its folders, then sync them one after the other off the async runtime.
     pub async fn run(self) -> PassVerdict {
-        let Pass { remote_id, repo, backend, stderr, cancel, resolutions, emit } = self;
+        let Pass {
+            remote_id,
+            repo,
+            backend,
+            stderr,
+            cancel,
+            resolutions,
+            emit,
+        } = self;
         let remote = match repo.find_remote(remote_id).await {
             Ok(Some(r)) => r,
             _ => return PassVerdict::Aborted,
@@ -52,9 +60,16 @@ impl Pass {
         let all_sync_dirs = repo.list_all_sync_dirs().await.unwrap_or_default();
         tokio::task::spawn_blocking(move || {
             // The stderr probe: only rclone-transport backends emit rate-limit warnings to stderr. Native Proton reports throttling via its own error paths. For rclone backends, any line matching the rclone translator's marker set flips the pass to Degraded.
-            let use_stderr_probe = remote.provider_kind.is_none_or(|k| k.uses_rclone_transport());
+            let use_stderr_probe = remote
+                .provider_kind
+                .is_none_or(|k| k.uses_rclone_transport());
             let rate_limit_seen_since = move |since: Instant| -> bool {
-                use_stderr_probe && stderr.any_line_since(since, |line| RATE_LIMIT_MARKERS.iter().any(|m| m.iter().all(|needle| line.contains(needle))))
+                use_stderr_probe
+                    && stderr.any_line_since(since, |line| {
+                        RATE_LIMIT_MARKERS
+                            .iter()
+                            .any(|m| m.iter().all(|needle| line.contains(needle)))
+                    })
             };
             let emit = move |event: SyncEvent| emit(event);
             let (mut any_degraded, mut any_error, mut any_synced) = (false, false, false);
