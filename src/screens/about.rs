@@ -1,7 +1,5 @@
 //! About dialog: version, project links, Syncative's own license (`LICENSE`), and the open source licenses of the packages it is built from (`assets/licenses.json`, from `scripts/update-licenses.sh`). build.rs packs both.
 
-use std::sync::OnceLock;
-
 use iced::{
     Alignment, Element, Length,
     widget::{Column, Space, button, column, container, row, scrollable, svg, text_editor},
@@ -26,7 +24,7 @@ pub enum Page {
     /// Syncative's own license.
     OwnLicense,
     Licenses,
-    /// One of [`licenses`] by its index, with the package whose license text shows: its wording (variant) and its place in it.
+    /// One of the [`Licenses`] by its index, with the package whose license text shows: its wording (variant) and its place in it.
     License {
         license: usize,
         variant: usize,
@@ -47,6 +45,11 @@ impl Page {
     /// The license pages keep their title and buttons in place and scroll in between; the main page scrolls as a whole.
     pub fn is_framed(self) -> bool {
         self != Page::Main
+    }
+
+    /// Whether it shows the open source [`Licenses`].
+    pub fn shows_licenses(self) -> bool {
+        matches!(self, Page::Licenses | Page::License { .. })
     }
 }
 
@@ -87,16 +90,25 @@ impl Package {
     }
 }
 
-/// Unpacked and parsed on first use (build.rs packs them); the most used license comes first.
-fn licenses() -> &'static [License] {
-    static LICENSES: OnceLock<Vec<License>> = OnceLock::new();
-    LICENSES.get_or_init(|| {
+/// The open source licenses, the most used first; empty until [`Licenses::load`]. About holds them only while a page shows them.
+#[derive(Default)]
+pub struct Licenses(Vec<License>);
+
+impl Licenses {
+    /// Unpacks and parses them (build.rs packs them).
+    pub fn load() -> Self {
         let packed = include_bytes!(concat!(env!("OUT_DIR"), "/licenses.json.deflate"));
-        miniz_oxide::inflate::decompress_to_vec(packed)
-            .ok()
-            .and_then(|json| serde_json::from_slice(&json).ok())
-            .unwrap_or_default()
-    })
+        Self(
+            miniz_oxide::inflate::decompress_to_vec(packed)
+                .ok()
+                .and_then(|json| serde_json::from_slice(&json).ok())
+                .unwrap_or_default(),
+        )
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 /// `LICENSE` with one line per paragraph, so the text wraps to the dialog's width. Centered lines such as the title keep their own line.
@@ -123,7 +135,7 @@ fn reflowed(text: &str) -> String {
 }
 
 /// The text a page with a license shows: Syncative's own license, or for a [`Page::License`] the package's copyright lines, then the text of its wording.
-pub fn license_text(page: Page) -> String {
+pub fn license_text(page: Page, licenses: &Licenses) -> String {
     if page == Page::OwnLicense {
         let packed = include_bytes!(concat!(env!("OUT_DIR"), "/license.deflate"));
         return miniz_oxide::inflate::decompress_to_vec(packed)
@@ -139,7 +151,8 @@ pub fn license_text(page: Page) -> String {
     else {
         return String::new();
     };
-    let Some(variant) = licenses()
+    let Some(variant) = licenses
+        .0
         .get(license)
         .and_then(|l| l.variants.get(variant))
     else {
@@ -158,18 +171,22 @@ pub fn license_text(page: Page) -> String {
 }
 
 /// `text`: the license text of a [`Page::License`], see [`license_text`].
-pub fn view<'a>(page: Page, text: &'a text_editor::Content) -> Element<'a, Msg> {
+pub fn view<'a>(
+    page: Page,
+    text: &'a text_editor::Content,
+    licenses: &'a Licenses,
+) -> Element<'a, Msg> {
     let dialog = container(match page {
         Page::Main => main(),
         Page::OwnLicense => own_license(text),
-        Page::Licenses => license_list(),
+        Page::Licenses => license_list(licenses),
         Page::License {
             license,
             variant,
             package,
-        } => match licenses().get(license) {
+        } => match licenses.0.get(license) {
             Some(entry) => license_page(license, entry, (variant, package), text),
-            None => license_list(),
+            None => license_list(licenses),
         },
     })
     .padding(22)
@@ -238,9 +255,9 @@ fn own_license<'a>(license_text: &'a text_editor::Content) -> Element<'a, Msg> {
 }
 
 /// Every license with the packages under it; each opens its text.
-fn license_list<'a>() -> Element<'a, Msg> {
+fn license_list(licenses: &Licenses) -> Element<'_, Msg> {
     let mut list = Column::new().spacing(6);
-    for (index, license) in licenses().iter().enumerate() {
+    for (index, license) in licenses.0.iter().enumerate() {
         let count = license
             .variants
             .iter()
@@ -289,7 +306,7 @@ fn license_list<'a>() -> Element<'a, Msg> {
 /// One license: the text for the chosen package above, the packages under this license below.
 fn license_page<'a>(
     index: usize,
-    license: &'static License,
+    license: &'a License,
     selected: (usize, usize),
     license_text: &'a text_editor::Content,
 ) -> Element<'a, Msg> {
@@ -443,12 +460,24 @@ mod tests {
 
     #[test]
     fn own_license_wraps_by_paragraph() {
-        let text = license_text(Page::OwnLicense);
+        let text = license_text(Page::OwnLicense, &Licenses::default());
         assert!(
             text.starts_with("GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n\n"),
             "{}",
             &text[..80]
         );
         assert!(text.contains("The GNU General Public License is a free, copyleft license for software and other kinds of works."));
+    }
+
+    #[test]
+    fn the_packed_licenses_parse() {
+        let licenses = Licenses::load();
+        assert!(!licenses.is_empty());
+        let page = Page::License {
+            license: 0,
+            variant: 0,
+            package: 0,
+        };
+        assert!(!license_text(page, &licenses).is_empty());
     }
 }

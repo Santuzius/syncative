@@ -198,6 +198,8 @@ pub struct SyncativeApp {
     about_page: about::Page,
     /// The license text on the license pages of About.
     about_text: iced::widget::text_editor::Content,
+    /// Loaded while About shows them.
+    about_licenses: about::Licenses,
     /// The Preferences dialog is shown.
     preferences_open: bool,
     /// Start at login, as last read from or written to the autostart entry.
@@ -305,6 +307,7 @@ impl SyncativeApp {
             about_open: false,
             about_page: about::Page::Main,
             about_text: iced::widget::text_editor::Content::new(),
+            about_licenses: about::Licenses::default(),
             preferences_open: false,
             autostart: autostart::enabled(),
             start_hidden: autostart::starts_hidden(),
@@ -939,7 +942,8 @@ impl SyncativeApp {
             }
         } else if self.about_open {
             stack![base, {
-                let dialog = about::view(self.about_page, &self.about_text).map(Message::About);
+                let dialog = about::view(self.about_page, &self.about_text, &self.about_licenses)
+                    .map(Message::About);
                 let close = Some(Message::About(about::Msg::Close));
                 if self.about_page.is_framed() {
                     remote_page::modal_framed(dialog, close)
@@ -1304,10 +1308,21 @@ impl SyncativeApp {
         )
     }
 
-    /// Switch About to `page`, with the license text it shows.
+    /// Switch About to `page`, with the license text it shows. The open source licenses are loaded for the pages that show them and freed on the others.
     fn show_about(&mut self, page: about::Page) {
+        if page.shows_licenses() {
+            if self.about_licenses.is_empty() {
+                self.about_licenses = about::Licenses::load();
+            }
+        } else if !self.about_licenses.is_empty() {
+            self.about_licenses = about::Licenses::default();
+            crate::util::release_freed_memory();
+        }
         self.about_page = page;
-        self.about_text = iced::widget::text_editor::Content::with_text(&about::license_text(page));
+        self.about_text = iced::widget::text_editor::Content::with_text(&about::license_text(
+            page,
+            &self.about_licenses,
+        ));
     }
 
     /// Close the explanation of the tray icon's colour for good.
