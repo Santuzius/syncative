@@ -23,8 +23,8 @@ let
   protonApi = fetchFromGitHub {
     owner = "ProtonMail";
     repo = "go-proton-api";
-    rev = "76509ffbc60cf6cf6d2bfba021b97ec8c05b8a5b";
-    hash = "sha256-e6s3cMTfgkbOoxWMwkxj2W7s7j3rz65TMSCITzF3OoA=";
+    rev = "79fbe0626d9b737a5a2b447e1f66e4bee4717763";
+    hash = "sha256-4avLvz4a6m1MTmwULFDkZiPydJNWPe4HFD6vZNJIQqA=";
   };
 
   fullSrc = runCommand "syncative-source-${version}" { } ''
@@ -41,7 +41,7 @@ let
       inherit version;
       src = fullSrc;
       modRoot = "src/go";
-      vendorHash = "sha256-vghoNH0lXp786w1RGLaWOEZixW8vJQzqUB7rtoQ2dZ8=";
+      vendorHash = "sha256-T7znN6oRJ20GsRJSUsb5uuhAmEza1x07BTZXOFjYQzg=";
     }).goModules;
 
   desktopItem = makeDesktopItem {
