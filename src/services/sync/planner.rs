@@ -2,7 +2,7 @@
 //! the applier executes. Pure function — no I/O, no logging beyond a
 //! single one-line summary on the way out.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use crate::domain::{
     remote::Remote,
@@ -66,7 +66,8 @@ pub(super) enum ConflictKind {
 }
 
 pub(super) fn plan(snapshot: &Snapshot, sync_dir: &SyncDir) -> Vec<Action> {
-    let keys: BTreeSet<&String> = snapshot
+    // Unordered: the actions are sorted below.
+    let keys: HashSet<&String> = snapshot
         .remote
         .keys()
         .chain(snapshot.local.keys())
@@ -86,7 +87,7 @@ pub(super) fn plan(snapshot: &Snapshot, sync_dir: &SyncDir) -> Vec<Action> {
     // Order: directory creations first (uploads/downloads for dirs before
     // their children), file transfers next, deletes last. Within each
     // group, shorter paths first so parents precede children.
-    out.sort_by_key(|a| (phase(a), a_path(a).len(), a_path(a).to_owned()));
+    out.sort_by(|a, b| order(a).cmp(&order(b)));
     out
 }
 
@@ -220,6 +221,11 @@ impl Action {
     pub(super) fn is_bookkeeping(&self) -> bool {
         matches!(self, Action::ClearDbRow { .. } | Action::RecordDbRow { .. })
     }
+}
+
+/// Where an action goes in a pass: by [`phase`], parents before their children, then by path.
+fn order(a: &Action) -> (u8, usize, &str) {
+    (phase(a), a_path(a).len(), a_path(a))
 }
 
 fn phase(a: &Action) -> u8 {
