@@ -38,8 +38,8 @@ const RING_CAPACITY: usize = 4_096;
 #[derive(Clone, Debug)]
 pub struct CapturedLine {
     pub received_at: Instant,
-    /// Wall-clock `HH:MM:SS`, for [`dump`].
-    pub at: String,
+    /// Wall-clock time, for [`dump`].
+    pub at: crate::util::ClockTime,
     pub text: String,
 }
 
@@ -71,8 +71,13 @@ fn is_problem(line: &str) -> bool {
         "reauth",
     ];
     // Every pass summary counts `conflict=0`; only the conflict lines themselves are shouted.
-    let lower = line.to_lowercase();
-    line.contains("CONFLICT") || MARKERS.iter().any(|m| lower.contains(m))
+    let bytes = line.as_bytes();
+    line.contains("CONFLICT")
+        || MARKERS.iter().any(|m| {
+            bytes
+                .windows(m.len())
+                .any(|w| w.eq_ignore_ascii_case(m.as_bytes()))
+        })
 }
 
 /// Forget everything captured so far, e.g. before reproducing a problem.
@@ -179,7 +184,8 @@ fn install_inner() -> Result<CaptureHandle, String> {
         ));
     }
 
-    let ring = Arc::new(Mutex::new(VecDeque::with_capacity(RING_CAPACITY)));
+    // Grows up to RING_CAPACITY as lines come, instead of taking that room up front.
+    let ring = Arc::new(Mutex::new(VecDeque::new()));
     let ring_for_thread = ring.clone();
 
     thread::Builder::new()
@@ -261,7 +267,7 @@ mod tests {
         let before = Instant::now();
         ring.lock().unwrap().push_back(CapturedLine {
             received_at: before,
-            at: String::new(),
+            at: crate::util::ClockTime::default(),
             text: "status=429 too many requests".to_owned(),
         });
         std::thread::sleep(Duration::from_millis(5));
@@ -269,7 +275,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(5));
         ring.lock().unwrap().push_back(CapturedLine {
             received_at: Instant::now(),
-            at: String::new(),
+            at: crate::util::ClockTime::default(),
             text: "fresh 429 warning".to_owned(),
         });
 

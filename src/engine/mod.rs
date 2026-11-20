@@ -159,7 +159,7 @@ pub struct Snapshot {
 /// One log entry: local `HH:MM:SS` plus the message.
 #[derive(Debug, Clone)]
 pub struct LogLine {
-    pub at: String,
+    pub at: crate::util::ClockTime,
     pub text: String,
 }
 

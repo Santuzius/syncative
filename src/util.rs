@@ -46,8 +46,22 @@ pub fn open_folder(path: &str) {
     crate::infrastructure::android::open_folder(path);
 }
 
-/// Local wall-clock time as `HH:MM:SS` for log prefixes. Uses libc's `localtime_r` because the `time` crate refuses local offsets in multi-threaded processes.
-pub fn local_clock() -> String {
+/// A local wall-clock time of day, shown as `HH:MM:SS`; three bytes instead of a string per log line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClockTime {
+    hour: u8,
+    minute: u8,
+    second: u8,
+}
+
+impl std::fmt::Display for ClockTime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:02}:{:02}:{:02}", self.hour, self.minute, self.second)
+    }
+}
+
+/// Local wall-clock time for log prefixes. Uses libc's `localtime_r` because the `time` crate refuses local offsets in multi-threaded processes.
+pub fn local_clock() -> ClockTime {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs()) as libc::time_t;
@@ -57,7 +71,11 @@ pub fn local_clock() -> String {
         libc::localtime_r(&now, &mut tm);
         tm
     };
-    format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec)
+    ClockTime {
+        hour: tm.tm_hour as u8,
+        minute: tm.tm_min as u8,
+        second: tm.tm_sec as u8,
+    }
 }
 
 /// The user's real home directory, as the user knows it. Inside a snap `$HOME` points to the snap's private data directory, the real one is in `$SNAP_REAL_HOME`; data files stay under `$HOME` either way.
