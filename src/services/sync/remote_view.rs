@@ -197,7 +197,7 @@ fn apply(
         })
         .filter(|path| is_within(path, root))
         .collect();
-    folders.sort_by_key(|path| path.len());
+    folders.sort_by(|a, b| a.len().cmp(&b.len()).then(a.cmp(b)));
     folders.dedup();
     if folders.len() > MAX_FOLDERS {
         return Err(Problem::ListInstead(format!("{} folders changed", folders.len())));
@@ -306,8 +306,20 @@ impl Walk<'_> {
         if folder != root && super::snapshot::path_is_excluded(folder, self.excluded) {
             return Ok(());
         }
-        let fresh = match self.list(folder, false) {
-            Ok(fresh) => fresh,
+        // Tags first: a change between the two then makes a tag look older, which only costs another look.
+        let listed = self.client.folder_tags(&self.remote.name, folder, self.cancel).map_err(Problem::Failed).and_then(|tags| Ok((tags, self.list(folder, false)?)));
+        let fresh = match listed {
+            Ok((tags, mut fresh)) => {
+                if let Some(tags) = tags {
+                    for item in fresh.iter_mut().filter(|item| item.is_dir) {
+                        let Some(tag) = tags.get(&item.path) else {
+                            return Err(Problem::ListInstead(format!("no change tag for '{}'", item.path)));
+                        };
+                        item.tag = Some(tag.clone());
+                    }
+                }
+                fresh
+            }
             Err(Problem::Failed(err)) if super::snapshot::is_directory_missing_error(&err) => {
                 // For the sync folder itself, the full listing decides what a missing folder means.
                 if folder == root {

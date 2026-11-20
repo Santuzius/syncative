@@ -188,6 +188,29 @@ pub fn change_cursor(remote: &str, cancel: &std::sync::atomic::AtomicBool) -> Op
     (!cursor.is_empty()).then_some(cursor)
 }
 
+/// One change rclone's change notification reported, see [`changes_since`].
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Changed {
+    /// From the remote's root.
+    pub path: String,
+    pub is_dir: bool,
+}
+
+/// What the backend of `remote` reported after `cursor` (from [`change_cursor`]) and the cursor after it; `None` when that isn't known completely (another run's cursor, more changes than are kept, a change the backend couldn't name).
+pub fn changes_since(remote: &str, cursor: &str) -> Option<(String, Vec<Changed>)> {
+    #[derive(serde::Deserialize)]
+    struct Reply {
+        ok: bool,
+        cursor: String,
+        changes: Option<Vec<Changed>>,
+    }
+    let c_remote = CString::new(remote).ok()?;
+    let c_cursor = CString::new(cursor).ok()?;
+    let json = unsafe { take_string(ffi::RcloneChangesSince(c_remote.as_ptr() as *mut c_char, c_cursor.as_ptr() as *mut c_char)) };
+    let reply: Reply = serde_json::from_str(&json).ok()?;
+    reply.ok.then(|| (reply.cursor, reply.changes.unwrap_or_default()))
+}
+
 /// The change tags (ETags) of a Nextcloud or ownCloud folder, see [`folder_tags`].
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct FolderTags {

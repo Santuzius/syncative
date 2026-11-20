@@ -78,6 +78,7 @@ fn main() {
         .allowlist_function("RcloneRPCCancellable")
         .allowlist_function("RcloneFreeString")
         .allowlist_function("RcloneChangeCursor")
+        .allowlist_function("RcloneChangesSince")
         .allowlist_function("RcloneFolderTags")
         .allowlist_function("RcloneForgetRemote")
         .allowlist_function("RcloneSetChangePollSeconds")

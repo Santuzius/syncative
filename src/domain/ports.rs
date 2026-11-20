@@ -284,6 +284,11 @@ pub trait BackendClient: Send + Sync {
         Some(Duration::from_secs(60 * 60))
     }
 
+    /// The change tags ([`RemoteItem::tag`]) of the folders directly in folder `path`, by path; `None` for a backend without them. Read before listing the folder, so a change in between makes a tag look older, never newer.
+    fn folder_tags(&self, _remote: &str, _path: &str, _cancel: &Cancel) -> Result<Option<HashMap<String, String>>, String> {
+        Ok(None)
+    }
+
     /// The remote listing the running pass works with, so a backend that addresses items by ID (Proton) can find them by path without asking the provider; `None` when the pass ends.
     fn use_listing(&self, _remote: &str, _listing: Option<Arc<HashMap<String, RemoteItem>>>) {}
 }

@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/rclone/rclone/fs"
@@ -21,11 +20,67 @@ const (
 	startupGrace = 3 * defaultPollInterval
 )
 
+// maxLogged bounds the changed paths a watcher keeps; a cursor older than that makes the sync list instead.
+const maxLogged = 256
+
 type watcher struct {
-	started time.Time
+	started   time.Time
+	intervals chan time.Duration // closing it stops the backend's poll loop
+
+	mu sync.Mutex
 	// generation counts the changes the backend reported; a cursor names one.
-	generation atomic.Uint64
-	intervals  chan time.Duration // closing it stops the backend's poll loop
+	generation uint64
+	// log holds the changes after generation logStart, oldest first.
+	log      []Changed
+	logStart uint64
+}
+
+// Changed is one change the backend reported: the path of a file or folder, from the remote's root.
+type Changed struct {
+	Path  string `json:"path"`
+	IsDir bool   `json:"is_dir"`
+	// unnamed: something may have changed that the backend didn't report (see SetPollInterval).
+	unnamed bool
+}
+
+func (w *watcher) note(c Changed) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.generation++
+	w.log = append(w.log, c)
+	if len(w.log) > maxLogged {
+		w.log = w.log[1:]
+		w.logStart++
+	}
+}
+
+// cursor names the watcher's current state. The start time tells this watcher's cursors from those of an earlier one (an earlier run, or before Forget), whose change log ended with it.
+func (w *watcher) cursor() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return fmt.Sprintf("%x:%d", w.started.UnixNano(), w.generation)
+}
+
+// since returns the changes after `cursor` and the cursor after them; false when they aren't all known.
+func (w *watcher) since(cursor string) ([]Changed, string, bool) {
+	var started int64
+	var generation uint64
+	if _, err := fmt.Sscanf(cursor, "%x:%d", &started, &generation); err != nil || started != w.started.UnixNano() {
+		return nil, "", false
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	now := fmt.Sprintf("%x:%d", w.started.UnixNano(), w.generation)
+	if generation < w.logStart || generation > w.generation {
+		return nil, now, false
+	}
+	changes := w.log[generation-w.logStart:]
+	for _, c := range changes {
+		if c.unnamed {
+			return nil, now, false
+		}
+	}
+	return append([]Changed(nil), changes...), now, true
 }
 
 var (
@@ -50,7 +105,7 @@ func SetPollInterval(d time.Duration) {
 		}
 		// The backend polls on its new rhythm only after the old wait; until then a change could go unnoticed by the pass that waking up starts.
 		if shorter {
-			w.generation.Add(1)
+			w.note(Changed{unnamed: true})
 		}
 		// The backend reads the channel all the time; replace a value it has not picked up yet.
 		select {
@@ -73,8 +128,7 @@ func Cursor(ctx context.Context, remote string) string {
 		if w == nil || time.Since(w.started) < startupGrace {
 			return ""
 		}
-		// The start time tells this watcher's cursors from those of an earlier one (an earlier run, or before Forget), whose change log ended with it.
-		return fmt.Sprintf("%x:%d", w.started.UnixNano(), w.generation.Load())
+		return w.cursor()
 	}
 
 	// Without the lock: creating the backend may go over the network and, offline, retry for a long time, while SetPollInterval is called from Android's main thread. rclone detaches the creation from the caller's context, so give up waiting on cancel instead; the creation finishes in the background and lands in rclone's cache.
@@ -113,9 +167,20 @@ func Cursor(ctx context.Context, remote string) string {
 	}
 	w = &watcher{started: time.Now(), intervals: make(chan time.Duration, 1)}
 	w.intervals <- pollInterval
-	notify(context.Background(), func(string, fs.EntryType) { w.generation.Add(1) }, w.intervals)
+	notify(context.Background(), func(path string, kind fs.EntryType) { w.note(Changed{Path: path, IsDir: kind == fs.EntryDirectory}) }, w.intervals)
 	watchers[remote] = w
 	return ""
+}
+
+// ChangesSince returns what `remote`'s backend reported after `cursor` (from Cursor) and the cursor after it; false when that isn't known completely: another watcher's cursor, more changes than are kept, or a change the backend couldn't name.
+func ChangesSince(remote, cursor string) ([]Changed, string, bool) {
+	mu.Lock()
+	w := watchers[remote]
+	mu.Unlock()
+	if w == nil || time.Since(w.started) < startupGrace {
+		return nil, "", false
+	}
+	return w.since(cursor)
 }
 
 // Forget stops watching `remote`, e.g. after its config was replaced or deleted. The next Changed call starts over.

@@ -78,6 +78,15 @@ func RcloneChangeCursor(remote *C.char, cancelled *C.uchar) *C.char {
 	return C.CString(rclone.Cursor(ctx, C.GoString(remote)))
 }
 
+// RcloneChangesSince returns what the backend of `remote` reported after `cursor`; see rclone.ChangesSince. Returns JSON `{"ok":bool,"cursor":…,"changes":[{"path":…,"is_dir":…}]}`. Free the result with RcloneFreeString.
+//
+//export RcloneChangesSince
+func RcloneChangesSince(remote *C.char, cursor *C.char) *C.char {
+	changes, now, ok := rclone.ChangesSince(C.GoString(remote), C.GoString(cursor))
+	out, _ := json.Marshal(map[string]any{"ok": ok, "cursor": now, "changes": changes})
+	return C.CString(string(out))
+}
+
 // RcloneFolderTags reads the change tags (ETags) of folder `path` and, with `depth` 1, of its subfolders on the WebDAV remote `remote`; see rclone.FolderTags. Returns JSON, `{"tag":…,"children":{path:tag}}` or `{"error":…}`. Free the result with RcloneFreeString.
 //
 //export RcloneFolderTags

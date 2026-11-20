@@ -224,3 +224,70 @@ fn other_hidden_folders_or_an_old_listing_make_the_pass_list() {
     pass(&tmp, &repo, &client);
     assert_eq!(client.changes_calls.lock().unwrap()[2], None);
 }
+
+/// Two synced folders, `docs` and `other`, each with one file; the first pass lists them and stores cursor "c1".
+fn two_folders(tmp: &TempDir, repo: &FakeRepo, client: &FakeBackend) {
+    for dir in ["docs", "other"] {
+        std::fs::create_dir_all(tmp.path.join(dir)).unwrap();
+        let file = tmp.write_file(&format!("{dir}/f.txt"), b"f");
+        touch_mtime(&file, T);
+        repo.insert_item(SyncDirId(1), tmp.path.join(dir).to_str().unwrap(), dir, T, T);
+        repo.insert_item(SyncDirId(1), file.to_str().unwrap(), &format!("{dir}/f.txt"), T, T);
+        client.set_list(dir, Ok(vec![remote_item(&format!("{dir}/f.txt"), false, T)]));
+    }
+    client.set_list("", Ok(vec![remote_item("docs", true, T), remote_item("docs/f.txt", false, T), remote_item("other", true, T), remote_item("other/f.txt", false, T)]));
+    client.set_changes(vec![Changes::Unknown { cursor: Some("c1".into()) }]);
+    pass(tmp, repo, client);
+    // From here on, a shallow listing of the root.
+    client.set_list("", Ok(vec![remote_item("docs", true, T), remote_item("other", true, T)]));
+    clear_calls(client);
+}
+
+fn set_tags(client: &FakeBackend, docs: &str, other: &str) {
+    let tags = [("docs".to_owned(), docs.to_owned()), ("other".to_owned(), other.to_owned())].into_iter().collect();
+    client.folder_tags.lock().unwrap().insert(String::new(), tags);
+}
+
+fn root_changed(cursor: &str) -> Changes {
+    Changes::Some { cursor: cursor.into(), root_id: None, changes: vec![RemoteChange::Folder(String::new())] }
+}
+
+#[test]
+fn change_tags_lead_only_into_the_folders_that_changed() {
+    let tmp = TempDir::new("view_tags");
+    let repo = FakeRepo::new();
+    let client = FakeBackend::default();
+    two_folders(&tmp, &repo, &client);
+
+    // No tags recorded yet: every folder is looked into once, and the level pass records their tags.
+    set_tags(&client, "d1", "o1");
+    client.set_changes(vec![root_changed("c2")]);
+    pass(&tmp, &repo, &client);
+    assert_eq!(*client.list_calls.lock().unwrap(), vec!["".to_owned(), "docs".to_owned(), "other".to_owned()]);
+    assert_eq!(repo.cursor(SyncDirId(1)).map(|c| c.cursor), Some("c2".into()));
+    assert_eq!(repo.item("docs").unwrap().remote.tag, Some("d1".into()));
+    clear_calls(&client);
+
+    // Only "other" changed.
+    set_tags(&client, "d1", "o2");
+    client.set_changes(vec![root_changed("c3")]);
+    pass(&tmp, &repo, &client);
+    assert_eq!(*client.list_calls.lock().unwrap(), vec!["".to_owned(), "other".to_owned()]);
+    assert_eq!(repo.item("other").unwrap().remote.tag, Some("o2".into()));
+}
+
+#[test]
+fn a_folder_without_a_change_tag_makes_the_pass_list() {
+    let tmp = TempDir::new("view_tag_missing");
+    let repo = FakeRepo::new();
+    let client = FakeBackend::default();
+    two_folders(&tmp, &repo, &client);
+    client.folder_tags.lock().unwrap().insert(String::new(), [("docs".to_owned(), "d1".to_owned())].into_iter().collect());
+    client.set_changes(vec![root_changed("c2")]);
+    // The full listing the pass falls back to.
+    client.set_list("", Ok(vec![remote_item("docs", true, T), remote_item("docs/f.txt", false, T), remote_item("other", true, T), remote_item("other/f.txt", false, T)]));
+    pass(&tmp, &repo, &client);
+    assert_eq!(client.list_recursive.lock().unwrap().last(), Some(&true));
+    assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
+    assert!(client.delete_file_calls.lock().unwrap().is_empty());
+}

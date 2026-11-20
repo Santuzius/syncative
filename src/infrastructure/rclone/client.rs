@@ -21,7 +21,7 @@ use std::{
 use crate::domain::{
     ports::{BackendClient, Cancel},
     remote::RemoteUsage,
-    sync::{Changes, FileDetails, ListFilter, RemoteItem},
+    sync::{Changes, FileDetails, ListFilter, RemoteChange, RemoteItem},
 };
 use crate::services::secrets;
 
@@ -270,13 +270,14 @@ impl BackendClient for LibrcloneClient {
     }
 
     fn changes(&self, remote: &str, path: &str, cursor: Option<&str>, cancel: &Cancel) -> Result<Changes, String> {
-        // Nextcloud and ownCloud: the folder's ETag changes with everything below it.
+        // Nextcloud and ownCloud: the folder's ETag changes with everything below it, and those of its subfolders show which branch changed.
         match syncative_go::folder_tags(remote, path, 0, cancel) {
             Ok(Some(tags)) => {
                 self.mark_reached(remote);
                 return Ok(match cursor {
                     Some(before) if before == tags.tag => Changes::None,
-                    _ => Changes::Unknown { cursor: Some(tags.tag) },
+                    Some(_) => Changes::Some { cursor: tags.tag, root_id: None, changes: vec![RemoteChange::Folder(path.to_owned())] },
+                    None => Changes::Unknown { cursor: Some(tags.tag) },
                 });
             }
             Ok(None) => {}
@@ -288,13 +289,31 @@ impl BackendClient for LibrcloneClient {
             }
         }
         // Backends with a change log (Google Drive, Dropbox): polled in the background, so the provider's answer may be old.
-        match (syncative_go::change_cursor(remote, cancel), cursor) {
-            (Some(now), Some(before)) if now == before => {
-                self.check_reachable(remote, cancel)?;
-                Ok(Changes::None)
-            }
-            (now, _) => Ok(Changes::Unknown { cursor: now }),
+        let now = syncative_go::change_cursor(remote, cancel);
+        let Some(before) = cursor else {
+            return Ok(Changes::Unknown { cursor: now });
+        };
+        if now.as_deref() == Some(before) {
+            self.check_reachable(remote, cancel)?;
+            return Ok(Changes::None);
         }
+        let Some((now, changed)) = syncative_go::changes_since(remote, before) else {
+            return Ok(Changes::Unknown { cursor: now });
+        };
+        // The folder holding each changed item shows what became of it; a changed folder's own content may have changed too.
+        let changes = changed
+            .into_iter()
+            .flat_map(|c| {
+                let parent = c.path.rfind('/').map_or("", |i| &c.path[..i]).to_owned();
+                let own = c.is_dir.then(|| RemoteChange::Folder(c.path.clone()));
+                std::iter::once(RemoteChange::Folder(parent)).chain(own)
+            })
+            .collect();
+        Ok(Changes::Some { cursor: now, root_id: None, changes })
+    }
+
+    fn folder_tags(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<Option<HashMap<String, String>>, String> {
+        Ok(syncative_go::folder_tags(remote, path, 1, cancel)?.map(|tags| tags.children))
     }
 
     fn usage(&self, remote: &str, cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {

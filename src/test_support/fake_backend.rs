@@ -38,6 +38,8 @@ pub struct FakeBackend {
     pub changes_answers: Mutex<Vec<Changes>>,
     /// The cursor each `changes` call got.
     pub changes_calls: Mutex<Vec<Option<String>>>,
+    /// What `folder_tags` reports per folder; without an entry `None`, a backend without tags.
+    pub folder_tags: Mutex<HashMap<String, HashMap<String, String>>>,
     /// What `full_listing_every` reports.
     pub full_listing_every: Mutex<Option<std::time::Duration>>,
 
@@ -68,6 +70,7 @@ impl Default for FakeBackend {
             during_copy_to_remote: Mutex::new(None),
             changes_answers: Mutex::new(Vec::new()),
             changes_calls: Mutex::new(Vec::new()),
+            folder_tags: Mutex::new(HashMap::new()),
             full_listing_every: Mutex::new(None),
             stat_calls: Mutex::new(Vec::new()),
             list_calls: Mutex::new(Vec::new()),
@@ -225,6 +228,9 @@ impl BackendClient for FakeBackend {
         self.changes_calls.lock().unwrap().push(cursor.map(str::to_owned));
         let mut answers = self.changes_answers.lock().unwrap();
         Ok(if answers.is_empty() { Changes::Unknown { cursor: None } } else { answers.remove(0) })
+    }
+    fn folder_tags(&self, _remote: &str, path: &str, _cancel: &Cancel) -> Result<Option<HashMap<String, String>>, String> {
+        Ok(self.folder_tags.lock().unwrap().get(path).cloned())
     }
     fn full_listing_every(&self, _remote: &str) -> Option<std::time::Duration> {
         *self.full_listing_every.lock().unwrap()
