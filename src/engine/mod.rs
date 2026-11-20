@@ -263,6 +263,10 @@ async fn run(
         if busy != core.busy() {
             busy = !busy;
             busy_changed(busy);
+            // A pass's listings and plans are gone; hand their memory back while Syncative waits for the next one.
+            if !busy {
+                crate::util::release_freed_memory();
+            }
         }
         // The round's changes wait for the next snapshot when the last one is too recent.
         let next_snapshot = published.map(|at| at + SNAPSHOT_GAP).filter(|&at| at > now);
