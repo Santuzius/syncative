@@ -1,0 +1,107 @@
+# Checks every pull request into develop on GitHub's runners: the Nix source build (which runs cargo test) and go test. For Dependabot's pull requests it first puts the new vendorHash into nix/package.nix when go.sum changed, and merges them afterwards if every update in them is safe by its version number (doc/development/dependencies.md).
+name: Check
+
+on:
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  vendor-hash:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.hash.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@v32
+      - name: Update vendorHash if go.sum changed
+        id: hash
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          if ! git diff --quiet "origin/$BASE...HEAD" -- src/go/go.sum; then
+            sed -i 's#^\(\s*vendorHash = \)"sha256-[^"]*";#\1lib.fakeHash;#' nix/package.nix
+            hash="$(nix build .#syncative-source 2>&1 | sed -n 's/.*got: *\(sha256-[A-Za-z0-9+\/=]*\).*/\1/p' | head -1 || true)"
+            [ -n "$hash" ] || { echo "The build named no vendorHash." >&2; exit 1; }
+            sed -i "s#^\(\s*vendorHash = \)lib.fakeHash;#\1\"$hash\";#" nix/package.nix
+            if ! git diff --quiet -- nix/package.nix; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git commit -q -m ":arrow_up: Update vendorHash for the new Go modules" -- nix/package.nix
+              git push -q origin HEAD
+            fi
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  nix:
+    needs: vendor-hash
+    if: always() && needs.vendor-hash.result != 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space for the build
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.vendor-hash.outputs.sha || github.sha }}
+      - uses: cachix/install-nix-action@v32
+      - name: Build from source and run the Rust tests
+        run: nix build -L .#syncative-source
+
+  go:
+    needs: vendor-hash
+    if: always() && needs.vendor-hash.result != 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.vendor-hash.outputs.sha || github.sha }}
+          submodules: true
+      - uses: cachix/install-nix-action@v32
+      - name: Go tests
+        run: nix develop -c sh -c 'cd src/go && go test ./...'
+
+  merge:
+    needs: [vendor-hash, nix, go]
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && needs.nix.result == 'success' && needs.go.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: dependabot/fetch-metadata@v3
+        id: meta
+      - name: Merge if every update is a patch, or a minor step from 1.0 on
+        env:
+          DEPS: ${{ steps.meta.outputs.updated-dependencies-json }}
+          PR: ${{ github.event.pull_request.html_url }}
+          SHA: ${{ needs.vendor-hash.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # No update details at all also waits for review. A commit hash (Nix inputs) has no version to judge and is merged when the build passes. A version is split into numbers, missing parts count as 0; anything else (pre-releases) waits for review.
+          safe="$(jq -r '
+            def nums: ltrimstr("v") | split(".") | map(tonumber? // null) | . + [0, 0];
+            length > 0 and all(.[];
+              (.newVersion // "") as $new | (.prevVersion // "") as $prev |
+              if ($new | test("^[0-9a-f]{7,40}$")) then true
+              else ($prev | nums) as $p | ($new | nums) as $n |
+                if ($p[0:3] + $n[0:3] | any(. == null)) then false
+                else $p[0] == $n[0] and ($n[0] >= 1 or $p[1] == $n[1]) end
+              end)' <<< "$DEPS")"
+          echo "$DEPS" | jq -r '.[] | "\(.dependencyName): \(.prevVersion) -> \(.newVersion)"'
+          if [ "$safe" != "true" ]; then
+            echo "Left for review: at least one update is a major step, a minor step below 1.0, or no plain version."
+            exit 0
+          fi
+          gh pr merge "$PR" --squash --match-head-commit "$SHA"
