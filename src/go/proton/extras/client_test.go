@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/ProtonMail/go-proton-api"
 )
@@ -75,5 +77,49 @@ func TestFailedRenewalIsReturned(t *testing.T) {
 	auth.Renew = func(context.Context) (Auth, error) { return Auth{}, offline }
 	if _, err := LatestVolumeEventID(context.Background(), auth, "v"); !errors.Is(err, offline) {
 		t.Fatalf("got %v, want the renewal's error", err)
+	}
+}
+
+// A walk of a large tree runs into Proton's rate limit; the request waits as Retry-After asks and is sent again instead of failing the listing.
+func TestTooManyRequestsIsRetried(t *testing.T) {
+	retryJitter = func() time.Duration { return 0 }
+	t.Cleanup(func() { retryJitter = func() time.Duration { return time.Duration(rand.Intn(10)) * time.Second } })
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests < 3 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"Code":2028,"Error":"Too many recent API requests"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"Code":1000,"EventID":"e1"}`))
+	}))
+	t.Cleanup(server.Close)
+	var out struct{ EventID string }
+	if err := do(context.Background(), Auth{UID: "u", AccessToken: "a", HostURL: server.URL}, "GET", "/x", nil, &out); err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	if requests != 3 || out.EventID != "e1" {
+		t.Fatalf("requests = %d, EventID = %q; want 3, e1", requests, out.EventID)
+	}
+}
+
+// After busyRetries refusals the 429 is returned.
+func TestTooManyRequestsGivesUp(t *testing.T) {
+	retryJitter = func() time.Duration { return 0 }
+	t.Cleanup(func() { retryJitter = func() time.Duration { return time.Duration(rand.Intn(10)) * time.Second } })
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"Code":2028,"Error":"Too many recent API requests"}`))
+	}))
+	t.Cleanup(server.Close)
+	err := do(context.Background(), Auth{UID: "u", AccessToken: "a", HostURL: server.URL}, "GET", "/x", nil, nil)
+	var apiErr *proton.APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusTooManyRequests || requests != busyRetries+1 {
+		t.Fatalf("err = %v, requests = %d", err, requests)
 	}
 }

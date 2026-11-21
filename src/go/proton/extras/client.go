@@ -16,7 +16,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,20 +63,55 @@ func do(ctx context.Context, auth Auth, method, path string, body, out any) erro
 			return fmt.Errorf("encode body: %w", err)
 		}
 	}
-	err := send(ctx, auth, method, path, buf, out)
+	err := sendRetrying(ctx, auth, method, path, buf, out)
 	var apiErr *proton.APIError
 	if auth.Renew != nil && errors.As(err, &apiErr) && apiErr.Status == http.StatusUnauthorized {
 		renewed, renewErr := auth.Renew(ctx)
 		if renewErr != nil {
 			return renewErr
 		}
-		return send(ctx, renewed, method, path, buf, out)
+		return sendRetrying(ctx, renewed, method, path, buf, out)
 	}
 	return err
 }
 
-// send makes one request with the JSON body `buf` (nil for none).
-func send(ctx context.Context, auth Auth, method, path string, buf []byte, out any) error {
+// busyRetries is how often a request Proton refuses with 429 or 503 is sent again; upstream's client retries 3 times, but rclone's walk of a large tree keeps up to 8 listings in flight per folder.
+const busyRetries = 5
+
+// retryJitter spreads the retries of parallel requests, like upstream's client; tests set it to zero.
+var retryJitter = func() time.Duration { return time.Duration(rand.Intn(10)) * time.Second }
+
+// sendRetrying makes the request, and when Proton answers 429 or 503 waits as long as its Retry-After asks (10 s without one, at most a minute) and sends it again.
+func sendRetrying(ctx context.Context, auth Auth, method, path string, buf []byte, out any) error {
+	for attempt := 0; ; attempt++ {
+		after, err := send(ctx, auth, method, path, buf, out)
+		if after < 0 || attempt == busyRetries {
+			return err
+		}
+		timer := time.NewTimer(min(after+retryJitter(), time.Minute))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		case <-timer.C:
+		}
+	}
+}
+
+// busyWait is how long Proton asks to wait before a request it refused with 429 or 503 is sent again; -1 for any other answer.
+func busyWait(res *http.Response) time.Duration {
+	if res.StatusCode != http.StatusTooManyRequests && res.StatusCode != http.StatusServiceUnavailable {
+		return -1
+	}
+	seconds, err := strconv.Atoi(res.Header.Get("Retry-After"))
+	if err != nil || seconds < 0 {
+		seconds = 10
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// send makes one request with the JSON body `buf` (nil for none); the duration is busyWait's.
+func send(ctx context.Context, auth Auth, method, path string, buf []byte, out any) (time.Duration, error) {
 	url := strings.TrimRight(auth.hostURL(), "/") + path
 
 	var bodyReader io.Reader
@@ -84,7 +121,7 @@ func send(ctx context.Context, auth Auth, method, path string, buf []byte, out a
 
 	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
-		return err
+		return -1, err
 	}
 	if buf != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -102,13 +139,14 @@ func send(ctx context.Context, auth Auth, method, path string, buf []byte, out a
 
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return -1, err
 	}
 	defer res.Body.Close()
+	after := busyWait(res)
 
 	respBody, err := io.ReadAll(res.Body)
 	if err != nil {
-		return err
+		return after, err
 	}
 
 	if res.StatusCode >= 400 {
@@ -116,15 +154,15 @@ func send(ctx context.Context, auth Auth, method, path string, buf []byte, out a
 		// Upstream's APIError has a JSON tag mapping `Error` →
 		// Message, so the standard unmarshal populates it correctly.
 		if jerr := json.Unmarshal(respBody, ae); jerr != nil {
-			return fmt.Errorf("HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(respBody)))
+			return after, fmt.Errorf("HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(respBody)))
 		}
-		return ae
+		return after, ae
 	}
 
 	if out != nil {
 		if err := json.Unmarshal(respBody, out); err != nil {
-			return fmt.Errorf("decode response: %w", err)
+			return -1, fmt.Errorf("decode response: %w", err)
 		}
 	}
-	return nil
+	return -1, nil
 }
