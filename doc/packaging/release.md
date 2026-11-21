@@ -22,6 +22,8 @@ The branch flow:
 
 ## Steps
 
+`scripts/release.sh X.Y.Z` does all of this from `develop`, by hand or [through GitHub Actions](#releasing-through-github-actions). It runs the [checks](#checks-before-announcing-it) on the APK and the AppImage before it commits and tags, and creates the release of step 6 as a draft, with the notes from `temp/release/notes-X.Y.Z.md` if that file exists. Publish the draft on GitHub, then run `scripts/release.sh --check-nix X.Y.Z`. A run that fails before the commit can simply be started again. The steps it follows:
+
 1. **Bump** the version in `[workspace.package]` of `Cargo.toml`, then run `cargo metadata` in the dev shell so `Cargo.lock` follows. Run `scripts/update-licenses.sh` (the first run installs ScanCode into `temp/scancode-venv/`), which rewrites `assets/licenses.json` (the "Open source licenses" in About) from the licenses of all Rust crates and Go packages. Don't commit yet.
 2. **Build the APK and the AppImage** from this tree. Both write to `temp/release/`:
    ```sh
@@ -51,6 +53,15 @@ The branch flow:
 - **AppImage:** It runs `--help` in `ubuntu:24.04`, `debian:12` and `fedora:42` containers (with `--appimage-extract-and-run` and the distribution's dbus library). It needs nothing but glibc 2.35 and `libdbus-1`.
   - Pipe the file into the container (`docker run -i … sh -c 'cat > a'`) instead of mounting it, and blank its bytes 8–10 there (`printf '\0\0\0' | dd of=a bs=1 seek=8 conv=notrunc`): on a NixOS host with `programs.appimage.binfmt`, the kernel otherwise hands the file to `appimage-run`, which the container lacks, and the start fails with "not found".
 - **Nix:** `nix build github:Santuzius/syncative/vX.Y.Z` downloads the AppImage without compiling anything, and `result/bin/syncative --help` runs. This only works once the release is published, because the flake fetches the AppImage from it.
+
+## Releasing through GitHub Actions
+
+`.github/workflows/release.yml` runs `scripts/release.sh` on a self-hosted runner labelled `syncative-release`. Start it under Actions → Release → Run workflow, on `develop`, with the version.
+
+- **The runner** is the NixOS service `services.github-runners.<name>`, with `extraLabels = [ "syncative-release" ]`, a fine-grained personal access token in `tokenFile`, and `systemd.services.github-runner-<name>.wantedBy = lib.mkForce [ ];` so it doesn't start at boot. Start it with `systemctl start` only for a release and stop it afterwards: while it is stopped, no job reaches the machine.
+- **Its user** is a dedicated system user in the `docker` group, with rustup and the Android targets in its home, which lies outside `/home` because the service hides `/home` (`ProtectHome`), and with the release key: `SYNCATIVE_KEYSTORE_PROPERTIES` (in the service's `extraEnvironment`) names its `keystore.properties`, which the script copies into the checkout for the build. `extraPackages` needs at least `docker`, `gh`, `git`, `nix`, `python3` and `steam-run`.
+- **Forks:** the repository setting Settings → Actions → General → "Approval for running fork pull request workflows from contributors" is "Require approval for all external contributors". A pull request from a fork can add a workflow that targets this runner, and it runs only once its workflows are approved, so approve one only after reading every changed file. The milder options would let anyone with one merged change run code on the runner without approval.
+- **Pushing:** the run commits as the person who started it and pushes `develop`, `main` and the tag with the workflow's token.
 
 ## The Android forks
 
