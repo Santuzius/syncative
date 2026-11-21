@@ -91,3 +91,7 @@ log = "0.4"
 android-activity = { git = "https://github.com/Santuzius/android-activity", tag = "iced_android-v0.1.2" }
 # Widget crates such as iced_storage_bar depend on iced_widget from crates.io; this gives them the fork's, so there is one iced.
 iced_widget = { git = "https://github.com/Santuzius/iced", tag = "iced_android-v0.1.2" }
+
+# Dependencies without debug info, which kept target/ at tens of GB and slowed linking; Syncative's own code keeps full debug info.
+[profile.dev.package."*"]
+debug = false
