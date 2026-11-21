@@ -29,12 +29,11 @@ updates:
       day: monday
     commit-message:
       prefix: ":arrow_up:"
-    # Pinned through `replace` in go.mod: the rclone fork, Proton's builds, and go-proton-api as a submodule (doc/packaging/release.md#the-rclone-fork).
+    # The rclone fork and resty are pinned through `replace` in go.mod (doc/packaging/release.md#the-rclone-fork). Proton's modules come with go-proton-api, a submodule, and follow its versions; several are Proton's own `-proton` builds, which a newer upstream release would replace.
     ignore:
       - dependency-name: github.com/rclone/rclone
-      - dependency-name: github.com/ProtonMail/go-proton-api
-      - dependency-name: github.com/ProtonMail/go-crypto
       - dependency-name: github.com/go-resty/resty/v2
+      - dependency-name: github.com/ProtonMail/*
     groups:
       go-patch:
         update-types: [patch]
