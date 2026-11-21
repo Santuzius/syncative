@@ -61,6 +61,7 @@ The branch flow:
 - **The runner** is the NixOS service `services.github-runners.<name>`, with `extraLabels = [ "syncative-release" ]`, a fine-grained personal access token with read and write access to the repository's self-hosted runners in `tokenFile`. It starts at boot and waits for jobs; `systemctl stop` keeps every job away from the machine until it is started again.
 - **Its user** is a dedicated system user in the `docker` group with a home outside `/home`, which the service hides (`ProtectHome`). The service needs these changes to the module's defaults:
   - `HOME` set to that home in `extraEnvironment`, since the module's own `HOME` is the work directory, wiped on every stop, and `ReadWritePaths` for it, since `ProtectSystem=strict` leaves it read-only.
+  - `workDir` on a disk: the default lies in `/run`, which is in RAM, and the checkout with its Android build takes a few GB. The service empties it on every start.
   - `NIX_PATH` with `nixpkgs`, for the scripts' `nix-shell` calls.
   - `PrivateUsers = false`, or the docker group is invisible inside the service; `RestrictNamespaces = false` and an empty `SystemCallFilter` for `steam-run` in `update-licenses.sh`.
   - An `ExecStartPre` that runs `rustup toolchain install stable --profile minimal --target aarch64-linux-android`.
