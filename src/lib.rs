@@ -368,6 +368,7 @@ fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
         DisabledProtonClient, PendingProtonClient, REAUTH_HINT,
     };
     crate::services::auth::remove_stale_proton_tempfiles();
+    crate::services::auth::store_renewed_proton_sessions();
     let remotes = util::await_future(repo.list_remotes()).unwrap_or_default();
     for remote in remotes {
         if remote.backend != Backend::NativeProton {

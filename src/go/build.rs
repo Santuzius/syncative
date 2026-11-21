@@ -96,6 +96,7 @@ fn main() {
         .allowlist_function("ProtonDrive_Logout")
         .allowlist_function("ProtonDrive_SaveSession")
         .allowlist_function("ProtonDrive_SaveSessionIfRotated")
+        .allowlist_function("ProtonDrive_NextRotation")
         .allowlist_function("ProtonDrive_ResumeSession")
         .allowlist_type("RcloneRPCResult")
         // The header is our own output; watching it would mark the build script stale after every run and rebuild the Go archive each time.

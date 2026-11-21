@@ -247,6 +247,13 @@ func ProtonDrive_SaveSessionIfRotated(paramsJSON *C.char) *C.char {
 	}{Saved: saved})
 }
 
+// ProtonDrive_NextRotation blocks until the tokens of a session were renewed and returns `{"uid":"...","remotes":[...]}` (drive.NextRotation). Syncative calls it in a loop from a thread of its own and stores the session each time. Input `{}`.
+//
+//export ProtonDrive_NextRotation
+func ProtonDrive_NextRotation(paramsJSON *C.char) *C.char {
+	return okResult(drive.NextRotation())
+}
+
 // ProtonDrive_ResumeSession reads a saved credential blob from disk
 // and rehydrates a session. Input JSON is `{"path":"..."}`; result
 // data is the `drive.ReusableCredential` of the resumed session so

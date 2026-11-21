@@ -115,20 +115,47 @@ pub fn resume_session_from_keyring(
     let tmp = TempBlob::write(&blob)?;
     let cred = syncative_go::proton::resume_session(tmp.path())?;
 
-    // Resuming an expired access token forces an immediate token
-    // refresh inside `resume_session`, rotating the refresh token. If
-    // the user quits before the first sync pass checkpoints it, the
-    // stored blob would still carry the now-consumed token and the next
-    // launch would be pushed into a 2FA re-login. Persist the rotation
-    // now so a resume alone is enough to keep the session alive. Best
-    // effort: a keyring hiccup here shouldn't block the resume — the
-    // sync-pass checkpoint is the backstop.
+    // Resuming an expired access token renews it inside `resume_session`, before the session is bound to the remote, so `store_renewed_sessions` doesn't know where to store it: store it here. Best effort: a keyring hiccup here shouldn't block the resume, and the next renewal stores the session again.
     if let Err(err) = persist_session_if_rotated(remote_name, &cred.uid) {
         eprintln!(
             "syncative: could not persist post-resume token rotation for '{remote_name}': {err}",
         );
     }
     Ok(Some(cred))
+}
+
+/// Starts the thread that stores a Proton session in the keyring as soon as its tokens were renewed, by whatever call renewed them: a sync, a mounted network drive, Android's document provider or a change check. Proton's refresh tokens work only once, so a renewed pair that is only in memory when the process ends (Android, an update) forces a new sign-in. A renewal during a sign-in or resume names no remote yet; those store the session themselves. Starting it again does nothing.
+pub fn store_renewed_sessions() {
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    STARTED.call_once(|| {
+        let spawned = std::thread::Builder::new()
+            .name("proton-renewals".to_owned())
+            .spawn(|| {
+                loop {
+                    let rotation = match syncative_go::proton::next_rotation() {
+                        Ok(rotation) => rotation,
+                        Err(err) => {
+                            eprintln!("syncative: waiting for Proton token renewals failed: {err}");
+                            std::thread::sleep(std::time::Duration::from_secs(5));
+                            continue;
+                        }
+                    };
+                    for remote in &rotation.remotes {
+                        match persist_session_to_keyring(remote, &rotation.uid) {
+                            Ok(()) => eprintln!(
+                                "syncative: native-proton session for '{remote}' stored after token renewal."
+                            ),
+                            Err(err) => eprintln!(
+                                "syncative: couldn't store the renewed proton session for '{remote}': {err}"
+                            ),
+                        }
+                    }
+                }
+            });
+        if let Err(err) = spawned {
+            eprintln!("syncative: couldn't start the thread that stores renewed Proton sessions: {err}");
+        }
+    });
 }
 
 /// Drop the keyring entry for `remote_name`. Idempotent — missing
@@ -156,8 +183,7 @@ fn persist_session_to_keyring(remote_name: &str, uid: &str) -> Result<(), String
 /// first use and the next launch is forced into a full 2FA re-login.
 ///
 /// Returns `Ok(true)` when a rotated blob was written, `Ok(false)` when
-/// nothing changed (the common case — cheap enough to call after every
-/// sync pass). Callers should treat errors as non-fatal: the running
+/// nothing changed. Callers should treat errors as non-fatal: the running
 /// session still holds the fresh tokens in memory; only persistence
 /// lagged, and the next rotation re-arms the check.
 pub fn persist_session_if_rotated(remote_name: &str, uid: &str) -> Result<bool, String> {

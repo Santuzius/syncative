@@ -384,7 +384,57 @@ func (s *Session) registerAuthHandler() {
 		s.AccessToken = auth.AccessToken
 		s.RefreshToken = auth.RefreshToken
 		s.rotated = true
+		renewed(s.UID)
 	})
+}
+
+// renewals holds the UIDs of sessions whose tokens were renewed and not yet handed out by NextRotation.
+var renewals = struct {
+	sync.Mutex
+	uids   map[string]struct{}
+	signal chan struct{}
+}{uids: map[string]struct{}{}, signal: make(chan struct{}, 1)}
+
+func renewed(uid string) {
+	renewals.Lock()
+	renewals.uids[uid] = struct{}{}
+	renewals.Unlock()
+	select {
+	case renewals.signal <- struct{}{}:
+	default:
+	}
+}
+
+// Rotation is a session whose tokens were renewed, with the remotes bound to it (none during a sign-in or resume, whose caller stores the session itself).
+type Rotation struct {
+	UID     string   `json:"uid"`
+	Remotes []string `json:"remotes"`
+}
+
+// NextRotation waits until the tokens of a session were renewed, by any call (sync, mount, Android's document provider, change checks). Proton's refresh tokens work only once, so the caller stores the session at once: a renewed pair that is only in memory when the process ends forces a new sign-in. Several renewals of one session before the call return it once.
+func NextRotation() Rotation {
+	for {
+		renewals.Lock()
+		for uid := range renewals.uids {
+			delete(renewals.uids, uid)
+			renewals.Unlock()
+			return Rotation{UID: uid, Remotes: remotesOf(uid)}
+		}
+		renewals.Unlock()
+		<-renewals.signal
+	}
+}
+
+func remotesOf(uid string) []string {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	var out []string
+	for remote, bound := range remotes {
+		if bound == uid {
+			out = append(out, remote)
+		}
+	}
+	return out
 }
 
 // Save writes the session's reusable credential to `path`. Permissions

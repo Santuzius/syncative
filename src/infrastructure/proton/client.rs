@@ -1,6 +1,6 @@
 //! [`BackendClient`] for Proton Drive remotes. The calls go through rclone like those of every other remote, to Syncative's own Proton backend (`src/go/proton/rclonefs`), which reaches the remote through the session this client binds to the remote's name.
 //!
-//! What stays here is the session: [`ProtonClient`] stores renewed tokens after every call, [`PendingProtonClient`] resumes a session that couldn't be resumed at startup, and [`DisabledProtonClient`] stands in for one that needs a new sign-in.
+//! What stays here is the session: [`ProtonClient`] binds it to the remote (renewed tokens are stored as they arrive, see [`crate::services::auth::store_renewed_proton_sessions`]), [`PendingProtonClient`] resumes a session that couldn't be resumed at startup, and [`DisabledProtonClient`] stands in for one that needs a new sign-in.
 
 use std::time::Duration;
 
@@ -19,7 +19,6 @@ pub const PROTON_TYPE: &str = "native-proton";
 /// A Proton Drive remote with a live session.
 #[derive(Clone)]
 pub struct ProtonClient {
-    uid: String,
     rclone: LibrcloneClient,
 }
 
@@ -28,29 +27,8 @@ impl ProtonClient {
     pub fn new(uid: String, remote: &str) -> Result<Self, String> {
         syncative_go::proton::bind_remote(&uid, remote)?;
         Ok(Self {
-            uid,
             rclone: LibrcloneClient::for_backend_calls(),
         })
-    }
-
-    /// Stores the session in the keyring if the call before renewed its tokens. Proton's refresh tokens work only once, so a renewed pair that is only in memory when the app gets killed (Android, an update) forces a new sign-in; every backend method therefore ends with this. Cheap when nothing was renewed. `remote` is the keyring account name. Errors are only logged: the running session already holds the new tokens, and the next renewal tries again.
-    fn checkpoint_session(&self, remote: &str) {
-        match crate::services::auth::persist_proton_session_if_rotated(remote, &self.uid) {
-            Ok(true) => eprintln!(
-                "syncative: native-proton session for '{remote}' re-persisted after token rotation.",
-            ),
-            Ok(false) => {}
-            Err(err) => eprintln!(
-                "syncative: failed to re-persist rotated proton session for '{remote}': {err}",
-            ),
-        }
-    }
-
-    /// Runs `call` and then [`Self::checkpoint_session`].
-    fn checkpointed<T>(&self, remote: &str, call: impl FnOnce(&LibrcloneClient) -> T) -> T {
-        let result = call(&self.rclone);
-        self.checkpoint_session(remote);
-        result
     }
 }
 
@@ -61,7 +39,7 @@ impl BackendClient for ProtonClient {
         path: &str,
         cancel: &Cancel,
     ) -> Result<Option<RemoteItem>, String> {
-        self.checkpointed(remote, |c| c.stat(remote, path, cancel))
+        self.rclone.stat(remote, path, cancel)
     }
 
     fn list(
@@ -72,7 +50,7 @@ impl BackendClient for ProtonClient {
         filter: ListFilter,
         cancel: &Cancel,
     ) -> Result<Vec<RemoteItem>, String> {
-        self.checkpointed(remote, |c| c.list(remote, path, recursive, filter, cancel))
+        self.rclone.list(remote, path, recursive, filter, cancel)
     }
 
     fn details(
@@ -81,20 +59,20 @@ impl BackendClient for ProtonClient {
         path: &str,
         cancel: &Cancel,
     ) -> Result<Option<FileDetails>, String> {
-        self.checkpointed(remote, |c| c.details(remote, path, cancel))
+        self.rclone.details(remote, path, cancel)
     }
 
     fn mkdir(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {
-        self.checkpointed(remote, |c| c.mkdir(remote, path, cancel))
+        self.rclone.mkdir(remote, path, cancel)
     }
 
     /// Proton keeps what it removes in its trash.
     fn delete_file(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {
-        self.checkpointed(remote, |c| c.delete_file(remote, path, cancel))
+        self.rclone.delete_file(remote, path, cancel)
     }
 
     fn purge(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {
-        self.checkpointed(remote, |c| c.purge(remote, path, cancel))
+        self.rclone.purge(remote, path, cancel)
     }
 
     fn copy_to_remote(
@@ -104,9 +82,8 @@ impl BackendClient for ProtonClient {
         remote_path: &str,
         cancel: &Cancel,
     ) -> Result<(), String> {
-        self.checkpointed(remote, |c| {
-            c.copy_to_remote(local_path, remote, remote_path, cancel)
-        })
+        self.rclone
+            .copy_to_remote(local_path, remote, remote_path, cancel)
     }
 
     fn copy_to_local(
@@ -116,9 +93,8 @@ impl BackendClient for ProtonClient {
         remote_path: &str,
         cancel: &Cancel,
     ) -> Result<(), String> {
-        self.checkpointed(remote, |c| {
-            c.copy_to_local(local_path, remote, remote_path, cancel)
-        })
+        self.rclone
+            .copy_to_local(local_path, remote, remote_path, cancel)
     }
 
     /// The session belongs to the sign-in, see [`crate::services::remote_lifecycle::delete_remote`].
@@ -142,7 +118,7 @@ impl BackendClient for ProtonClient {
         cursor: Option<&str>,
         cancel: &Cancel,
     ) -> Result<Changes, String> {
-        self.checkpointed(remote, |c| c.changes(remote, path, cursor, cancel))
+        self.rclone.changes(remote, path, cursor, cancel)
     }
 
     /// The event log misses nothing, and Proton asks clients not to walk the tree on a timer.
@@ -152,7 +128,7 @@ impl BackendClient for ProtonClient {
 
     /// The account-wide quota: one plan pools Mail, Drive and Calendar, so the numbers shown are the whole account's.
     fn usage(&self, remote: &str, cancel: &Cancel) -> Result<Option<RemoteUsage>, String> {
-        self.checkpointed(remote, |c| c.usage(remote, cancel))
+        self.rclone.usage(remote, cancel)
     }
 }
 

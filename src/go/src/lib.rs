@@ -463,6 +463,22 @@ pub mod proton {
         Ok(out.saved)
     }
 
+    /// A session whose tokens were renewed, and the remotes bound to it.
+    #[derive(Clone, Debug, serde::Deserialize)]
+    pub struct Rotation {
+        pub uid: String,
+        #[serde(default)]
+        pub remotes: Vec<String>,
+    }
+
+    /// Blocks until the tokens of a session were renewed, by whatever call renewed them. Call it in a loop from a thread of its own.
+    pub fn next_rotation() -> Result<Rotation, String> {
+        call_json::<_, Rotation>(
+            |payload| unsafe { ffi::ProtonDrive_NextRotation(payload) },
+            &serde_json::json!({}),
+        )
+    }
+
     /// Rehydrate a session from a credential blob previously written
     /// by `save_session`. Returns the credential so the caller can
     /// pick up the `uid`.
