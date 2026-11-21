@@ -8,7 +8,7 @@ require (
 )
 
 require (
-	github.com/ProtonMail/gopenpgp/v2 v2.11.1-proton
+	github.com/ProtonMail/gopenpgp/v2 v2.11.1
 	github.com/go-resty/resty/v2 v2.17.2
 )
 
