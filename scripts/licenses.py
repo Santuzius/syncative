@@ -238,10 +238,15 @@ for line in open(os.path.join(tmp, "go-modules.txt")):
     path, _, version = line.strip().partition(" ")
     versions[path] = version
 go_dirs = dict(line.split(" ", 1) for line in open(os.path.join(tmp, "go-dirs.txt")).read().splitlines() if " " in line)
+# A license file that holds several licenses is one row per license in go.csv, and go-licenses saves no copy of it: show it once, under the first, and read it from the package's own folder.
+seen_go = set()
 for library, _url, kind in csv.reader(open(os.path.join(tmp, "go.csv"))):
-    if library.startswith(OWN_GO) and library not in PORTED:
+    if library.startswith(OWN_GO) and library not in PORTED or library in seen_go:
         continue
+    seen_go.add(library)
     folder = os.path.join(tmp, "go-save", library)
+    if not os.path.isdir(folder):
+        folder = go_dirs.get(library, "")
     files = sorted(f for f in os.listdir(folder) if re.match(r"(LICEN[CS]E|COPYING)", f, re.I)) if os.path.isdir(folder) else []
     if not files:
         print(f"no license text for {library}", file=sys.stderr)
