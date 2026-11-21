@@ -555,6 +555,28 @@ async fn removed_folders_and_remotes_are_forgotten() {
     assert_eq!(snap.pass_lines.get(&D2).map(String::as_str), Some("hello"));
 }
 
+// The cancelled listing of a folder removed during its pass reports an error after the removal; it must not bring the folder back as the remote's lasting "Sync failed".
+#[tokio::test]
+async fn events_of_a_removed_folder_are_dropped() {
+    let mut rig = rig().await;
+    rig.repo.sync_dirs.lock().unwrap().retain(|d| d.id != D1);
+    rig.send(Command::Reload).await;
+    rig.event(SyncEvent::SyncDirError {
+        remote_id: R1,
+        sync_dir_id: D1,
+        error: SyncError::General(String::new(), "cancelled: error in ListJSON".into()),
+    })
+    .await;
+    rig.event(SyncEvent::SyncDirStateChanged {
+        remote_id: R1,
+        sync_dir_id: D1,
+        state: RunState::Error,
+    })
+    .await;
+    assert_ne!(rig.snap().state.roll_up(R1), Some(RunState::Error));
+    assert!(rig.log(D1).is_empty());
+}
+
 #[tokio::test]
 async fn logs_keep_the_newest_lines() {
     let mut rig = rig().await;

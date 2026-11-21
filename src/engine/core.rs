@@ -594,6 +594,21 @@ impl Core {
 
     /// Route a single sync event through the state machine and the log.
     fn handle_event(&mut self, event: SyncEvent) {
+        // A folder removed during its pass still gets the pass's last events, such as the error of its cancelled listing; they would bring it back into the remote's state, where no later pass clears them.
+        let dir = match &event {
+            SyncEvent::SyncDirStatus { sync_dir_id, .. }
+            | SyncEvent::SyncDirPending { sync_dir_id, .. }
+            | SyncEvent::SyncDirError { sync_dir_id, .. }
+            | SyncEvent::SyncDirConflicts { sync_dir_id, .. }
+            | SyncEvent::SyncDirStateChanged { sync_dir_id, .. }
+            | SyncEvent::FileProgress { sync_dir_id, .. } => Some(*sync_dir_id),
+            SyncEvent::RemoteStarted { .. }
+            | SyncEvent::RemoteCompleted { .. }
+            | SyncEvent::RemoteFailed { .. } => None,
+        };
+        if dir.is_some_and(|id| !self.sync_dirs.iter().any(|d| d.id == id)) {
+            return;
+        }
         match event {
             SyncEvent::SyncDirStatus {
                 sync_dir_id, text, ..
