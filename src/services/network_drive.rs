@@ -151,7 +151,7 @@ pub fn is_android_drive(local_path: &str) -> bool {
 /// How a folder's local side reads in the app: the path, or for an Android network drive where other apps find it.
 pub fn local_display(sync_dir: &SyncDir) -> String {
     if is_android_drive(&sync_dir.local_path) {
-        "In the Files app and Open and Save dialogs".to_owned()
+        "File manager".to_owned()
     } else {
         crate::util::fmt_home(&sync_dir.local_path)
     }
@@ -168,9 +168,9 @@ pub struct Root {
     /// The stand-in local path, see [`android_path`].
     #[serde(skip)]
     pub local_path: String,
-    /// The remote's name.
+    /// The folder on the remote, or the remote's name for the whole drive.
     pub title: String,
-    /// The folder on the remote; empty for the whole drive.
+    /// The remote's name; empty for the whole drive, whose title already names it.
     pub summary: String,
 }
 
@@ -212,8 +212,16 @@ pub fn publish(remotes: &[Remote], sync_dirs: &[SyncDir]) {
                 id: d.id.0,
                 fs: format!("{}:{}", remote.name, d.remote_path),
                 local_path: d.local_path.clone(),
-                title: remote.name.clone(),
-                summary: d.remote_path.clone(),
+                title: if d.remote_path.is_empty() {
+                    remote.name.clone()
+                } else {
+                    d.remote_path.clone()
+                },
+                summary: if d.remote_path.is_empty() {
+                    String::new()
+                } else {
+                    remote.name.clone()
+                },
             })
         })
         .collect();
