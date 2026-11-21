@@ -1,0 +1,39 @@
+# Makes a release with scripts/release.sh on the self-hosted runner labelled syncative-release (doc/packaging/release.md#releasing-through-github-actions). Started by hand only: Actions → Release → Run workflow, on develop.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version X.Y.Z"
+        required: true
+      dry_run:
+        description: "Dry run: build and check only, no commit, tag, push or release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+
+jobs:
+  release:
+    if: github.repository == 'Santuzius/syncative' && github.ref == 'refs/heads/develop'
+    runs-on: [self-hosted, syncative-release]
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: true
+      - name: Commit as the person who started the run
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+      - name: Release
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release.sh "$VERSION" ${{ inputs.dry_run && '--dry-run' || '' }}
