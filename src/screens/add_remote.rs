@@ -324,8 +324,16 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
             body = body.push(field(
                 "Folder",
                 row![
-                    input("/media/disk/Backup", &draft.folder, Msg::FolderChanged)
-                        .width(Length::Fill),
+                    input(
+                        if cfg!(target_os = "android") {
+                            "/storage/emulated/0/Backup"
+                        } else {
+                            "/media/disk/Backup"
+                        },
+                        &draft.folder,
+                        Msg::FolderChanged
+                    )
+                    .width(Length::Fill),
                     button(text("Choose…").size(TEXT))
                         .padding([6, 14])
                         .style(theme::button_secondary)
