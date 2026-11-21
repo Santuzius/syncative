@@ -305,7 +305,17 @@ fn beta_features() -> Vec<String> {
             and_list(&managers)
         )),
     };
+    let modes = crate::domain::sync::SyncMode::ALL
+        .into_iter()
+        .filter(|mode| mode.is_beta())
+        .map(|mode| {
+            mode.label()
+                .trim_end_matches(crate::services::beta::MARK)
+                .trim_end()
+                .to_owned()
+        });
     super::add_remote::beta_providers()
+        .chain(modes)
         .chain(context_menu)
         .collect()
 }
@@ -535,6 +545,7 @@ mod tests {
             [
                 "Nextcloud integration",
                 "Local folder as a remote",
+                "Network drive",
                 "Context menu in the file managers Files and Nemo"
             ]
         );
