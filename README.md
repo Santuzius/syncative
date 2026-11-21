@@ -34,8 +34,8 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
    - Some providers are also available as beta features 🧪. Check *Preferences* -> *Beta features* to enable them. Currently available as beta:
      - **Nextcloud** 🧪
      - **Local** 🧪: a folder on this device in place of the cloud, such as an external disk or a network share the system has mounted
-4. **Add a folder:** click *+*, choose what the folder does (*Sync*, *Cloud backup* or *Local backup*), then pick a local folder and the path on the remote. Missing folders are created on both sides, and Syncative syncs them at the interval set in the remote's settings. A folder's ⚙ button changes its type later.
-   - **Network drive** 🧪 (beta): the remote folder shows up like a drive, on Linux in an empty local folder (needs `fuse3`), on Android in the Files app and in other apps' Open and Save dialogs. Files stay on the remote and are downloaded when opened; recently opened ones also work offline.
+4. **Add a folder:** click *+*, pick *Sync*, *Cloud backup* or *Local backup*, then a local folder and a remote path. Missing folders get created on both sides. You can change a folder's type later with its ⚙ button.
+   - **Network drive** 🧪: the remote folder shows up as a drive, on Linux in an empty folder (needs `fuse3`), on Android in the file manager. Files download when you open them, and recent ones work offline too.
 
 ## Use Cases
 - Syncing folders anywhere on your system, not just inside one sync folder.
@@ -64,9 +64,9 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 
 ## Most Important Features
 - Two-way sync, several folders per account, several accounts at the same time
-- One-way backups: *Cloud backup* uploads a folder, *Local backup* downloads one. Files deleted on the source side stay in the backup, and changes or deletions on the backup side are undone at the next pass
-- Filters for sub-folders and files: exclude them, with a clean-up of copies left behind, and for a folder inside another that is also synced on its own, choose between a symlink, syncing it in both or excluding it
-- Conflict resolution: a file changed on both sides is never overwritten silently; you keep the local version, the remote one, or both, for one file or all at once
+- One-way backups: *Cloud backup* uploads, *Local backup* downloads. A file deleted on the source side stays in the backup, and edits on the backup side get undone on the next pass
+- Filters: exclude sub-folders or files, and leftover copies get cleaned up. If a synced folder sits inside another one, you choose: a symlink, sync it in both, or exclude it
+- Conflicts: a file changed on both sides never gets overwritten silently. Keep the local version, the remote one or both, per file or for all at once
 - Credentials stay on the device: in the system keyring on Linux, encrypted with the Android Keystore on Android
 - Starts at login or after the phone's restart (can be switched off), Start / Pause per account
 - Shows how much of each account's space is used
