@@ -205,15 +205,19 @@ impl BackendClient for LibrcloneClient {
     }
 
     fn create_config(&self, payload_json: String) -> Result<(), String> {
-        // Reauthentication replaces an existing remote; start its change tracking over with the new credentials.
-        if let Some(name) = serde_json::from_str::<serde_json::Value>(&payload_json)
+        let name = serde_json::from_str::<serde_json::Value>(&payload_json)
             .ok()
-            .and_then(|v| v.get("name")?.as_str().map(str::to_owned))
-        {
-            syncative_go::forget_remote(&name);
+            .and_then(|v| v.get("name")?.as_str().map(str::to_owned));
+        // Reauthentication replaces an existing remote; start its change tracking over with the new credentials.
+        if let Some(name) = &name {
+            syncative_go::forget_remote(name);
         }
         let result = syncative_go::rpc("config/create", payload_json).map(|_| ());
         if result.is_ok() {
+            // Once more, for a pass that opened the remote with the old config in between.
+            if let Some(name) = &name {
+                syncative_go::forget_remote(name);
+            }
             self.sync_to_keyring();
         }
         result

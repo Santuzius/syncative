@@ -255,7 +255,10 @@ func itemChangesSince(ctx context.Context, log itemChangeLog, dir, cursor string
 }
 
 // Forget drops `remote`'s backend, e.g. after its config was replaced or deleted; the next call creates it anew.
+//
+// rclone's own cache forgets the backends of a changed config (`cache.ClearConfig`), but not its names for them: a remote that wraps another, such as an alias onto a folder, leaves `Name:path` mapped to the wrapped path, and the next `Name:path` would still open the old folder. Dropping every name mapping is cheap: an unchanged remote is found again under its canonical name.
 func Forget(remote string) {
+	cache.ClearMappingsPrefix("")
 	mu.Lock()
 	defer mu.Unlock()
 	if f, ok := pinned[remote]; ok {
