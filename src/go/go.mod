@@ -117,8 +117,8 @@ replace github.com/ProtonMail/go-proton-api => ./proton/api
 // in dependency go.mods are ignored; we have to mirror it here.
 replace github.com/go-resty/resty/v2 => github.com/ProtonMail/resty/v2 v2.0.0-20250929142426-e3dc6308c80b
 
-// Syncative's fork exports the one-off change-log query of drive and dropbox (rclone/changes.go) and drive's Untrash (rclone/trashbin.go); see doc/packaging/release.md.
-replace github.com/rclone/rclone => github.com/Santuzius/rclone v1.76.0-syncative.2
+// Syncative's fork exports the one-off change-log query of drive and dropbox (rclone/changes.go) and drive's Untrash (rclone/trashbin.go), and drive retries a refused access token after renewing it; see doc/packaging/release.md.
+replace github.com/rclone/rclone => github.com/Santuzius/rclone v1.76.0-syncative.3
 
 // gopenpgp's -proton release needs Proton's build of go-crypto (FlagForward), but rclone asks for upstream v1.5.2, which Go ranks above v1.5.2-proton.
 replace github.com/ProtonMail/go-crypto => github.com/ProtonMail/go-crypto v1.5.2-proton

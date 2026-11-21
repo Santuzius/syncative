@@ -53,8 +53,8 @@ github.com/ProtonMail/resty/v2 v2.0.0-20250929142426-e3dc6308c80b h1:0GYNP0odNPJ
 github.com/ProtonMail/resty/v2 v2.0.0-20250929142426-e3dc6308c80b/go.mod h1:iiP/OpA0CkcL3IGt1O0+/SIItFUbkkyw5BGXiVdTu+A=
 github.com/PuerkitoBio/goquery v1.12.0 h1:pAcL4g3WRXekcB9AU/y1mbKez2dbY2AajVhtkO8RIBo=
 github.com/PuerkitoBio/goquery v1.12.0/go.mod h1:802ej+gV2y7bbIhOIoPY5sT183ZW0YFofScC4q/hIpQ=
-github.com/Santuzius/rclone v1.76.0-syncative.2 h1:XOffyaFrH9TnK+n9U8Miaj7PQom4vg093+PGZ/ejIFs=
-github.com/Santuzius/rclone v1.76.0-syncative.2/go.mod h1:PoNZIA6Rv+01jY+WxLTz08i/QBEPz/6L5s1aD24Z5tc=
+github.com/Santuzius/rclone v1.76.0-syncative.3 h1:iBHtbTAsCJDz9ycquC+950iPPpzlFFh6Ue54ngT6hu0=
+github.com/Santuzius/rclone v1.76.0-syncative.3/go.mod h1:PoNZIA6Rv+01jY+WxLTz08i/QBEPz/6L5s1aD24Z5tc=
 github.com/a1ex3/zstd-seekable-format-go/pkg v0.10.0 h1:iLDOF0rdGTrol/q8OfPIIs5kLD8XvA2q75o6Uq/tgak=
 github.com/a1ex3/zstd-seekable-format-go/pkg v0.10.0/go.mod h1:DrEWcQJjz7t5iF2duaiyhg4jyoF0kxOD6LtECNGkZ/Q=
 github.com/aalpar/deheap v1.1.2 h1:MABHLcnjqsffb8GLkUFDigqpBBxOMz0DoKM9QfELeTw=
