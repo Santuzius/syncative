@@ -58,8 +58,14 @@ The branch flow:
 
 `.github/workflows/release.yml` runs `scripts/release.sh` on a self-hosted runner labelled `syncative-release`. Start it under Actions → Release → Run workflow, on `develop`, with the version.
 
-- **The runner** is the NixOS service `services.github-runners.<name>`, with `extraLabels = [ "syncative-release" ]`, a fine-grained personal access token in `tokenFile`, and `systemd.services.github-runner-<name>.wantedBy = lib.mkForce [ ];` so it doesn't start at boot. Start it with `systemctl start` only for a release and stop it afterwards: while it is stopped, no job reaches the machine.
-- **Its user** is a dedicated system user in the `docker` group, with rustup and the Android targets in its home, which lies outside `/home` because the service hides `/home` (`ProtectHome`), and with the release key: `SYNCATIVE_KEYSTORE_PROPERTIES` (in the service's `extraEnvironment`) names its `keystore.properties`, which the script copies into the checkout for the build. `extraPackages` needs at least `docker`, `gh`, `git`, `nix`, `python3` and `steam-run`.
+- **The runner** is the NixOS service `services.github-runners.<name>`, with `extraLabels = [ "syncative-release" ]`, a fine-grained personal access token with read and write access to the repository's self-hosted runners in `tokenFile`, and `systemd.services.github-runner-<name>.wantedBy = lib.mkForce [ ];` so it doesn't start at boot. Start it with `systemctl start` only for a release and stop it afterwards: while it is stopped, no job reaches the machine.
+- **Its user** is a dedicated system user in the `docker` group with a home outside `/home`, which the service hides (`ProtectHome`). The service needs these changes to the module's defaults:
+  - `HOME` set to that home in `extraEnvironment`, since the module's own `HOME` is the work directory, wiped on every stop, and `ReadWritePaths` for it, since `ProtectSystem=strict` leaves it read-only.
+  - `NIX_PATH` with `nixpkgs`, for the scripts' `nix-shell` calls.
+  - `PrivateUsers = false`, or the docker group is invisible inside the service; `RestrictNamespaces = false` and an empty `SystemCallFilter` for `steam-run` in `update-licenses.sh`.
+  - An `ExecStartPre` that runs `rustup toolchain install stable --profile minimal --target aarch64-linux-android`.
+  - `extraPackages`: at least `docker`, `gh`, `nix`, `python3`, `rustup`, `steam-run`, `gnused`, `gawk`, `gnugrep` and `findutils`.
+- **The release key:** a copy of the keystore and of `keystore.properties` in that home, with `storeFile` pointing at the copy. `SYNCATIVE_KEYSTORE_PROPERTIES` (in `extraEnvironment`) names it, and the script copies it into the checkout for the build.
 - **Forks:** the repository setting Settings → Actions → General → "Approval for running fork pull request workflows from contributors" is "Require approval for all external contributors". A pull request from a fork can add a workflow that targets this runner, and it runs only once its workflows are approved, so approve one only after reading every changed file. The milder options would let anyone with one merged change run code on the runner without approval.
 - **Pushing:** the run commits as the person who started it and pushes `develop`, `main` and the tag with the workflow's token.
 
