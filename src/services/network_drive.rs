@@ -250,10 +250,53 @@ pub fn retain(sync_dirs: &[SyncDir]) {
         .cloned()
         .collect();
     for path in gone {
+        let fs = mounts.get(&path).cloned().unwrap_or_default();
         if let Err(err) = unmount_locked(&mut mounts, &path) {
             eprintln!("syncative: couldn't unmount the network drive at {path}: {err}");
         }
+        let kept: Vec<&String> = mounts.values().collect();
+        remove_vfs_cache(&fs, &kept);
     }
+}
+
+/// Delete the files rclone's VFS kept for `fs` (`remote:path`): copies of opened files under `<cache>/vfs/<remote>/<path>` and their metadata under `<cache>/vfsMeta/…` (`vfs/vfscache/cache.go`). Called once its folder is no longer a network drive and the VFS has shut down; a folder of a drive still in use, `kept`, overlapping it is left alone.
+fn remove_vfs_cache(fs: &str, kept: &[&String]) {
+    let Some((remote, path)) = fs.split_once(':') else {
+        return;
+    };
+    let relative = std::path::Path::new(remote).join(path.trim_matches('/'));
+    let overlaps = |other: &&String| {
+        other.split_once(':').is_some_and(|(r, p)| {
+            let other = std::path::Path::new(r).join(p.trim_matches('/'));
+            other.starts_with(&relative) || relative.starts_with(&other)
+        })
+    };
+    if kept.iter().any(overlaps) {
+        return;
+    }
+    let Some(cache) = rclone_cache_dir() else {
+        return;
+    };
+    for kind in ["vfs", "vfsMeta"] {
+        let dir = cache.join(kind).join(&relative);
+        if let Err(err) = std::fs::remove_dir_all(&dir)
+            && err.kind() != std::io::ErrorKind::NotFound
+        {
+            eprintln!(
+                "syncative: couldn't delete the network drive cache {}: {err}",
+                dir.display()
+            );
+        }
+        // The remote's folder too, once no other drive of it is left.
+        let _ = std::fs::remove_dir(cache.join(kind).join(remote));
+    }
+}
+
+/// rclone's cache folder (`config/paths`), where its VFS keeps files.
+fn rclone_cache_dir() -> Option<std::path::PathBuf> {
+    let reply = syncative_go::rpc("config/paths", "{}".to_owned()).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&reply).ok()?;
+    Some(value.get("cache")?.as_str()?.into())
 }
 
 /// Unmount every network drive, before the app quits; a mount left behind would fail every access until unmounted.
