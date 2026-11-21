@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Makes a release as doc/packaging/release.md describes: bumps the version, regenerates the licenses, builds and checks the APK and the AppImage, pins the AppImage for Nix, commits and tags, pushes develop, main and the tag, and creates a draft GitHub release with the files. Publishing the draft and the Nix check stay manual. Run it from develop, by hand or through .github/workflows/release.yml.
 #   scripts/release.sh X.Y.Z                    full release; notes from temp/release/notes-X.Y.Z.md if present, else a placeholder to edit on GitHub
+#   scripts/release.sh X.Y.Z --dry-run          builds and checks the APK and the AppImage, then puts the release files back; no commit, tag, push or release
 #   scripts/release.sh --check-nix X.Y.Z        after publishing: the flake fetches the AppImage and runs it
 # SYNCATIVE_KEYSTORE_PROPERTIES names a keystore.properties to use when android/keystore.properties is absent (the runner's copy).
 set -euo pipefail
@@ -22,7 +23,9 @@ if [ "${1:-}" = "--check-nix" ]; then
 fi
 
 version="${1:-}"
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: $0 X.Y.Z"
+dry_run=0
+[ "${2:-}" = "--dry-run" ] && dry_run=1
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: $0 X.Y.Z [--dry-run]"
 tag="v$version"
 apk="Syncative-$version-arm64-v8a.apk"
 appimage="Syncative-$version-x86_64.AppImage"
@@ -77,6 +80,13 @@ for image in ubuntu:24.04 debian:12 fedora:42; do
   docker run --rm -i "$image" sh -c "cat > a && $install && printf '\0\0\0' | dd of=a bs=1 seek=8 conv=notrunc 2>/dev/null && chmod +x a && ./a --appimage-extract-and-run --help >/dev/null" < "$out/$appimage" || die "the AppImage doesn't start in $image"
   echo "AppImage: starts in $image"
 done
+
+if [ "$dry_run" = 1 ]; then
+  git checkout -- "${RELEASE_FILES[@]}"
+  echo
+  echo "Dry run done: the APK and the AppImage for $version build and pass the checks (in temp/release). Nothing was committed or pushed."
+  exit 0
+fi
 
 step "Pin the AppImage for Nix"
 hash="$(nix hash file "$out/$appimage")"

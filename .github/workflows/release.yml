@@ -7,6 +7,10 @@ on:
       version:
         description: "Version X.Y.Z"
         required: true
+      dry_run:
+        description: "Dry run: build and check only, no commit, tag, push or release"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -32,4 +36,4 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
-        run: scripts/release.sh "$VERSION"
+        run: scripts/release.sh "$VERSION" ${{ inputs.dry_run && '--dry-run' || '' }}
