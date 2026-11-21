@@ -11,7 +11,8 @@ rm -rf "$src"
 mkdir -p "$src"
 tar -C "$REPO" --exclude=./target --exclude=./temp --exclude=./result --exclude=./android --exclude=./.git --exclude=./.cargo/config.toml -cf - . | tar -C "$src" -xf -
 docker volume create syncative-appimage-cache >/dev/null
-docker run --rm -v syncative-appimage-cache:/cache alpine chown "$(id -u):$(id -g)" /cache
+# The cache is shared by everyone who builds on this machine (the release runner has its own user), so files a different user left are handed over first.
+docker run --rm -v syncative-appimage-cache:/cache alpine find /cache \( ! -user "$(id -u)" -o ! -group "$(id -g)" \) -exec chown -h "$(id -u):$(id -g)" {} +
 docker run --rm --user "$(id -u):$(id -g)" -e HOME=/cache -v syncative-appimage-cache:/cache -v "$src:/src:ro" -v "$out:/out" syncative-appimage /opt/build-inside.sh
 rm -rf "$src"
 ls -l "$out"/Syncative-*-x86_64.AppImage*

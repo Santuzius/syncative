@@ -17,4 +17,4 @@ RUN curl -sSfLo /opt/appimagetool https://github.com/AppImage/appimagetool/relea
  && chmod a+x /opt/appimagetool \
  && printf '\0\0\0' | dd of=/opt/appimagetool bs=1 seek=8 conv=notrunc status=none
 
-COPY build-inside.sh /opt/build-inside.sh
+COPY --chmod=0755 build-inside.sh /opt/build-inside.sh
