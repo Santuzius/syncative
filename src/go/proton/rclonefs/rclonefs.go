@@ -631,6 +631,18 @@ func (o *Object) Remove(ctx context.Context) error {
 	return err
 }
 
+// Untrash takes link `id` out of Proton's trash, back where it was, for the network drive's trash (src/go/rclone/trashbin.go).
+func (f *Fs) Untrash(ctx context.Context, id string) error {
+	sess, err := f.session()
+	if err != nil {
+		return err
+	}
+	err = sess.Restore(ctx, id)
+	f.recent.clear()
+	f.dirCache.Flush()
+	return err
+}
+
 // ChangesRoot returns the link ID of folder `dir`, for the change query.
 func (f *Fs) ChangesRoot(ctx context.Context, dir string) (string, error) {
 	return f.dirCache.FindDir(ctx, dir, false)

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/rclone/rclone/backend/webdav"
@@ -47,30 +48,49 @@ type davMultistatus struct {
 
 // FolderTags returns the ETag of folder `dir` (a path from the remote's root, as in rclone's listings) and, with `depth` 1, those of the folders directly in it by path. A missing folder gives an error that says "directory not found".
 func FolderTags(ctx context.Context, remote, dir string, depth int) (tag string, children map[string]string, err error) {
-	info, err := fs.Find("webdav")
+	opt, err := davOptions(remote, "nextcloud", "owncloud")
 	if err != nil {
 		return "", nil, err
 	}
+	return folderTags(ctx, opt, dir, depth)
+}
+
+// davOptions reads the options of WebDAV remote `remote`, with the password revealed, when its vendor is one of `vendors`; else ErrNoFolderTags.
+func davOptions(remote string, vendors ...string) (*webdav.Options, error) {
+	info, err := fs.Find("webdav")
+	if err != nil {
+		return nil, err
+	}
 	m := fs.ConfigMap(info.Prefix, info.Options, remote, nil)
 	if kind, _ := m.Get("type"); kind != "webdav" {
-		return "", nil, ErrNoFolderTags
+		return nil, ErrNoFolderTags
 	}
 	opt := new(webdav.Options)
 	if err := configstruct.Set(m, opt); err != nil {
-		return "", nil, err
+		return nil, err
 	}
-	if opt.Vendor != "nextcloud" && opt.Vendor != "owncloud" {
-		return "", nil, ErrNoFolderTags
+	if !slices.Contains(vendors, opt.Vendor) {
+		return nil, ErrNoFolderTags
 	}
 	if !strings.HasSuffix(opt.URL, "/") {
 		opt.URL += "/"
 	}
 	if opt.Pass != "" {
 		if opt.Pass, err = obscure.Reveal(opt.Pass); err != nil {
-			return "", nil, fmt.Errorf("couldn't decrypt password: %w", err)
+			return nil, fmt.Errorf("couldn't decrypt password: %w", err)
 		}
 	}
-	return folderTags(ctx, opt, dir, depth)
+	return opt, nil
+}
+
+// davClient is rclone's HTTP client for `endpoint`, signed in as the remote's user.
+func davClient(ctx context.Context, opt *webdav.Options, endpoint *url.URL) *rest.Client {
+	srv := rest.NewClient(fshttp.NewClient(ctx)).SetRoot(endpoint.String())
+	if opt.User != "" || opt.Pass != "" {
+		srv.SetUserPass(opt.User, opt.Pass)
+	}
+	srv.SetHeader("Referer", endpoint.String())
+	return srv
 }
 
 func folderTags(ctx context.Context, opt *webdav.Options, dir string, depth int) (string, map[string]string, error) {
@@ -78,11 +98,7 @@ func folderTags(ctx context.Context, opt *webdav.Options, dir string, depth int)
 	if err != nil {
 		return "", nil, err
 	}
-	srv := rest.NewClient(fshttp.NewClient(ctx)).SetRoot(endpoint.String())
-	if opt.User != "" || opt.Pass != "" {
-		srv.SetUserPass(opt.User, opt.Pass)
-	}
-	srv.SetHeader("Referer", endpoint.String())
+	srv := davClient(ctx, opt, endpoint)
 
 	// As the backend's dirPath: the encoded, escaped path with a slash at the end.
 	subPath := strings.Trim(dir, "/")

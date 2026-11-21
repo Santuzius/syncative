@@ -50,6 +50,11 @@ func rcMountPoll(ctx context.Context, in rc.Params) (rc.Params, error) {
 	if err != nil && !errors.Is(err, fs.ErrorIsFile) {
 		return nil, err
 	}
+	// A Linux mount goes through the trash wrapper (trashfs.go); the change log is the remote's.
+	trash, _ := f.(*trashFs)
+	if trash != nil {
+		f = trash.inner
+	}
 	forget := rc.Calls.Get("vfs/forget")
 	if forget == nil {
 		return nil, errors.New("this build has no VFS")
@@ -63,14 +68,28 @@ func rcMountPoll(ctx context.Context, in rc.Params) (rc.Params, error) {
 	mounts.Unlock()
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	// After the VFS forgot what changed: files the cache holds that left the remote go into the local trash.
+	followTrash := func(files, dirs []string) error {
+		if trash == nil || !trash.followRemote(ctx, files, dirs) {
+			return nil
+		}
+		_, err := forget.Fn(ctx, rc.Params{"fs": fsString, "dir": trash.prefix})
+		return err
+	}
 	log, ok := f.(changeLog)
 	if !ok {
 		remote, root, _ := strings.Cut(fsString, ":")
-		n, err := pollFolderTags(ctx, forget, fsString, remote, strings.Trim(root, "/"), state)
+		if trash != nil {
+			remote, root = trash.remote, trash.root
+		}
+		n, dirs, err := pollFolderTags(ctx, forget, fsString, remote, strings.Trim(root, "/"), state)
 		if errors.Is(err, ErrNoFolderTags) {
 			return rc.Params{"supported": false, "changes": 0}, nil
 		}
 		if err != nil {
+			return nil, err
+		}
+		if err := followTrash(nil, dirs); err != nil {
 			return nil, err
 		}
 		return rc.Params{"supported": true, "changes": n}, nil
@@ -85,10 +104,14 @@ func rcMountPoll(ctx context.Context, in rc.Params) (rc.Params, error) {
 		return rc.Params{"supported": true, "changes": 0}, nil
 	}
 	paths := rc.Params{}
+	var files, dirs []string
 	next, err := log.ChangesSince(ctx, func(path string, kind fs.EntryType) {
 		key := "file"
 		if kind == fs.EntryDirectory {
 			key = "dir"
+			dirs = append(dirs, path)
+		} else {
+			files = append(files, path)
 		}
 		paths[fmt.Sprintf("%s%d", key, len(paths))] = path
 	}, token)
@@ -114,11 +137,16 @@ func rcMountPoll(ctx context.Context, in rc.Params) (rc.Params, error) {
 		}
 	}
 	state.token = next
+	if !forgetAll {
+		if err := followTrash(files, dirs); err != nil {
+			return nil, err
+		}
+	}
 	return rc.Params{"supported": true, "changes": len(paths)}, nil
 }
 
-// pollFolderTags follows the folder ETags of a Nextcloud or ownCloud mount of folder `root` down to the folders that changed since the previous poll and has the VFS list those again; one request when nothing changed. Returns how many folders changed. The first poll only notes the tags.
-func pollFolderTags(ctx context.Context, forget *rc.Call, fsString, remote, root string, state *mountState) (int, error) {
+// pollFolderTags follows the folder ETags of a Nextcloud or ownCloud mount of folder `root` down to the folders that changed since the previous poll and has the VFS list those again; one request when nothing changed. Returns how many folders changed, and those and the folders new since then by their path in the mount. The first poll only notes the tags.
+func pollFolderTags(ctx context.Context, forget *rc.Call, fsString, remote, root string, state *mountState) (int, []string, error) {
 	params := rc.Params{"fs": fsString}
 	// The VFS path of a folder, from the mount's root.
 	rel := func(dir string) string {
@@ -129,6 +157,7 @@ func pollFolderTags(ctx context.Context, forget *rc.Call, fsString, remote, root
 	}
 	first := len(state.tags) == 0
 	changed := 0
+	var dirs []string
 	var walk func(dir, tag string) error
 	walk = func(dir, known string) error {
 		tag, children, err := FolderTags(ctx, remote, dir, 1)
@@ -145,6 +174,7 @@ func pollFolderTags(ctx context.Context, forget *rc.Call, fsString, remote, root
 		}
 		if !first {
 			changed++
+			dirs = append(dirs, rel(dir))
 			// A file key invalidates the listing of the folder it lies in and keeps what the VFS knows below; the leaf needn't exist.
 			params[fmt.Sprintf("file%d", len(params))] = path.Join(rel(dir), ".syncative-changed")
 		}
@@ -157,6 +187,7 @@ func pollFolderTags(ctx context.Context, forget *rc.Call, fsString, remote, root
 				// Not seen before, so what changed below it is unknown: the VFS forgets all it knows there.
 				state.tags[child] = childTag
 				params[fmt.Sprintf("dir%d", len(params))] = rel(child)
+				dirs = append(dirs, rel(child))
 			case before != childTag:
 				if err := walk(child, before); err != nil {
 					return err
@@ -166,12 +197,12 @@ func pollFolderTags(ctx context.Context, forget *rc.Call, fsString, remote, root
 		return nil
 	}
 	if err := walk(root, state.tags[root]); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	if len(params) > 1 {
 		if _, err := forget.Fn(ctx, params); err != nil {
-			return 0, err
+			return 0, nil, err
 		}
 	}
-	return changed, nil
+	return changed, dirs, nil
 }

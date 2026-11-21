@@ -10,8 +10,53 @@ use crate::domain::{
     sync::{SyncDir, SyncMode},
 };
 
-/// The mounts this process made: local path → what is mounted there (`remote:path`).
-static MOUNTS: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Mutex::default);
+/// The mounts this process made, by local path.
+static MOUNTS: LazyLock<Mutex<HashMap<String, Mount>>> = LazyLock::new(Mutex::default);
+
+/// A network drive this process mounted.
+#[derive(Clone, PartialEq, Eq)]
+struct Mount {
+    /// What rclone mounts, see [`mount_fs`].
+    fs: String,
+    remote: String,
+    remote_path: String,
+    /// The folder's ID, which names its local trash ([`trash_dir`]).
+    folder_id: i32,
+}
+
+/// What rclone mounts for network drive folder `folder_id`, `remote_path` on `remote`. On Linux the remote goes through Syncative's trash wrapper (`src/go/rclone/trashfs.go`): a file manager's trash on the mount, `.Trash-<uid>`, stays in [`trash_dir`] on this computer, and trashing there trashes the file on the remote. Android's document provider has no trash folder and shows the remote as it is.
+pub fn mount_fs(remote: &str, remote_path: &str, folder_id: i32) -> String {
+    if cfg!(target_os = "android") {
+        return format!("{remote}:{remote_path}");
+    }
+    let dir = trash_dir(folder_id);
+    format!(
+        ":syncativetrash,remote={},dir={}:{remote_path}",
+        quoted(remote),
+        quoted(&dir.to_string_lossy())
+    )
+}
+
+/// `value` quoted for an rclone connection string: in double quotes, a double quote doubled.
+fn quoted(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+/// Where the trash of network drive folder `folder_id` lives on this computer: `trash` is what the mount shows as `.Trash-<uid>`, `entries` what Syncative notes on each trashed file.
+fn trash_dir(folder_id: i32) -> std::path::PathBuf {
+    crate::util::get_data_dir()
+        .join("network-drive-trash")
+        .join(folder_id.to_string())
+}
+
+/// The name rclone's VFS keeps a mount's cache under: the trash wrapper's name, the remote's with "{trash}" appended, on Linux.
+fn cache_name(remote: &str) -> String {
+    if cfg!(target_os = "android") {
+        remote.to_owned()
+    } else {
+        format!("{remote}{{trash}}")
+    }
+}
 
 /// Why a folder can't become a network drive, or `None` when it can: the remote's files appear in it, so it has to be empty.
 pub fn unusable_folder(local_path: &str) -> Option<String> {
@@ -24,11 +69,22 @@ pub fn unusable_folder(local_path: &str) -> Option<String> {
     })
 }
 
-/// Mount `remote_path` of `remote` at `local_path` unless this process already did. Returns whether it mounted now.
-pub fn ensure_mounted(remote: &str, remote_path: &str, local_path: &str) -> Result<bool, String> {
-    let fs = format!("{remote}:{remote_path}");
+/// Mount `remote_path` of `remote` at `local_path` for network drive folder `folder_id` unless this process already did. Returns whether it mounted now.
+pub fn ensure_mounted(
+    remote: &str,
+    remote_path: &str,
+    local_path: &str,
+    folder_id: i32,
+) -> Result<bool, String> {
+    let mount = Mount {
+        fs: mount_fs(remote, remote_path, folder_id),
+        remote: remote.to_owned(),
+        remote_path: remote_path.to_owned(),
+        folder_id,
+    };
+    let fs = mount.fs.clone();
     let mut mounts = MOUNTS.lock().map_err(|e| e.to_string())?;
-    if mounts.get(local_path) == Some(&fs) {
+    if mounts.get(local_path) == Some(&mount) {
         // A file manager's eject unmounts it behind Syncative's back (rclone then forgets it); the next pass mounts it again, as the folder stays a network drive.
         if cfg!(target_os = "android")
             || rclone_mounts().is_none_or(|live| live.iter().any(|p| p == local_path))
@@ -44,7 +100,7 @@ pub fn ensure_mounted(remote: &str, remote_path: &str, local_path: &str) -> Resu
         let input = serde_json::json!({ "fs": fs });
         let reply = syncative_go::rpc("syncative/doc-attach", input.to_string())
             .map_err(|e| format!("Couldn't open the network drive: {}", rpc_error(&e)))?;
-        mounts.insert(local_path.to_owned(), fs);
+        mounts.insert(local_path.to_owned(), mount);
         return Ok(serde_json::from_str::<serde_json::Value>(&reply)
             .ok()
             .and_then(|v| v.get("started")?.as_bool())
@@ -63,6 +119,9 @@ pub fn ensure_mounted(remote: &str, remote_path: &str, local_path: &str) -> Resu
     if let Some(reason) = unusable_folder(local_path) {
         return Err(reason);
     }
+    if let Some(cache) = rclone_cache_dir() {
+        adopt_old_cache(&cache, remote, remote_path);
+    }
     let input = serde_json::json!({
         "fs": fs,
         "mountPoint": local_path,
@@ -71,13 +130,32 @@ pub fn ensure_mounted(remote: &str, remote_path: &str, local_path: &str) -> Resu
         "vfsOpt": { "CacheMode": "full", "PollInterval": 0 },
     });
     syncative_go::rpc("mount/mount", input.to_string()).map_err(|e| mount_error(&e))?;
-    mounts.insert(local_path.to_owned(), fs);
+    mounts.insert(local_path.to_owned(), mount);
     Ok(true)
 }
 
-/// Have the mount of `remote_path` forget what changed on the remote since the previous call, so it lists those folders anew; `reset` right after mounting starts the change log there. Returns how many paths changed. Backends without a change log (WebDAV) answer 0, and their mount lists a folder again after rclone's directory cache time.
-pub fn poll(remote: &str, remote_path: &str, reset: bool) -> Result<u64, String> {
-    let input = serde_json::json!({ "fs": format!("{remote}:{remote_path}"), "reset": reset });
+/// Move the cache a mount of version 0.27 kept in rclone's cache folder `cache` under the remote's own name to the trash wrapper's name, so its files needn't be fetched again.
+fn adopt_old_cache(cache: &std::path::Path, remote: &str, remote_path: &str) {
+    let path = remote_path.trim_matches('/');
+    for kind in ["vfs", "vfsMeta"] {
+        let old = cache.join(kind).join(remote).join(path);
+        let new = cache.join(kind).join(cache_name(remote)).join(path);
+        if new.exists() || !old.is_dir() {
+            continue;
+        }
+        if let Some(parent) = new.parent()
+            && std::fs::create_dir_all(parent).is_ok()
+        {
+            let _ = std::fs::rename(&old, &new);
+        }
+        let _ = std::fs::remove_dir(cache.join(kind).join(remote));
+    }
+}
+
+/// Have the mount of `remote_path` for folder `folder_id` forget what changed on the remote since the previous call, so it lists those folders anew; `reset` right after mounting starts the change log there. Files the cache holds that left the remote go into the mount's trash. Returns how many paths changed. Backends without a change log or folder ETags answer 0, and their mount lists a folder again after rclone's directory cache time.
+pub fn poll(remote: &str, remote_path: &str, folder_id: i32, reset: bool) -> Result<u64, String> {
+    let input =
+        serde_json::json!({ "fs": mount_fs(remote, remote_path, folder_id), "reset": reset });
     let reply =
         syncative_go::rpc("syncative/mount-poll", input.to_string()).map_err(|e| rpc_error(&e))?;
     Ok(serde_json::from_str::<serde_json::Value>(&reply)
@@ -118,9 +196,9 @@ fn mount_error(reply: &str) -> String {
     }
 }
 
-fn unmount_locked(mounts: &mut HashMap<String, String>, local_path: &str) -> Result<(), String> {
+fn unmount_locked(mounts: &mut HashMap<String, Mount>, local_path: &str) -> Result<(), String> {
     let result = if cfg!(target_os = "android") {
-        let input = serde_json::json!({ "fs": mounts.get(local_path) });
+        let input = serde_json::json!({ "fs": mounts.get(local_path).map(|m| &m.fs) });
         syncative_go::rpc("syncative/doc-detach", input.to_string())
     } else {
         let input = serde_json::json!({ "mountPoint": local_path });
@@ -243,7 +321,7 @@ pub fn publish(remotes: &[Remote], sync_dirs: &[SyncDir]) {
     let _ = changed;
 }
 
-/// Unmount what isn't a network drive folder in `sync_dirs` any more, e.g. after the folder or its remote was removed.
+/// Unmount what isn't a network drive folder in `sync_dirs` any more, e.g. after the folder or its remote was removed, and delete its cache and trash.
 pub fn retain(sync_dirs: &[SyncDir]) {
     let Ok(mut mounts) = MOUNTS.lock() else {
         return;
@@ -258,45 +336,50 @@ pub fn retain(sync_dirs: &[SyncDir]) {
         .cloned()
         .collect();
     for path in gone {
-        let fs = mounts.get(&path).cloned().unwrap_or_default();
+        let Some(mount) = mounts.get(&path).cloned() else {
+            continue;
+        };
         if let Err(err) = unmount_locked(&mut mounts, &path) {
             eprintln!("syncative: couldn't unmount the network drive at {path}: {err}");
         }
-        let kept: Vec<&String> = mounts.values().collect();
-        remove_vfs_cache(&fs, &kept);
+        let kept: Vec<&Mount> = mounts.values().collect();
+        if let Some(cache) = rclone_cache_dir() {
+            remove_vfs_cache(&cache, &mount, &kept);
+        }
+        remove_dir(&trash_dir(mount.folder_id), "trash");
     }
 }
 
-/// Delete the files rclone's VFS kept for `fs` (`remote:path`): copies of opened files under `<cache>/vfs/<remote>/<path>` and their metadata under `<cache>/vfsMeta/…` (`vfs/vfscache/cache.go`). Called once its folder is no longer a network drive and the VFS has shut down; a folder of a drive still in use, `kept`, overlapping it is left alone.
-fn remove_vfs_cache(fs: &str, kept: &[&String]) {
-    let Some((remote, path)) = fs.split_once(':') else {
-        return;
-    };
-    let relative = std::path::Path::new(remote).join(path.trim_matches('/'));
-    let overlaps = |other: &&String| {
-        other.split_once(':').is_some_and(|(r, p)| {
-            let other = std::path::Path::new(r).join(p.trim_matches('/'));
-            other.starts_with(&relative) || relative.starts_with(&other)
-        })
-    };
-    if kept.iter().any(overlaps) {
+/// Delete the files rclone's VFS kept for `mount` in rclone's cache folder `cache`: copies of opened files under `<cache>/vfs/<name>/<path>` and their metadata under `<cache>/vfsMeta/…` (`vfs/vfscache/cache.go`), by [`cache_name`] and by the remote's own name, as version 0.27 kept it. Called once its folder is no longer a network drive and the VFS has shut down; a folder of a drive still in use, `kept`, overlapping it is left alone.
+fn remove_vfs_cache(cache: &std::path::Path, mount: &Mount, kept: &[&Mount]) {
+    let relative =
+        |m: &Mount| std::path::Path::new(&m.remote).join(m.remote_path.trim_matches('/'));
+    let own = relative(mount);
+    if kept.iter().any(|other| {
+        let other = relative(other);
+        other.starts_with(&own) || own.starts_with(&other)
+    }) {
         return;
     }
-    let Some(cache) = rclone_cache_dir() else {
-        return;
-    };
-    for kind in ["vfs", "vfsMeta"] {
-        let dir = cache.join(kind).join(&relative);
-        if let Err(err) = std::fs::remove_dir_all(&dir)
-            && err.kind() != std::io::ErrorKind::NotFound
-        {
-            eprintln!(
-                "syncative: couldn't delete the network drive cache {}: {err}",
-                dir.display()
-            );
+    let path = mount.remote_path.trim_matches('/');
+    for name in [cache_name(&mount.remote), mount.remote.clone()] {
+        for kind in ["vfs", "vfsMeta"] {
+            remove_dir(&cache.join(kind).join(&name).join(path), "cache");
+            // The remote's folder too, once no other drive of it is left.
+            let _ = std::fs::remove_dir(cache.join(kind).join(&name));
         }
-        // The remote's folder too, once no other drive of it is left.
-        let _ = std::fs::remove_dir(cache.join(kind).join(remote));
+    }
+}
+
+/// Delete folder `dir` of a network drive, its `what`, with all it holds.
+fn remove_dir(dir: &std::path::Path, what: &str) {
+    if let Err(err) = std::fs::remove_dir_all(dir)
+        && err.kind() != std::io::ErrorKind::NotFound
+    {
+        eprintln!(
+            "syncative: couldn't delete the network drive {what} {}: {err}",
+            dir.display()
+        );
     }
 }
 
@@ -315,5 +398,64 @@ pub fn unmount_all() {
     let paths: Vec<String> = mounts.keys().cloned().collect();
     for path in paths {
         let _ = unmount_locked(&mut mounts, &path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mount(remote: &str, remote_path: &str, folder_id: i32) -> Mount {
+        Mount {
+            fs: mount_fs(remote, remote_path, folder_id),
+            remote: remote.to_owned(),
+            remote_path: remote_path.to_owned(),
+            folder_id,
+        }
+    }
+
+    #[test]
+    fn mounts_through_the_trash_wrapper() {
+        let fs = mount_fs("My \"Drive\"", "Recipes/Soups", 7);
+        assert!(fs.starts_with(":syncativetrash,remote=\"My \"\"Drive\"\"\",dir=\""));
+        assert!(fs.ends_with("/network-drive-trash/7\":Recipes/Soups"));
+    }
+
+    #[test]
+    fn removal_deletes_the_cache_by_both_names_and_keeps_overlapping_drives() {
+        let cache =
+            std::env::temp_dir().join(format!("syncative-cache-test-{}", std::process::id()));
+        let file = |p: &str| {
+            let p = cache.join(p);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+        let new = file("vfs/Drive{trash}/Recipes/soup.txt");
+        let old = file("vfsMeta/Drive/Recipes/soup.txt");
+        let other = file("vfs/Drive{trash}/Photos/a.jpg");
+        let recipes = mount("Drive", "Recipes", 1);
+        let photos = mount("Drive", "Photos", 2);
+        remove_vfs_cache(&cache, &recipes, &[&photos]);
+        assert!(!new.exists() && !old.exists());
+        assert!(other.exists());
+        // A drive of the remote's root overlaps every other drive of it.
+        let root = mount("Drive", "", 3);
+        remove_vfs_cache(&cache, &photos, &[&root]);
+        assert!(other.exists());
+        std::fs::remove_dir_all(&cache).unwrap();
+    }
+
+    #[test]
+    fn adopts_the_cache_of_version_0_27() {
+        let cache =
+            std::env::temp_dir().join(format!("syncative-adopt-test-{}", std::process::id()));
+        let old = cache.join("vfs/Drive/Recipes/soup.txt");
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::write(&old, b"x").unwrap();
+        adopt_old_cache(&cache, "Drive", "Recipes");
+        assert!(cache.join("vfs/Drive{trash}/Recipes/soup.txt").exists());
+        assert!(!cache.join("vfs/Drive").exists());
+        std::fs::remove_dir_all(&cache).unwrap();
     }
 }

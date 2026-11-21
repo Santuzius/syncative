@@ -117,6 +117,7 @@ where
             &remote.name,
             &sync_dir.remote_path,
             &sync_dir.local_path,
+            sync_dir.id.0,
         )
         .and_then(|mounted| {
             if mounted {
@@ -126,7 +127,7 @@ where
                 ));
             }
             // Like a synced folder's pass, each pass asks for the remote's changes; the mount then lists the changed folders anew.
-            super::network_drive::poll(&remote.name, &sync_dir.remote_path, mounted)
+            super::network_drive::poll(&remote.name, &sync_dir.remote_path, sync_dir.id.0, mounted)
         });
         return match drive {
             Ok(_) => {

@@ -5,10 +5,10 @@ The fourth folder mode, *Network drive* 🧪 (`SyncMode::NetworkDrive`, a beta f
 ## Linux
 
 - `src/go/mount_linux.go` links rclone's FUSE mount (`cmd/mount`), which registers rclone's remote-control calls `mount/mount` and `mount/unmount`. Rust sends them through the ordinary RPC call (`src/services/network_drive.rs`); no export of its own is needed.
-- The mount uses `--vfs-cache-mode full`. The cache lies in rclone's default place, `~/.cache/rclone/vfs/<remote>/`.
+- The mount uses `--vfs-cache-mode full`. The cache lies in rclone's default place, `~/.cache/rclone/vfs/<remote>{trash}/` (the name of the trash wrapper, see [Trash](#trash)); a cache of version 0.27 under `<remote>/` is moved there on the first mount.
 - Users need `fusermount3` (the `fuse3` package). Without it the folder shows rclone's error and the hint to install it.
 - **When it mounts:** a pass for the folder mounts it if this process hasn't yet, so it follows the remote's pause and the engine's schedule like any folder. Proton remotes work through Syncative's own rclone backend, Google Drive through rclone's.
-- **When it unmounts:** when the folder or its remote is removed (the engine's reload, `network_drive::retain`) and when the app quits from the tray. Removing deletes the folder's VFS cache as well (`<cache>/vfs/<remote>/<path>` and `vfsMeta/…` in rclone's cache folder), on Android too; quitting keeps it. A Syncative that dies with a mount leaves a dead mount point ("Transport endpoint is not connected"); the next mount unmounts it lazily with `fusermount3 -u -z` first.
+- **When it unmounts:** when the folder or its remote is removed (the engine's reload, `network_drive::retain`) and when the app quits from the tray. Removing deletes the folder's VFS cache as well (`<cache>/vfs/<remote>{trash}/<path>`, on Android `<cache>/vfs/<remote>/<path>`, and `vfsMeta/…` in rclone's cache folder) and its trash folder; quitting keeps it. A Syncative that dies with a mount leaves a dead mount point ("Transport endpoint is not connected"); the next mount unmounts it lazily with `fusermount3 -u -z` first.
 - **The folder must be empty** (or missing), as the mount hides what is in it. The add dialog refuses a folder with content.
 - **File managers** list the mount by itself: GNOME Files and Nemo under Devices, with an eject button; Dolphin from KDE Frameworks 6.9 on, whose Solid counts `fuse.rclone` as a network share (Plasma 5 lists nothing). An eject unmounts the drive behind Syncative's back and rclone forgets it, so the next pass mounts it again (`mount/listmounts`): the folder stays a network drive until it is removed.
 - **No switching:** a synced folder and a network drive hold different things locally (a full copy, or nothing), so the folder settings don't switch between them; the folder is removed and added again.
@@ -28,6 +28,26 @@ Apps have no FUSE on Android, so a document provider shows the folder instead: `
 - **Open files** are proxy file descriptors (`StorageManager.openProxyFileDescriptor`), each served by a thread of its own: Android waits for the size of a newly opened file while holding a lock of vold's, and a slow read of another file on a shared thread could keep it waiting until the watchdog restarts the system. Closing, which uploads a written file before it returns (write-back 0), runs off that thread for the same reason; a failed upload shows a notification. Both lessons come from [RSAF](https://github.com/chenxiaolong/RSAF), a document provider on rclone's VFS.
 - **New files** are only listed (`AddVirtual`) until the app that created them writes and closes them; the upload then happens once instead of an empty file first.
 - **Slow listings:** a listing not done within half a second answers "loading", and the folder is shown when it arrives (`notifyChange`).
+
+## Trash
+
+File managers trash a file on another device into `$topdir/.Trash-$uid/{files,info}` (the freedesktop trash spec; KIO writes `info/<name>.trashinfo`, then renames the file into `files/`, and copies and deletes when the rename fails across devices). On a mount that folder would land in the cloud, and every trashed file would be downloaded. So on Linux the mount goes through a wrapping backend of Syncative's, `syncativetrash` (`src/go/rclone/trashfs.go`, logic in `trashbin.go`): `:syncativetrash,remote="NAME",dir="DIR":PATH` (`network_drive::mount_fs`). It passes everything through except `.Trash-<uid>`, which it keeps in the folder's own trash folder, `<data dir>/network-drive-trash/<folder id>/trash`, removed with the folder like its VFS cache. Android is unchanged.
+
+| Case | File the cache holds in full | File the cache doesn't hold |
+|---|---|---|
+| Trashed in the file manager | Cache copy hard-linked into the local trash, file into the provider's bin | Only the provider's bin; the `.trashinfo` is dropped, so the file manager doesn't list it |
+| Restored in the file manager | From the provider's bin (Drive and Proton by ID, Nextcloud through the trash bin's DAV), which keeps its history; else the local copy is uploaded | Nothing to restore: in the web app |
+| Trashed on the remote | Cache copy into the local trash with a `.trashinfo` | Nothing local |
+| Restored on the remote | Local trash entry dropped | Shows again as usual |
+
+- **Wrapping:** the wrapper wraps each object, so its `Fs()` is the wrapper and rclone's `operations.Move` stays server-side. It is named `<remote>{trash}` (braces can't occur in a remote's name), since rclone's fs cache files an Fs under its own name and the remote itself is cached as well.
+- **Entries:** for each trashed item a note in `entries/<name>.json` keeps its path, its ID on the remote and the deletion time; the `.trashinfo` stays the file manager's, which deletes it after a restore. Emptying the trash deletes only the local copies; the provider's bin expires on its own (Drive after 30 days, Nextcloud and Proton by their retention).
+- **Changes behind the VFS's back** (a dropped `.trashinfo`, an entry kept on a remote trash) make the VFS forget the trash folder a second later, once it released its locks.
+- **Remote trash** is followed in the mount poll (`syncative/mount-poll`): a file the change log reports, or a file of a folder whose ETag changed, that the cache holds but the remote doesn't any more goes into the local trash. Copies not uploaded yet (`Dirty` in the cache's metadata) are skipped. Such entries know no ID, so a restore in the file manager uploads the copy.
+- **Limits:** the VFS saves which parts of a file it holds only when the file's handle closes, 5 seconds after the last close (`--vfs-handle-caching`); a file trashed sooner counts as not held. Google Drive lists the files of a restored folder only some seconds after the restore; the VFS lists it again after 5 and 20 seconds. Nextcloud refuses a restore sent with `Overwrite: F`. A `.Trash-<uid>` an older version put in the cloud stays hidden; it can be deleted in the web app.
+- **Google Drive's restore** is `Untrash` in the rclone fork's drive backend (`files.update` with `trashed=false`), Proton's `Untrash` in `src/go/proton/rclonefs`.
+
+Testing: `go test ./rclone` in `src/go` covers the cases above on a local folder; with `SYNCATIVE_NEXTCLOUD_URL`, `SYNCATIVE_NEXTCLOUD_USER` and `SYNCATIVE_NEXTCLOUD_PASS` (a throwaway account) it restores from a Nextcloud trash bin as well. In the test instance, trash with `kioclient move <file> trash:/` (`kde-cli-tools`) and restore with `ktrash6 --restore trash:/<id>-<name>` (IDs from `kioclient ls trash:/`); trash and restore on Drive with the instance's rclone config ([testing](testing.md)): `rclone delete` and `rclone backend untrash`.
 
 ## Changes by other clients
 
