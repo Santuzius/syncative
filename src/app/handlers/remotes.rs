@@ -157,6 +157,26 @@ impl SyncativeApp {
             add_remote::Msg::MailboxPassChanged(s) => draft.mailbox_pass = s,
             add_remote::Msg::ClientIdChanged(s) => draft.client_id = s,
             add_remote::Msg::ClientSecretChanged(s) => draft.client_secret = s,
+            add_remote::Msg::FolderChanged(s) => {
+                draft.folder = s;
+                draft.error = None;
+            }
+            add_remote::Msg::ChooseFolder => {
+                return Task::perform(
+                    async {
+                        tokio::task::spawn_blocking(|| {
+                            crate::infrastructure::portal::pick_folder("Choose the folder")
+                        })
+                        .await
+                        .ok()
+                        .flatten()
+                    },
+                    |folder| folder,
+                )
+                .and_then(|folder| {
+                    Task::done(Message::AddRemote(add_remote::Msg::FolderChanged(folder)))
+                });
+            }
             add_remote::Msg::OpenVerification => {
                 if let Some(hv) = &draft.hv {
                     open_in_browser(&hv.url());
@@ -235,6 +255,40 @@ impl SyncativeApp {
                             tokio::task::spawn_blocking(move || {
                                 crate::services::auth::add_webdav_remote(
                                     &name, &url, &user, &pass, vendor, &*repo, &*rclone,
+                                )
+                            })
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                        },
+                        Message::AddRemoteResult,
+                    );
+                }
+
+                if kind.is_local() {
+                    let folder = draft.folder.clone();
+                    draft.busy = true;
+                    if draft.reauth {
+                        let existing_id =
+                            self.remotes.iter().find(|r| r.name == name).map(|r| r.id);
+                        return Task::perform(
+                            async move {
+                                tokio::task::spawn_blocking(move || {
+                                    crate::services::auth::change_local_folder(
+                                        &name, &folder, &*rclone,
+                                    )?;
+                                    existing_id.ok_or_else(|| "Remote not found.".to_owned())
+                                })
+                                .await
+                                .unwrap_or_else(|e| Err(e.to_string()))
+                            },
+                            Message::AddRemoteResult,
+                        );
+                    }
+                    return Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                crate::services::auth::add_local_remote(
+                                    &name, &folder, &*repo, &*rclone,
                                 )
                             })
                             .await
@@ -585,6 +639,9 @@ impl SyncativeApp {
                     crate::services::auth::webdav::form_url(&field("url"), &draft.user, vendor);
             }
             draft.provider = Some(kind);
+        }
+        if let Some(folder) = crate::services::auth::local_folder(&*self.rclone, &name) {
+            draft.folder = folder;
         }
         draft.name = name;
         draft.reauth = true;

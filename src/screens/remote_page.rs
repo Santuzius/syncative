@@ -1411,7 +1411,7 @@ pub fn confirm_delete_overlay<'a>(pending: &'a PendingDelete) -> Element<'a, Msg
         PendingDelete::Remote(_id, name) => (
             format!("Remove {name}?"),
             format!(
-                "Syncative stops syncing this remote and forgets its folders and exclusions. No files are deleted — neither on {} nor in the cloud.",
+                "Syncative stops syncing this remote and forgets its folders and exclusions. No files are deleted — neither on {} nor on {name}.",
                 crate::util::THIS_DEVICE
             ),
             "Remove remote",
@@ -1424,7 +1424,7 @@ pub fn confirm_delete_overlay<'a>(pending: &'a PendingDelete) -> Element<'a, Msg
         } if crate::services::network_drive::is_android_drive(local) => (
             "Remove this network drive?".to_owned(),
             format!(
-                "{remote_label} no longer shows up in the Files app. No files are deleted in the cloud."
+                "{remote_label} no longer shows up in the Files app. No files are deleted there."
             ),
             "Remove",
         ),
@@ -1435,9 +1435,8 @@ pub fn confirm_delete_overlay<'a>(pending: &'a PendingDelete) -> Element<'a, Msg
         } => (
             "Remove this folder from sync?".to_owned(),
             format!(
-                "{} and {remote_label} are removed from sync. No files are deleted — neither on {} nor in the cloud.",
+                "{} and {remote_label} are removed from sync. No files are deleted on either side.",
                 fmt_home(local),
-                crate::util::THIS_DEVICE
             ),
             "Remove from sync",
         ),

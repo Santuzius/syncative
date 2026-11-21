@@ -150,11 +150,18 @@ impl From<BuiltInTool> for Msg {
 
 /// `full_screen`: the page itself below the share screen's bar (phone layout), else a dialog.
 pub fn view(picker: &Picker, full_screen: bool) -> Element<'_, Msg> {
-    let (title, confirm) = match picker.target {
-        Target::AddFolder => ("Choose a folder in the cloud", "Use this folder"),
-        Target::Exclusion(_) => ("Choose a folder to exclude", "Exclude this folder"),
-        Target::Hidden(_) => ("Hide folders from the gallery", "Save"),
-        Target::Share => ("Choose a folder", "Save here"),
+    let (title, confirm) = match (&picker.target, &picker.source) {
+        // Named after the remote, as a Local folder remote is no cloud.
+        (Target::AddFolder, Source::Remote(name)) => {
+            (format!("Choose a folder on {name}"), "Use this folder")
+        }
+        (Target::AddFolder, Source::Local) => ("Choose a folder".to_owned(), "Use this folder"),
+        (Target::Exclusion(_), _) => (
+            "Choose a folder to exclude".to_owned(),
+            "Exclude this folder",
+        ),
+        (Target::Hidden(_), _) => ("Hide folders from the gallery".to_owned(), "Save"),
+        (Target::Share, _) => ("Choose a folder".to_owned(), "Save here"),
     };
     let mut action = ActionButton::new(confirm, Msg::Confirm).placement(ActionPlacement::Footer);
     match picker.target {

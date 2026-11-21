@@ -7,6 +7,8 @@ pub struct RemoteId(pub i32);
 pub enum ProviderKind {
     Dropbox,
     GDrive,
+    /// A folder on this device (rclone's `alias` onto it), e.g. a USB disk or a network share mounted by the system.
+    Local,
     Nextcloud,
     Owncloud,
     PCloud,
@@ -23,6 +25,7 @@ impl ProviderKind {
         match t {
             "dropbox" => Some(Self::Dropbox),
             "drive" => Some(Self::GDrive),
+            "alias" => Some(Self::Local),
             "pcloud" => Some(Self::PCloud),
             // Only the native client reports Proton now; rclone's
             // `protondrive` backend is no longer compiled into the
@@ -74,7 +77,7 @@ impl ProviderKind {
 
     /// Offered only with the beta features on; such remotes carry the beta mark after their name. The one list of beta providers: taking one out here drops its mark from the picker and from every remote of it, as names are stored without the mark.
     pub fn is_beta(self) -> bool {
-        matches!(self, Self::Nextcloud)
+        matches!(self, Self::Nextcloud | Self::Local)
     }
 }
 

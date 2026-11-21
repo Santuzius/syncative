@@ -6,7 +6,7 @@ use iced::{
 };
 
 use crate::{
-    domain::remote::{Interval, Remote, RemoteId, SyncPolicy},
+    domain::remote::{Interval, ProviderKind, Remote, RemoteId, SyncPolicy},
     theme::{self, CAPTION, TEXT},
     widgets::{duration_picker, icon::icon, text},
 };
@@ -69,6 +69,18 @@ pub fn view(remote: &Remote, auth_needed: bool) -> Element<'_, Msg> {
         )
     };
 
+    // A Local folder remote has no account; the same dialog changes its folder instead.
+    let local = remote.provider_kind == Some(ProviderKind::Local);
+    let (account_title, account_detail, account_action) = if local {
+        (
+            "Folder",
+            "The folder on this device that holds this remote's files.",
+            "Change…",
+        )
+    } else {
+        ("Account", account_detail, "Sign in again")
+    };
+
     let rows = column![
         setting_row(
             "Interval",
@@ -77,9 +89,9 @@ pub fn view(remote: &Remote, auth_needed: bool) -> Element<'_, Msg> {
         ),
         rule::horizontal(1).style(theme::separator),
         setting_row(
-            "Account",
+            account_title,
             account_detail,
-            button(text("Sign in again").size(TEXT))
+            button(text(account_action).size(TEXT))
                 .padding([6, 14])
                 .style(account_button)
                 .on_press(Msg::Reauthenticate(remote.id, remote.name.clone()))

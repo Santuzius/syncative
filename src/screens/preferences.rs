@@ -306,7 +306,6 @@ fn beta_features() -> Vec<String> {
         )),
     };
     super::add_remote::beta_providers()
-        .map(|name| format!("{name} integration"))
         .chain(context_menu)
         .collect()
 }
@@ -535,6 +534,7 @@ mod tests {
             super::beta_features(),
             [
                 "Nextcloud integration",
+                "Local folder as a remote",
                 "Context menu in the file managers Files and Nemo"
             ]
         );

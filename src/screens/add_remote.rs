@@ -2,6 +2,7 @@
 //!
 //! - WebDAV / Nextcloud / Owncloud — raw username + password
 //! - Proton Drive — username + password + optional mailbox password and TOTP
+//! - Local folder (beta) — a folder on this device
 //! - Dropbox / Google Drive / pCloud — OAuth2 via `rclone authorize`
 //!   (launches the default browser; the user confirms, rclone prints
 //!   the token, we pass it to config/create)
@@ -32,6 +33,9 @@ pub enum Msg {
     MailboxPassChanged(String),
     ClientIdChanged(String),
     ClientSecretChanged(String),
+    FolderChanged(String),
+    /// Open the system's folder chooser for a Local folder remote.
+    ChooseFolder,
     Submit,
     Cancel,
     /// Re-open the human-verification page in the browser.
@@ -92,6 +96,10 @@ impl ProviderKind {
         matches!(self, ProviderKind::ProtonDrive)
     }
 
+    pub fn is_local(self) -> bool {
+        matches!(self, ProviderKind::Local)
+    }
+
     /// The name in the window, with the beta mark where it applies.
     pub fn label(self) -> String {
         crate::services::beta::marked(&self.to_string(), self.is_beta())
@@ -111,10 +119,11 @@ impl std::fmt::Display for ProviderOption {
 }
 
 /// Every provider the picker can offer, in its order; the beta ones only with the beta features on.
-const OFFERED: [ProviderKind; 3] = [
+const OFFERED: [ProviderKind; 4] = [
     ProviderKind::ProtonDrive,
     ProviderKind::GDrive,
     ProviderKind::Nextcloud,
+    ProviderKind::Local,
 ];
 
 /// The providers in the picker; `beta`: the beta features are on.
@@ -126,12 +135,15 @@ fn provider_options(beta: bool) -> Vec<ProviderOption> {
         .collect()
 }
 
-/// The beta providers of the picker, by name, for the list of beta features.
+/// The beta providers of the picker, as entries of the list of beta features.
 pub fn beta_providers() -> impl Iterator<Item = String> {
     OFFERED
         .into_iter()
         .filter(|kind| kind.is_beta())
-        .map(|kind| kind.to_string())
+        .map(|kind| match kind {
+            ProviderKind::Local => "Local folder as a remote".to_owned(),
+            _ => format!("{kind} integration"),
+        })
 }
 
 impl std::fmt::Display for ProviderKind {
@@ -144,6 +156,7 @@ impl std::fmt::Display for ProviderKind {
             ProviderKind::Dropbox => "Dropbox",
             ProviderKind::GDrive => "Google Drive",
             ProviderKind::PCloud => "pCloud",
+            ProviderKind::Local => "Local folder",
         };
         f.write_str(label)
     }
@@ -165,6 +178,8 @@ pub struct Draft {
     // OAuth:
     pub client_id: String,
     pub client_secret: String,
+    // Local folder:
+    pub folder: String,
 
     pub error: Option<String>,
     /// True while `rclone authorize` is running (or the blocking
@@ -244,7 +259,10 @@ fn third_party_notice<'a>(company: &str) -> Element<'a, Msg> {
 /// The dialog card; the app centres it over a dimmed backdrop.
 /// `beta`: the beta features are on, which adds their providers to the picker.
 pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
-    let heading = text(if draft.reauth {
+    let changes_folder = draft.reauth && draft.provider.is_some_and(ProviderKind::is_local);
+    let heading = text(if changes_folder {
+        "Change folder"
+    } else if draft.reauth {
         "Sign in again"
     } else {
         "Add remote"
@@ -255,7 +273,11 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
     let mut body = column![heading].spacing(12);
     if draft.reauth {
         let provider = draft.provider.map(ProviderKind::label).unwrap_or_default();
-        body = body.push(hint("Enter fresh credentials. Folders, filters and schedule are kept — only the sign-in session is replaced."));
+        body = body.push(hint(if changes_folder {
+            "Choose where this remote's files are now, e.g. after the disk got a new place. Folders, filters and schedule are kept."
+        } else {
+            "Enter fresh credentials. Folders, filters and schedule are kept — only the sign-in session is replaced."
+        }));
         body = body.push(field(
             "Remote",
             text(format!("{} ({provider})", draft.name)).size(TEXT),
@@ -293,6 +315,24 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
             body = body.push(field(
                 "Password",
                 input("password", &draft.pass, Msg::PassChanged).secure(true),
+            ));
+        }
+        Some(p) if p.is_local() => {
+            if !draft.reauth {
+                body = body.push(instruction("A folder on this device takes the place of the cloud: an external disk, a network share or just another folder. The folders you sync are chosen inside it."));
+            }
+            body = body.push(field(
+                "Folder",
+                row![
+                    input("/media/disk/Backup", &draft.folder, Msg::FolderChanged)
+                        .width(Length::Fill),
+                    button(text("Choose…").size(TEXT))
+                        .padding([6, 14])
+                        .style(theme::button_secondary)
+                        .on_press_maybe((!draft.busy).then_some(Msg::ChooseFolder)),
+                ]
+                .spacing(ROW_SPACING)
+                .align_y(Alignment::Center),
             ));
         }
         Some(p) if p.is_proton_drive() => {
@@ -452,7 +492,9 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
         body = body.push(text(err).size(CAPTION).style(theme::danger_text));
     }
 
-    let submit_label = if draft.reauth {
+    let submit_label = if changes_folder {
+        "Save"
+    } else if draft.reauth {
         "Sign in"
     } else {
         match draft.provider {
