@@ -58,7 +58,7 @@ The branch flow:
 
 `.github/workflows/release.yml` runs `scripts/release.sh` on a self-hosted runner labelled `syncative-release`. Start it under Actions → Release → Run workflow, on `develop`, with the version. GitHub offers a hand-started workflow only once its file is on the default branch, `main`; a change to the workflow takes effect from `develop` right away, since the run uses the file of the branch it starts on.
 
-- **The runner** is the NixOS service `services.github-runners.<name>`, with `extraLabels = [ "syncative-release" ]`, a fine-grained personal access token with read and write access to the repository's self-hosted runners in `tokenFile`, and `systemd.services.github-runner-<name>.wantedBy = lib.mkForce [ ];` so it doesn't start at boot. Start it with `systemctl start` only for a release and stop it afterwards: while it is stopped, no job reaches the machine.
+- **The runner** is the NixOS service `services.github-runners.<name>`, with `extraLabels = [ "syncative-release" ]`, a fine-grained personal access token with read and write access to the repository's self-hosted runners in `tokenFile`. It starts at boot and waits for jobs; `systemctl stop` keeps every job away from the machine until it is started again.
 - **Its user** is a dedicated system user in the `docker` group with a home outside `/home`, which the service hides (`ProtectHome`). The service needs these changes to the module's defaults:
   - `HOME` set to that home in `extraEnvironment`, since the module's own `HOME` is the work directory, wiped on every stop, and `ReadWritePaths` for it, since `ProtectSystem=strict` leaves it read-only.
   - `NIX_PATH` with `nixpkgs`, for the scripts' `nix-shell` calls.
