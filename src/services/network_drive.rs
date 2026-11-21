@@ -29,7 +29,13 @@ pub fn ensure_mounted(remote: &str, remote_path: &str, local_path: &str) -> Resu
     let fs = format!("{remote}:{remote_path}");
     let mut mounts = MOUNTS.lock().map_err(|e| e.to_string())?;
     if mounts.get(local_path) == Some(&fs) {
-        return Ok(false);
+        // A file manager's eject unmounts it behind Syncative's back (rclone then forgets it); the next pass mounts it again, as the folder stays a network drive.
+        if cfg!(target_os = "android")
+            || rclone_mounts().is_none_or(|live| live.iter().any(|p| p == local_path))
+        {
+            return Ok(false);
+        }
+        mounts.remove(local_path);
     }
     if mounts.contains_key(local_path) {
         unmount_locked(&mut mounts, local_path)?;
@@ -78,6 +84,20 @@ pub fn poll(remote: &str, remote_path: &str, reset: bool) -> Result<u64, String>
         .ok()
         .and_then(|v| v.get("changes")?.as_u64())
         .unwrap_or(0))
+}
+
+/// The mount points rclone still serves, or `None` when it can't say.
+fn rclone_mounts() -> Option<Vec<String>> {
+    let reply = syncative_go::rpc("mount/listmounts", "{}".to_owned()).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&reply).ok()?;
+    Some(
+        value
+            .get("mountPoints")?
+            .as_array()?
+            .iter()
+            .filter_map(|m| Some(m.get("MountPoint")?.as_str()?.to_owned()))
+            .collect(),
+    )
 }
 
 /// The error text of an rclone answer, without its JSON wrapping.

@@ -10,6 +10,7 @@ The fourth folder mode, *Network drive* 🧪 (`SyncMode::NetworkDrive`, a beta f
 - **When it mounts:** a pass for the folder mounts it if this process hasn't yet, so it follows the remote's pause and the engine's schedule like any folder. Proton remotes work through Syncative's own rclone backend, Google Drive through rclone's.
 - **When it unmounts:** when the folder or its remote is removed (the engine's reload, `network_drive::retain`) and when the app quits from the tray. A Syncative that dies with a mount leaves a dead mount point ("Transport endpoint is not connected"); the next mount unmounts it lazily with `fusermount3 -u -z` first.
 - **The folder must be empty** (or missing), as the mount hides what is in it. The add dialog refuses a folder with content.
+- **File managers** list the mount by itself: GNOME Files and Nemo under Devices, with an eject button; Dolphin from KDE Frameworks 6.9 on, whose Solid counts `fuse.rclone` as a network share (Plasma 5 lists nothing). An eject unmounts the drive behind Syncative's back and rclone forgets it, so the next pass mounts it again (`mount/listmounts`): the folder stays a network drive until it is removed.
 - **No switching:** a synced folder and a network drive hold different things locally (a full copy, or nothing), so the folder settings don't switch between them; the folder is removed and added again.
 
 ## Android
@@ -33,6 +34,6 @@ rclone's VFS keeps a folder's listing for five minutes (`--dir-cache-time`). Eac
 
 ## Open points
 
-- Whether GNOME Files and Dolphin list the mount in their sidebars, and whether Files by Google on Android shows other apps' document providers, is still to be checked. Android's own Files app and the Open and Save dialogs do.
+- Whether Files by Google on Android shows other apps' document providers is still to be checked. Android's own Files app and the Open and Save dialogs do.
 
 Testing: add a network drive folder in the test instance (with `beta-features` in its data dir), then read and write through the mount and watch the change arrive in a synced folder of the same remote folder. On Android the same works through the Files app: open, copy in, new folder, rename and delete, with a synced folder of the same remote folder to see the result.
