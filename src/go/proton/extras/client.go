@@ -7,16 +7,13 @@ package extras
 // (stdlib net/http, no resty) whose auth headers are populated from
 // the same UID/access token Syncative already has on its own Session.
 //
-// Trade-off: this client doesn't share upstream's auto-refresh on 401,
-// status observers, or per-error-code handlers. For revision-lifecycle
-// calls inside a single sync run that's acceptable — if the access
-// token expires mid-call the user re-runs and a fresh Login() seeds a
-// new token.
+// This client doesn't share upstream's status observers or per-error-code handlers. It renews an expired access token through Auth.Renew, which goes through upstream's client, so a token renewed here is the session's and gets stored like any other.
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,6 +32,8 @@ type Auth struct {
 	AccessToken string
 	AppVersion  string
 	HostURL     string // empty → proton.DefaultHostURL
+	// Renew is called once when a request is refused with 401 (an expired access token): it renews the session's tokens and returns its Auth as it is now, and the request is sent once more with it. Nil: the 401 is returned.
+	Renew func(ctx context.Context) (Auth, error)
 }
 
 func (a Auth) hostURL() string {
@@ -55,14 +54,31 @@ var httpClient = &http.Client{Timeout: 90 * time.Second, Transport: NewTransport
 // `*proton.APIError` so callers can use `errors.As(err,
 // **proton.APIError)` the same way they do for upstream's calls.
 func do(ctx context.Context, auth Auth, method, path string, body, out any) error {
+	var buf []byte
+	if body != nil {
+		var err error
+		if buf, err = json.Marshal(body); err != nil {
+			return fmt.Errorf("encode body: %w", err)
+		}
+	}
+	err := send(ctx, auth, method, path, buf, out)
+	var apiErr *proton.APIError
+	if auth.Renew != nil && errors.As(err, &apiErr) && apiErr.Status == http.StatusUnauthorized {
+		renewed, renewErr := auth.Renew(ctx)
+		if renewErr != nil {
+			return renewErr
+		}
+		return send(ctx, renewed, method, path, buf, out)
+	}
+	return err
+}
+
+// send makes one request with the JSON body `buf` (nil for none).
+func send(ctx context.Context, auth Auth, method, path string, buf []byte, out any) error {
 	url := strings.TrimRight(auth.hostURL(), "/") + path
 
 	var bodyReader io.Reader
-	if body != nil {
-		buf, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("encode body: %w", err)
-		}
+	if buf != nil {
 		bodyReader = bytes.NewReader(buf)
 	}
 
@@ -70,7 +86,7 @@ func do(ctx context.Context, auth Auth, method, path string, body, out any) erro
 	if err != nil {
 		return err
 	}
-	if body != nil {
+	if buf != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Accept", "application/json")

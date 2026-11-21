@@ -57,7 +57,6 @@ func (s *Session) LatestEventID(ctx context.Context) (string, error) {
 
 // ChangesSince returns the links that changed after event `cursor`, in the log's order. A request that fails on the way returns the error; one the server refuses means the cursor can't be followed, and the result asks for a listing.
 func (s *Session) ChangesSince(ctx context.Context, cursor string) (*Changes, error) {
-	auth := s.protonextAuth()
 	relist := func(why string) (*Changes, error) {
 		logf("drive: %s; listing again.", why)
 		latest, err := s.LatestEventID(ctx)
@@ -68,7 +67,7 @@ func (s *Session) ChangesSince(ctx context.Context, cursor string) (*Changes, er
 	}
 	out := &Changes{Cursor: cursor}
 	for range maxEventPages {
-		page, err := extras.VolumeEvents(ctx, auth, s.volumeID, out.Cursor)
+		page, err := extras.VolumeEvents(ctx, s.protonextAuth(), s.volumeID, out.Cursor)
 		if err != nil {
 			var apiErr *proton.APIError
 			if errors.As(err, &apiErr) && apiErr.Status < 500 && apiErr.Status != 429 {

@@ -41,6 +41,7 @@
   - Methods on upstream types become free functions taking the type as a parameter.
   - Fields the upstream types lack are parsed from the raw JSON there.
   - If something truly can't be done without changing the submodule, the feature is dropped instead.
+  - `extras` makes its requests with plain `net/http`, without upstream's renewal of an expired access token. Its `Auth` therefore carries `Renew`, which `drive` fills from the session: on a 401 it renews the tokens through upstream's client, whose AuthHandler stores the new pair, and the request is sent once more. Every `extras` call needs the `Auth` from `Session.protonextAuth()`; a 401 that reaches the engine counts as a dead session and asks for a new sign-in.
 - rclone comes from Syncative's fork, which adds the one-off change-log query: see [release.md](../packaging/release.md#the-rclone-fork).
 - Forks of iced, iced_android and android-activity: see [android/README.md](../../android/README.md) and [release.md](../packaging/release.md#the-android-forks).
 

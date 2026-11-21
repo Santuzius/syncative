@@ -5,7 +5,6 @@ package drive
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"strings"
 	"time"
@@ -38,19 +37,6 @@ type FileAttrs struct {
 	BlockSizes []int64
 }
 
-// withRefresh runs a request of the extras package, whose HTTP path doesn't renew an expired access token by itself: on a 401 a request through upstream's client renews it, and the request is sent once more.
-func (s *Session) withRefresh(ctx context.Context, request func(extras.Auth) error) error {
-	err := request(s.protonextAuth())
-	var apiErr *proton.APIError
-	if errors.As(err, &apiErr) && apiErr.Status == 401 {
-		if _, userErr := s.c.GetUser(ctx); userErr != nil {
-			return err
-		}
-		return request(s.protonextAuth())
-	}
-	return err
-}
-
 // Children lists the active children of folder `folderID` ("" for the root) with their names. Folders' links are cached for their keyrings.
 func (s *Session) Children(ctx context.Context, folderID string) ([]Item, error) {
 	if folderID == "" {
@@ -67,11 +53,8 @@ func (s *Session) Children(ctx context.Context, folderID string) ([]Item, error)
 	if err != nil {
 		return nil, err
 	}
-	var children []extras.Child
-	if err := s.withRefresh(ctx, func(auth extras.Auth) (err error) {
-		children, err = extras.ListChildren(ctx, auth, s.mainShare.ShareID, folderID)
-		return err
-	}); err != nil {
+	children, err := extras.ListChildren(ctx, s.protonextAuth(), s.mainShare.ShareID, folderID)
+	if err != nil {
 		return nil, err
 	}
 	out := make([]Item, 0, len(children))
@@ -129,11 +112,8 @@ func (s *Session) Attrs(ctx context.Context, item *Item) (*FileAttrs, error) {
 	attrs := &FileAttrs{Size: -1, ModTime: item.ModTime()}
 	armored := item.xattr
 	if armored == "" {
-		var rev extras.RevisionWithXAttr
-		if err := s.withRefresh(ctx, func(auth extras.Auth) (err error) {
-			rev, err = extras.GetRevisionXAttr(ctx, auth, s.mainShare.ShareID, item.Link.LinkID, revisionID)
-			return err
-		}); err != nil {
+		rev, err := extras.GetRevisionXAttr(ctx, s.protonextAuth(), s.mainShare.ShareID, item.Link.LinkID, revisionID)
+		if err != nil {
 			return nil, err
 		}
 		armored = rev.XAttr
@@ -210,9 +190,7 @@ func (s *Session) Rename(ctx context.Context, linkID, name string) error {
 	if req.Hash, err = extras.NameHash(name, hashKey); err != nil {
 		return err
 	}
-	err = s.withRefresh(ctx, func(auth extras.Auth) error {
-		return extras.RenameLink(ctx, auth, s.volumeID, linkID, req)
-	})
+	err = extras.RenameLink(ctx, s.protonextAuth(), s.volumeID, linkID, req)
 	s.forgetLink(linkID)
 	return err
 }
@@ -248,18 +226,14 @@ func (s *Session) Move(ctx context.Context, linkID, parentID, name string) error
 	if req.Hash, err = extras.NameHash(name, hashKey); err != nil {
 		return err
 	}
-	err = s.withRefresh(ctx, func(auth extras.Auth) error {
-		return extras.MoveLink(ctx, auth, s.volumeID, linkID, req)
-	})
+	err = extras.MoveLink(ctx, s.protonextAuth(), s.volumeID, linkID, req)
 	s.forgetLink(linkID)
 	return err
 }
 
 // Restore moves trashed links back where they were.
 func (s *Session) Restore(ctx context.Context, linkIDs ...string) error {
-	err := s.withRefresh(ctx, func(auth extras.Auth) error {
-		return extras.RestoreLinks(ctx, auth, s.volumeID, linkIDs)
-	})
+	err := extras.RestoreLinks(ctx, s.protonextAuth(), s.volumeID, linkIDs)
 	for _, id := range linkIDs {
 		s.forgetLink(id)
 	}
@@ -276,11 +250,8 @@ func (s *Session) TrashedChildren(ctx context.Context, folderID string) ([]Item,
 	if err != nil {
 		return nil, err
 	}
-	var children []extras.Child
-	if err := s.withRefresh(ctx, func(auth extras.Auth) (err error) {
-		children, err = extras.ListChildren(ctx, auth, s.mainShare.ShareID, folderID)
-		return err
-	}); err != nil {
+	children, err := extras.ListChildren(ctx, s.protonextAuth(), s.mainShare.ShareID, folderID)
+	if err != nil {
 		return nil, err
 	}
 	var out []Item

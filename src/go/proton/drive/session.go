@@ -348,6 +348,8 @@ func (s *Session) AsCredential() ReusableCredential {
 // HTTP calls against the Proton API. Read under authMu so a concurrent
 // AuthHandler-driven token rotation is picked up cleanly by the next
 // request rather than racing the field write.
+//
+// Its Renew handles an expired access token: the extras package has no refresh of its own, and a 401 that reached the caller would read as a dead session and ask for a new sign-in, although the refresh token still works (the change check that starts every pass met this first after a quiet night).
 func (s *Session) protonextAuth() extras.Auth {
 	s.authMu.RLock()
 	defer s.authMu.RUnlock()
@@ -355,7 +357,18 @@ func (s *Session) protonextAuth() extras.Auth {
 		UID:         s.UID,
 		AccessToken: s.AccessToken,
 		AppVersion:  AppVersion,
+		Renew:       s.renewAuth,
 	}
+}
+
+// renewAuth renews an expired access token through upstream's client, which refreshes on a 401 and hands the new pair to the AuthHandler (so it gets stored), and returns the extras credentials as they are then. A token that upstream had renewed already is simply picked up.
+func (s *Session) renewAuth(ctx context.Context) (extras.Auth, error) {
+	if _, err := s.c.GetUser(ctx); err != nil {
+		return extras.Auth{}, err
+	}
+	auth := s.protonextAuth()
+	auth.Renew = nil
+	return auth, nil
 }
 
 // registerAuthHandler wires the upstream client's post-refresh callback
