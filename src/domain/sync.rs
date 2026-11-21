@@ -85,14 +85,14 @@ impl SyncMode {
         self == Self::NetworkDrive
     }
 
-    /// The modes to choose from for a folder in mode `current` (`None` for a new folder). A network drive and a synced folder hold different things locally (nothing, or a full copy), so one doesn't turn into the other: the folder is removed and added again. Android has no network drive yet.
+    /// The modes to choose from for a folder in mode `current` (`None` for a new folder). A network drive and a synced folder hold different things locally (nothing, or a full copy), so one doesn't turn into the other: the folder is removed and added again.
     pub fn choices(beta: bool, current: Option<Self>) -> Vec<Self> {
         if current == Some(Self::NetworkDrive) {
             return vec![Self::NetworkDrive];
         }
         Self::ALL
             .into_iter()
-            .filter(|m| !m.is_beta() || (beta && current.is_none() && !cfg!(target_os = "android")))
+            .filter(|m| !m.is_beta() || (beta && current.is_none()))
             .collect()
     }
 
@@ -144,6 +144,11 @@ impl SyncMode {
                 "Files deleted on the remote stay here",
                 "Changes made here are replaced by the remote's version",
             ],
+            Self::NetworkDrive if cfg!(target_os = "android") => &[
+                "Shows up in the Files app and in other apps' Open and Save dialogs",
+                "Files stay on the remote and are downloaded when opened",
+                "Works offline only for files opened recently",
+            ],
             Self::NetworkDrive => &[
                 "Shows up in the file manager as a drive in the folder below",
                 "Files stay on the remote and are downloaded when opened",
@@ -182,10 +187,12 @@ impl SyncDir {
             .unwrap_or(remote_path)
     }
 
-    /// `other` is another folder of the same remote whose remote folder lies inside this one's.
+    /// `other` is another folder of the same remote whose remote folder lies inside this one's. A network drive syncs nothing, so it neither holds nor is held in this sense: a synced folder around it syncs its files as usual.
     pub fn contains(&self, other: &SyncDir) -> bool {
         other.id != self.id
             && other.remote_id == self.remote_id
+            && self.mode != SyncMode::NetworkDrive
+            && other.mode != SyncMode::NetworkDrive
             && if self.remote_path.is_empty() {
                 !other.remote_path.is_empty()
             } else {

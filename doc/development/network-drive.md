@@ -14,7 +14,18 @@ The fourth folder mode, *Network drive* 🧪 (`SyncMode::NetworkDrive`, a beta f
 
 ## Android
 
-Not available yet; the mode isn't offered there. The plan is a document provider (`DocumentsProvider` in Java, registered in `AndroidManifest.xml`) that calls a few Go functions on the same VFS: list, open, read, write, close.
+Apps have no FUSE on Android, so a document provider shows the folder instead: `NetworkDriveProvider.java` (authority `io.github.santuzius.syncative.networkdrive`), which the Files app and every app's Open and Save dialog list.
+
+- **No local path:** the add dialog doesn't ask for one. The database keeps a stand-in, `/network-drive/<remote>/<remote path>` (`network_drive::android_path`), as it tells folders apart by their local path; the folder card says where to find the drive instead.
+- **Roots:** each network drive folder is a root titled with the remote's name and the remote folder as summary ("Syncative" for the whole drive). The engine hands the folders over when it reads them (`network_drive::publish`) and the provider's root list is told to refresh. A process that the provider started (no window, no sync service) starts the engine on the first root query, so the Files app first gets no roots and the drives a moment later.
+- **Start of the process:** Android publishes a content provider before `Application.onCreate` runs, and its calls arrive on binder threads meanwhile; the provider waits for `SyncativeApplication` to have loaded the native library (`awaitNative`).
+- **Go's environment:** the Go library takes its environment from the process start, before `SyncativeApplication` set `HOME`, `XDG_*` and `TMPDIR`, so rclone's cache would land in `/data/local/tmp`, which apps can't write. Rust hands the variables over at start (`syncative/environment`, `src/go/rclone/environment.go`).
+- **The open button** of the folder card opens the drive's root URI in the app that shows folders (`Bridge.openNetworkDrive`); a document URI of another app's provider makes the Files app ask `findDocumentPath`, which the provider answers too.
+- **Document IDs:** the folder's database ID, a slash and the path below it (`14/Photos/a.jpg`, `14` for the folder itself).
+- **The VFS:** one per folder, by `remote:path`, with `--vfs-cache-mode full` like the Linux mount (`src/go/rclone/documents.go`). Its RPC calls `syncative/doc-*` list, stat, create, delete, rename, open and close; the bytes of an open file go through two exports of their own, `SyncativeDocRead` and `SyncativeDocWrite`. A pass "mounts" the folder by starting its VFS (`syncative/doc-attach`) and then polls it like a Linux mount.
+- **Open files** are proxy file descriptors (`StorageManager.openProxyFileDescriptor`), each served by a thread of its own: Android waits for the size of a newly opened file while holding a lock of vold's, and a slow read of another file on a shared thread could keep it waiting until the watchdog restarts the system. Closing, which uploads a written file before it returns (write-back 0), runs off that thread for the same reason; a failed upload shows a notification. Both lessons come from [RSAF](https://github.com/chenxiaolong/RSAF), a document provider on rclone's VFS.
+- **New files** are only listed (`AddVirtual`) until the app that created them writes and closes them; the upload then happens once instead of an empty file first.
+- **Slow listings:** a listing not done within half a second answers "loading", and the folder is shown when it arrives (`notifyChange`).
 
 ## Changes by other clients
 
@@ -22,6 +33,6 @@ rclone's VFS keeps a folder's listing for five minutes (`--dir-cache-time`). Eac
 
 ## Open points
 
-- Whether GNOME Files and Dolphin list the mount in their sidebars, and whether Files by Google on Android shows other apps' document providers, is still to be checked.
+- Whether GNOME Files and Dolphin list the mount in their sidebars, and whether Files by Google on Android shows other apps' document providers, is still to be checked. Android's own Files app and the Open and Save dialogs do.
 
-Testing: add a network drive folder in the test instance (with `beta-features` in its data dir), then read and write through the mount and watch the change arrive in a synced folder of the same remote folder.
+Testing: add a network drive folder in the test instance (with `beta-features` in its data dir), then read and write through the mount and watch the change arrive in a synced folder of the same remote folder. On Android the same works through the Files app: open, copy in, new folder, rename and delete, with a synced folder of the same remote folder to see the result.

@@ -289,6 +289,20 @@ pub fn forget_remote(remote: &str) {
     }
 }
 
+/// Read up to `buf.len()` bytes at `offset` of the open network drive file `handle` (from the RPC call `syncative/doc-open`, src/go/rclone/documents.go). Returns how many, 0 at the end of the file; `None` on an error.
+pub fn doc_read(handle: i64, offset: i64, buf: &mut [u8]) -> Option<usize> {
+    let size = i32::try_from(buf.len()).ok()?;
+    let n = unsafe { ffi::SyncativeDocRead(handle, offset, buf.as_mut_ptr().cast(), size) };
+    usize::try_from(n).ok()
+}
+
+/// Write `buf` at `offset` of the open network drive file `handle`. Returns how many bytes; `None` on an error.
+pub fn doc_write(handle: i64, offset: i64, buf: &[u8]) -> Option<usize> {
+    let size = i32::try_from(buf.len()).ok()?;
+    let n = unsafe { ffi::SyncativeDocWrite(handle, offset, buf.as_ptr().cast_mut().cast(), size) };
+    usize::try_from(n).ok()
+}
+
 /// Smoke ping across the cgo boundary to `go-proton-api`. Constructs
 /// a Manager on the Go side and throws it away; no network work. Used
 /// during startup to verify the combined Go archive linked correctly.

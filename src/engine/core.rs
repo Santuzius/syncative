@@ -313,6 +313,7 @@ impl Core {
             }
         }
         crate::services::network_drive::retain(&sync_dirs);
+        crate::services::network_drive::publish(&remotes, &sync_dirs);
         self.apply(remotes, sync_dirs);
     }
 

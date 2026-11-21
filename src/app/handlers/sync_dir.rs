@@ -298,9 +298,8 @@ impl SyncativeApp {
         let Some(id) = self.selected else {
             return Task::none();
         };
-        let Some((local, remote)) = self.sync_dir_drafts.get(&id).cloned() else {
-            return Task::none();
-        };
+        // Nothing typed yet is a draft too: an Android network drive of the whole remote needs no input.
+        let (local, remote) = self.sync_dir_drafts.get(&id).cloned().unwrap_or_default();
         let mode = self.add_folder_mode;
         let Some(remote_name) = self
             .remotes
@@ -310,7 +309,13 @@ impl SyncativeApp {
         else {
             return Task::none();
         };
-        let local = expand_home(local.trim());
+        // An Android network drive has no local folder, only a stand-in path (see `network_drive::android_path`).
+        let android_drive = mode == SyncMode::NetworkDrive && cfg!(target_os = "android");
+        let local = if android_drive {
+            crate::services::network_drive::android_path(&remote_name, &remote)
+        } else {
+            expand_home(local.trim())
+        };
         if local.is_empty() {
             self.add_sync_dir_error =
                 Some(format!("Choose a folder on {}.", crate::util::THIS_DEVICE));
@@ -366,8 +371,10 @@ impl SyncativeApp {
                 let local_for_mk = local_norm.clone();
                 let remote_for_mk = remote_norm.clone();
                 let created = tokio::task::spawn_blocking(move || {
-                    std::fs::create_dir_all(&local_for_mk)
-                        .map_err(|e| format!("Couldn't create {local_for_mk}: {e}"))?;
+                    if !android_drive {
+                        std::fs::create_dir_all(&local_for_mk)
+                            .map_err(|e| format!("Couldn't create {local_for_mk}: {e}"))?;
+                    }
                     let _ = rclone.mkdir(
                         &remote_name,
                         &remote_for_mk,

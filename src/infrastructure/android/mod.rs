@@ -4,6 +4,7 @@
 
 pub mod documents;
 pub mod folders;
+pub mod provider;
 pub mod secrets;
 pub mod share;
 
@@ -205,8 +206,21 @@ pub fn run_in_background(on: bool) {
     });
 }
 
-/// Shows the folder at `path` in the default file manager.
+/// Shows the folder at `path` in the default file manager; a network drive's stand-in path shows the drive.
 pub fn open_folder(path: &str) {
+    if let Some(root) = crate::services::network_drive::root_at(path) {
+        with_context(|env, context| {
+            let class = bridge(env, context)?;
+            env.call_static_method(
+                class,
+                "openNetworkDrive",
+                "(Landroid/content/Context;I)V",
+                &[JValue::Object(context), JValue::Int(root)],
+            )?;
+            Ok(())
+        });
+        return;
+    }
     with_context(|env, context| {
         let class = bridge(env, context)?;
         let path = env.new_string(path)?;

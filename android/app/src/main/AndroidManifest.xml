@@ -14,6 +14,14 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- Which app shows folders, to open a network drive in it (Bridge.openNetworkDrive). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="vnd.android.document/directory" />
+        </intent>
+    </queries>
+
     <!-- enableOnBackInvokedCallback: Android 13+ delivers back through IcedActivity's callback. -->
     <application
         android:name=".SyncativeApplication"
@@ -56,6 +64,18 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Two-way file synchronization with cloud storage that the user set up; runs continuously to sync changes on both sides within seconds, like a desktop sync client." />
         </service>
+
+        <!-- Network drive folders, for the Files app and other apps' Open and Save dialogs. -->
+        <provider
+            android:name=".NetworkDriveProvider"
+            android:authorities="io.github.santuzius.syncative.networkdrive"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
 
         <receiver
             android:name=".BootReceiver"

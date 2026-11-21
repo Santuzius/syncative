@@ -166,6 +166,26 @@ fn set_up() -> Option<Services> {
         "-stable"
     ))
     .expect("failed to set the Proton app version");
+    // The Go library's environment is the one the process started with, without the directories SyncativeApplication set (see src/go/rclone/environment.go).
+    #[cfg(target_os = "android")]
+    {
+        let vars: serde_json::Map<String, serde_json::Value> = [
+            "HOME",
+            "TMPDIR",
+            "XDG_CACHE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_RUNTIME_DIR",
+        ]
+        .into_iter()
+        .filter_map(|name| Some((name.to_owned(), std::env::var(name).ok()?.into())))
+        .collect();
+        if let Err(err) =
+            syncative_go::rpc("syncative/environment", json!({ "vars": vars }).to_string())
+        {
+            log::error!("couldn't hand the environment to Go: {err}");
+        }
+    }
     syncative_go::rpc(
         "config/setpath",
         json!({ "path": rclone_config }).to_string(),

@@ -472,9 +472,12 @@ pub fn folder_settings_dialog<'a>(sd: &'a SyncDir, beta: bool) -> Element<'a, Ms
     }
     let card = container(
         column![
-            text(format!("Settings for {}", fmt_home(&sd.local_path)))
-                .size(HEADING + 2.0)
-                .wrapping(Wrapping::WordOrGlyph),
+            text(format!(
+                "Settings for {}",
+                crate::services::network_drive::local_display(sd)
+            ))
+            .size(HEADING + 2.0)
+            .wrapping(Wrapping::WordOrGlyph),
             container(rows)
                 .padding([2, 0])
                 .width(Length::Fill)
@@ -803,7 +806,7 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
     let top = row![
         status_icon(folder.state, 20.0),
         column![
-            text(fmt_home(&sd.local_path))
+            text(crate::services::network_drive::local_display(sd))
                 .size(TEXT)
                 .wrapping(Wrapping::WordOrGlyph),
             row![
@@ -1237,7 +1240,9 @@ fn add_folder_form<'a>(
     compact: bool,
     beta: bool,
 ) -> Element<'a, Msg> {
-    let can_add = !draft_local.trim().is_empty();
+    // On Android a network drive has no local folder; other apps reach it through the document provider.
+    let local_needed = !(mode == SyncMode::NetworkDrive && cfg!(target_os = "android"));
+    let can_add = !local_needed || !draft_local.trim().is_empty();
     // Labels beside the fields on the desktop, above them on a phone.
     let field = |label: String, input: Element<'a, Msg>| -> Element<'a, Msg> {
         if compact {
@@ -1280,51 +1285,50 @@ fn add_folder_form<'a>(
         "e.g. /home/you/Documents/Scans"
     };
 
-    let mut col = column![
-        text("Add a folder").size(HEADING + 2.0),
-        mode_field,
-        field(
-            format!("On {}", crate::util::THIS_DEVICE),
-            row![
-                text_input(local_example, draft_local)
-                    .on_input(Msg::DraftLocalPathChanged)
-                    .on_submit_maybe(can_add.then_some(Msg::AddSyncDir))
-                    .padding(7)
-                    .size(TEXT)
-                    .style(theme::input),
-                browse_button(
-                    icondata::TbFolderOpenOutline,
-                    TEXT,
-                    [6, 12],
-                    Msg::BrowseLocalPath
-                ),
-            ]
-            .spacing(ROW_SPACING)
-            .align_y(Alignment::Center)
-            .into(),
-        ),
-        field(
-            format!("On {}", remote.name),
-            row![
-                text_input("e.g. Documents/Scans (empty = whole drive)", draft_remote)
-                    .on_input(Msg::DraftRemotePathChanged)
-                    .on_submit_maybe(can_add.then_some(Msg::AddSyncDir))
-                    .padding(7)
-                    .size(TEXT)
-                    .style(theme::input),
-                browse_button(
-                    CLOUD_FOLDER_OPEN_OUTLINE,
-                    TEXT,
-                    [6, 12],
-                    Msg::BrowseRemotePath
-                ),
-            ]
-            .spacing(ROW_SPACING)
-            .align_y(Alignment::Center)
-            .into(),
-        ),
-    ]
-    .spacing(12);
+    let local_field = field(
+        format!("On {}", crate::util::THIS_DEVICE),
+        row![
+            text_input(local_example, draft_local)
+                .on_input(Msg::DraftLocalPathChanged)
+                .on_submit_maybe(can_add.then_some(Msg::AddSyncDir))
+                .padding(7)
+                .size(TEXT)
+                .style(theme::input),
+            browse_button(
+                icondata::TbFolderOpenOutline,
+                TEXT,
+                [6, 12],
+                Msg::BrowseLocalPath
+            ),
+        ]
+        .spacing(ROW_SPACING)
+        .align_y(Alignment::Center)
+        .into(),
+    );
+    let mut col = column![text("Add a folder").size(HEADING + 2.0), mode_field].spacing(12);
+    if local_needed {
+        col = col.push(local_field);
+    }
+    col = col.push(field(
+        format!("On {}", remote.name),
+        row![
+            text_input("e.g. Documents/Scans (empty = whole drive)", draft_remote)
+                .on_input(Msg::DraftRemotePathChanged)
+                .on_submit_maybe(can_add.then_some(Msg::AddSyncDir))
+                .padding(7)
+                .size(TEXT)
+                .style(theme::input),
+            browse_button(
+                CLOUD_FOLDER_OPEN_OUTLINE,
+                TEXT,
+                [6, 12],
+                Msg::BrowseRemotePath
+            ),
+        ]
+        .spacing(ROW_SPACING)
+        .align_y(Alignment::Center)
+        .into(),
+    ));
 
     if let Some(err) = error {
         col = col.push(text(err).size(CAPTION).style(theme::danger_text));
@@ -1413,6 +1417,17 @@ pub fn confirm_delete_overlay<'a>(pending: &'a PendingDelete) -> Element<'a, Msg
             "Remove remote",
         ),
         PendingDelete::Leftovers { .. } => unreachable!("handled above"),
+        PendingDelete::SyncDir {
+            local,
+            remote_label,
+            ..
+        } if crate::services::network_drive::is_android_drive(local) => (
+            "Remove this network drive?".to_owned(),
+            format!(
+                "{remote_label} no longer shows up in the Files app. No files are deleted in the cloud."
+            ),
+            "Remove",
+        ),
         PendingDelete::SyncDir {
             local,
             remote_label,

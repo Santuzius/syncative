@@ -6,10 +6,24 @@ import android.system.Os;
 import android.util.Log;
 
 import java.io.File;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /** Runs first in every Syncative process, whether the launcher, the sync service or the boot receiver started it: sets up the environment and loads the native library. */
 public class SyncativeApplication extends Application {
     static native void nativeInit(Application application);
+
+    /** Open once onCreate has loaded the native library. */
+    private static final CountDownLatch ready = new CountDownLatch(1);
+
+    /** Waits until the native library is loaded: a content provider is published, and may be called on a binder thread, before onCreate runs. */
+    static void awaitNative() {
+        try {
+            ready.await(30, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
     @Override
     public void onCreate() {
@@ -38,6 +52,7 @@ public class SyncativeApplication extends Application {
 
         System.loadLibrary("syncative");
         nativeInit(this);
+        ready.countDown();
         Bridge.watchNetwork(this);
     }
 }

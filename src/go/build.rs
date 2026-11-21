@@ -85,6 +85,8 @@ fn main() {
         .allowlist_function("SyncativeAuthorizeCancel")
         .allowlist_function("SyncativeSetConfigPassword")
         .allowlist_function("SyncativeSaveConfig")
+        .allowlist_function("SyncativeDocRead")
+        .allowlist_function("SyncativeDocWrite")
         .allowlist_function("ProtonDrive_Version")
         .allowlist_function("ProtonDrive_SetAppVersion")
         .allowlist_function("ProtonDrive_BindRemote")

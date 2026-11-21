@@ -37,7 +37,9 @@ pub fn open_folder(path: &str) {
 
 /// Whether [`open_folder`] can show `path`: on Android only folders in shared storage, which file managers see.
 pub fn can_open_folder(path: &str) -> bool {
-    !cfg!(target_os = "android") || path.starts_with("/storage/")
+    !cfg!(target_os = "android")
+        || path.starts_with("/storage/")
+        || path.starts_with(crate::services::network_drive::ANDROID_ROOT)
 }
 
 /// Show a local folder in Android's file manager.

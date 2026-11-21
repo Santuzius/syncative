@@ -176,6 +176,11 @@ public final class Bridge {
     }
 
     /** A notification about something the user has to do, e.g. sign in again. The same text replaces its earlier notification. */
+    /** The network drives changed: apps showing them through {@link NetworkDriveProvider} read them again. */
+    public static void networkDrivesChanged(Context context) {
+        context.getContentResolver().notifyChange(DocumentsContract.buildRootsUri(NetworkDriveProvider.AUTHORITY), null);
+    }
+
     public static void notify(Context context, String title, String text) {
         createChannels(context);
         Notification notification = new Notification.Builder(context, CHANNEL_PROBLEMS)
@@ -240,6 +245,22 @@ public final class Bridge {
             } catch (ActivityNotFoundException e2) {
                 Log.w(TAG, "no battery optimization settings", e2);
             }
+        }
+    }
+
+    /** Shows the network drive `root` in the file manager. */
+    public static void openNetworkDrive(Context context, int root) {
+        // The Files app opens a provider's root from its root URI (a document URI of another app's provider it opens at its default place). Other apps also take root URIs, so the Files app, the one showing folders, is asked by name.
+        Uri folder = DocumentsContract.buildRootUri(NetworkDriveProvider.AUTHORITY, String.valueOf(root));
+        Intent intent = new Intent(Intent.ACTION_VIEW).setDataAndType(folder, DocumentsContract.Root.MIME_TYPE_ITEM).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        android.content.pm.ResolveInfo files = context.getPackageManager().resolveActivity(new Intent(Intent.ACTION_VIEW).setType(DocumentsContract.Document.MIME_TYPE_DIR), 0);
+        if (files != null && files.activityInfo != null) {
+            intent.setPackage(files.activityInfo.packageName);
+        }
+        try {
+            context.startActivity(intent);
+        } catch (ActivityNotFoundException | SecurityException e) {
+            Log.w(TAG, "no app shows " + folder, e);
         }
     }
 
