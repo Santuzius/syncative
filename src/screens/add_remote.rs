@@ -156,7 +156,7 @@ impl std::fmt::Display for ProviderKind {
             ProviderKind::Dropbox => "Dropbox",
             ProviderKind::GDrive => "Google Drive",
             ProviderKind::PCloud => "pCloud",
-            ProviderKind::Local => "Local folder",
+            ProviderKind::Local => "Local",
         };
         f.write_str(label)
     }
