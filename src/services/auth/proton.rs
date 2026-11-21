@@ -218,10 +218,35 @@ impl Drop for TempBlob {
     }
 }
 
-fn tempfile_path(tag: &str) -> std::path::PathBuf {
-    let dir = std::env::var_os("XDG_RUNTIME_DIR")
+fn tempfile_dir() -> std::path::PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+/// Deletes the session tempfiles of processes that ended before their [`TempBlob`] was dropped (killed during a resume). On Android the runtime directory is in the app's storage and survives, so such a copy of the session, salted key pass included, would stay there for good. Files of a process that still runs are left alone.
+pub fn remove_stale_tempfiles() {
+    let Ok(entries) = std::fs::read_dir(tempfile_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(pid) = name
+            .to_str()
+            .and_then(|n| n.strip_prefix("syncative-proton-"))
+            .and_then(|rest| rest.strip_suffix(".json"))
+            .and_then(|rest| rest.split('-').nth(1))
+        else {
+            continue;
+        };
+        if !Path::new("/proc").join(pid).exists() {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+fn tempfile_path(tag: &str) -> std::path::PathBuf {
+    let dir = tempfile_dir();
     let pid = std::process::id();
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
