@@ -3,7 +3,7 @@
 Dependabot (`.github/dependabot.yml`) looks for updates every Monday and opens pull requests into `develop`: Rust crates, Go modules, the flake's inputs and the GitHub Actions. A new version is proposed only once it has been out for three days, Dependabot's default cooldown. GitHub reads the configuration from `main`.
 
 - **Groups:** one pull request for all patch updates and one for all minor updates of each language; each major update gets its own.
-- **Left out:** the iced, iced_android and android-activity forks, which move together by hand ([release.md](../packaging/release.md#the-android-forks)), and the Go modules pinned through `replace`: the rclone fork, go-proton-api, go-crypto and resty ([release.md](../packaging/release.md#the-rclone-fork)). The AppImage's base image `ubuntu:22.04` sets its minimum glibc and stays as it is.
+- **Left out:** the iced, iced_android and android-activity forks, which move together by hand ([release.md](../packaging/release.md#the-android-forks)), the rclone fork and resty, pinned through `replace` ([release.md](../packaging/release.md#the-rclone-fork)), and every `github.com/ProtonMail/*` module: they come with go-proton-api and follow its versions, and some are Proton's own `-proton` builds, which an upstream release would replace. The AppImage's base image `ubuntu:22.04` sets its minimum glibc and stays as it is.
 
 ## Checks and merging
 
