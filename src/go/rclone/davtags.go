@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rclone/rclone/backend/webdav"
 	"github.com/rclone/rclone/fs"
@@ -53,7 +54,75 @@ func FolderTags(ctx context.Context, remote, dir string, depth int) (tag string,
 	if err != nil {
 		return "", nil, err
 	}
-	return folderTags(ctx, opt, dir, depth)
+	if depth != 0 {
+		return folderTags(ctx, opt, dir, depth)
+	}
+	tag, err = gateOf(remote).folderTag(dir, func(dir string) (string, error) {
+		tag, _, err := folderTags(ctx, opt, dir, 0)
+		return tag, err
+	})
+	return tag, nil, err
+}
+
+// tagGate spares a remote's sync folders their own ETag request while nothing changed: the server gives the remote's root a new ETag with every change below it, received shares included, so a folder whose ETag was read under the root's current ETag still has it. A quiet pass then costs one request for all folders, a pass with changes one more than without the gate. The root's answer is shared like a change log's, for reuseFor.
+type tagGate struct {
+	sync.Mutex
+	root   string
+	rootAt time.Time
+	// seen holds per folder its ETag and the root's ETag read just before it.
+	seen map[string]seenTag
+}
+
+type seenTag struct{ tag, root string }
+
+var (
+	gatesMu sync.Mutex
+	gates   = map[string]*tagGate{}
+)
+
+func gateOf(remote string) *tagGate {
+	gatesMu.Lock()
+	defer gatesMu.Unlock()
+	g, ok := gates[remote]
+	if !ok {
+		g = &tagGate{seen: map[string]seenTag{}}
+		gates[remote] = g
+	}
+	return g
+}
+
+// forgetGate drops what `remote`'s gate knows, e.g. after its config changed.
+func forgetGate(remote string) {
+	gatesMu.Lock()
+	defer gatesMu.Unlock()
+	delete(gates, remote)
+}
+
+// folderTag is the ETag of `dir`; `ask` reads one from the server.
+func (g *tagGate) folderTag(dir string, ask func(string) (string, error)) (string, error) {
+	g.Lock()
+	defer g.Unlock()
+	if dir == "" || time.Since(g.rootAt) >= reuseFor {
+		root, err := ask("")
+		if err != nil {
+			return "", err
+		}
+		g.root, g.rootAt = root, time.Now()
+	}
+	if dir == "" {
+		return g.root, nil
+	}
+	if seen, ok := g.seen[dir]; ok && seen.root == g.root {
+		return seen.tag, nil
+	}
+	// The root's ETag is read before the folder's, so a change in between makes the next root differ and the folder be asked again.
+	tag, err := ask(dir)
+	if err != nil {
+		delete(g.seen, dir)
+		return "", err
+	}
+	g.seen[dir] = seenTag{tag: tag, root: g.root}
+	return tag, nil
 }
 
 // davOptions reads the options of WebDAV remote `remote`, with the password revealed, when its vendor is one of `vendors`; else ErrNoFolderTags.

@@ -1,7 +1,7 @@
 // Package rclone holds Syncative's additions to rclone: RPC calls with a cancel flag (call.go), the change tags of WebDAV folders (davtags.go) and the change logs of Google Drive and Dropbox (changes.go).
 package rclone
 
-// changes.go asks Google Drive's and Dropbox's change logs once per sync pass what changed since the previous one, so a pass can skip listing the remote. The calls come from Syncative's rclone fork (github.com/Santuzius/rclone, branch syncative), which exports the one-off query rclone's ChangeNotify otherwise runs on a timer.
+// changes.go asks the change logs of Google Drive, Dropbox and Proton once per sync pass what changed since the previous one, so a pass can skip listing the remote; the sync folders of a remote share the answer. The calls come from Syncative's rclone fork (github.com/Santuzius/rclone, branch syncative), which exports the one-off query rclone's ChangeNotify otherwise runs on a timer.
 
 import (
 	"context"
@@ -91,13 +91,31 @@ const maxAnswers = 64
 type answer struct {
 	next    string
 	changes []Changed
+	// items: the same for a log by ID, keyed by the event it starts from.
+	items []ItemChange
 }
+
+// reuseFor is how long the change log's latest answer stands in for the provider. A remote's log covers all its sync folders, so the folders of one pass, which ask right after each other, need only one request. It is shorter than the shortest interval between passes (5 s), so each pass still asks at least once.
+var reuseFor = 4 * time.Second
 
 // answerLog keeps a remote's recent answers by the cursor they start from. Every sync folder of a remote asks with its own cursor, and asking the provider again for the same stretch of its log would not give the same answer: the first answer updates the backend's folder cache (a renamed folder leaves it), so a later one could no longer name a folder's old path. Its mutex lets one query at a time go to the provider.
 type answerLog struct {
 	sync.Mutex
 	byCursor map[string]answer
 	order    []string
+	// tip is the cursor the provider last answered up to, at tipAt.
+	tip   string
+	tipAt time.Time
+}
+
+// current: the provider answered up to `cursor` less than reuseFor ago, so asking again can be skipped.
+func (l *answerLog) current(cursor string) bool {
+	return cursor == l.tip && time.Since(l.tipAt) < reuseFor
+}
+
+// asked records that the provider answered up to `cursor` just now.
+func (l *answerLog) asked(cursor string) {
+	l.tip, l.tipAt = cursor, time.Now()
 }
 
 func (l *answerLog) add(cursor string, a answer) {
@@ -175,7 +193,7 @@ func ChangesSince(ctx context.Context, remote, dir, cursor string) (Changes, err
 		return Changes{}, err
 	}
 	if log, ok := f.(itemChangeLog); ok {
-		return itemChangesSince(ctx, log, dir, cursor)
+		return itemChangesSince(ctx, remote, log, dir, cursor)
 	}
 	log, ok := f.(changeLog)
 	if !ok {
@@ -203,6 +221,10 @@ func ChangesSince(ctx context.Context, remote, dir, cursor string) (Changes, err
 		out.Changes = append(out.Changes, a.changes...)
 		cursor = a.next
 	}
+	if l.current(cursor) {
+		out.Cursor = cursor
+		return out, nil
+	}
 	token = strings.TrimPrefix(cursor, prefix)
 	var fresh []Changed
 	next, err := log.ChangesSince(ctx, func(path string, kind fs.EntryType) {
@@ -218,13 +240,14 @@ func ChangesSince(ctx context.Context, remote, dir, cursor string) (Changes, err
 	if next != token {
 		l.add(cursor, answer{next: prefix + next, changes: fresh})
 	}
+	l.asked(prefix + next)
 	out.Changes = append(out.Changes, fresh...)
 	out.Cursor = prefix + next
 	return out, nil
 }
 
-// itemChangesSince is ChangesSince for a log by ID. Its cursor is the last event seen and the ID of the folder at `dir`, so changes naming their folder by ID can be placed; it stays valid across restarts.
-func itemChangesSince(ctx context.Context, log itemChangeLog, dir, cursor string) (Changes, error) {
+// itemChangesSince is ChangesSince for a log by ID. Its cursor is the last event seen and the ID of the folder at `dir`, so changes naming their folder by ID can be placed; it stays valid across restarts. The log covers the whole volume, so an answer given to one sync folder answers the others too while it is recent (reuseFor).
+func itemChangesSince(ctx context.Context, remote string, log itemChangeLog, dir, cursor string) (Changes, error) {
 	fresh := func(event string) (Changes, error) {
 		root, err := log.ChangesRoot(ctx, dir)
 		if errors.Is(err, fs.ErrorDirNotFound) {
@@ -244,14 +267,34 @@ func itemChangesSince(ctx context.Context, log itemChangeLog, dir, cursor string
 		}
 		return fresh(latest)
 	}
-	found, err := log.ItemChangesSince(ctx, event)
-	if err != nil {
-		return Changes{}, fmt.Errorf("change log: %w", err)
+	l := answersOf(remote)
+	l.Lock()
+	defer l.Unlock()
+	var items []ItemChange
+	for range l.order {
+		a, ok := l.byCursor[event]
+		if !ok || a.items == nil {
+			break
+		}
+		items = append(items, a.items...)
+		event = a.next
 	}
-	if found.Relist {
-		return fresh(found.Next)
+	if !l.current(event) {
+		found, err := log.ItemChangesSince(ctx, event)
+		if err != nil {
+			return Changes{}, fmt.Errorf("change log: %w", err)
+		}
+		if found.Relist {
+			return fresh(found.Next)
+		}
+		if len(found.Items) > 0 && found.Next != event {
+			l.add(event, answer{next: found.Next, items: found.Items})
+		}
+		items = append(items, found.Items...)
+		event = found.Next
+		l.asked(event)
 	}
-	return Changes{Supported: true, Known: true, ByID: true, Cursor: found.Next + " " + root, RootID: root, Items: found.Items}, nil
+	return Changes{Supported: true, Known: true, ByID: true, Cursor: event + " " + root, RootID: root, Items: items}, nil
 }
 
 // Forget drops `remote`'s backend, e.g. after its config was replaced or deleted; the next call creates it anew.
@@ -267,4 +310,5 @@ func Forget(remote string) {
 	}
 	forgotten[remote]++
 	delete(answers, remote)
+	forgetGate(remote)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/cache"
@@ -120,6 +121,7 @@ type itemLog struct {
 	fs.Fs
 	events []ItemChange
 	relist bool
+	asked  int
 }
 
 func (f *itemLog) Name() string { return "items" }
@@ -137,6 +139,7 @@ func (f *itemLog) LatestItemEvent(context.Context) (string, error) {
 }
 
 func (f *itemLog) ItemChangesSince(_ context.Context, event string) (ItemChanges, error) {
+	f.asked++
 	latest := strings.Repeat("e", len(f.events)+1)
 	if f.relist {
 		return ItemChanges{Next: latest, Relist: true}, nil
@@ -145,6 +148,9 @@ func (f *itemLog) ItemChangesSince(_ context.Context, event string) (ItemChanges
 }
 
 func TestChangesByIDKeepTheFolderInTheCursor(t *testing.T) {
+	// Each query stands for a pass of its own.
+	defer func(d time.Duration) { reuseFor = d }(reuseFor)
+	reuseFor = 0
 	log := &itemLog{}
 	cache.Put("items:", log)
 	ctx := context.Background()
@@ -171,4 +177,68 @@ func TestChangesByIDKeepTheFolderInTheCursor(t *testing.T) {
 	if missing, _ := ChangesSince(ctx, "items", "Missing", ""); missing.Cursor != "" || missing.Known {
 		t.Fatalf("missing folder: %+v", missing)
 	}
+}
+
+func TestFoldersOfAPassShareOneRequestByID(t *testing.T) {
+	log := &itemLog{}
+	cache.Put("volume:", log)
+	ctx := context.Background()
+	notes, _ := ChangesSince(ctx, "volume", "Notes", "")
+	photos, _ := ChangesSince(ctx, "volume", "Photos", "")
+
+	log.events = append(log.events, ItemChange{ID: "a", ParentID: "id-Photos", Name: "a.jpg"})
+	notes, _ = ChangesSince(ctx, "volume", "Notes", notes.Cursor)
+	photos, _ = ChangesSince(ctx, "volume", "Photos", photos.Cursor)
+	if log.asked != 1 || len(photos.Items) != 1 || photos.Cursor != "ee id-Photos" || notes.Cursor != "ee id-Notes" {
+		t.Fatalf("asked %d times: %+v", log.asked, photos)
+	}
+	// A folder that kept its older cursor gets the same changes again without asking.
+	again, _ := ChangesSince(ctx, "volume", "Photos", "e id-Photos")
+	if log.asked != 1 || len(again.Items) != 1 || again.Cursor != "ee id-Photos" {
+		t.Fatalf("older cursor, asked %d times: %+v", log.asked, again)
+	}
+	// Once the answer is older than a pass, the provider is asked for what came after it.
+	defer func(d time.Duration) { reuseFor = d }(reuseFor)
+	reuseFor = 0
+	log.events = append(log.events, ItemChange{ID: "b", ParentID: "id-Notes", Name: "b.md"})
+	later, _ := ChangesSince(ctx, "volume", "Photos", "e id-Photos")
+	if log.asked != 2 || len(later.Items) != 2 || later.Cursor != "eee id-Photos" {
+		t.Fatalf("later, asked %d times: %+v", log.asked, later)
+	}
+}
+
+func TestFoldersOfAPassShareOneRequestByPath(t *testing.T) {
+	log := &countingLog{fakeLog: fakeLog{name: "paths"}}
+	cache.Put("paths:", log)
+	ctx := context.Background()
+	start, _ := ChangesSince(ctx, "paths", "", "")
+
+	log.changes = append(log.changes, "Notes/a.md")
+	notes, _ := ChangesSince(ctx, "paths", "Notes", start.Cursor)
+	taxes, _ := ChangesSince(ctx, "paths", "Taxes", start.Cursor)
+	if log.asked != 1 || len(taxes.Changes) != 1 || taxes.Cursor != notes.Cursor {
+		t.Fatalf("asked %d times: %+v", log.asked, taxes)
+	}
+	if quiet, _ := ChangesSince(ctx, "paths", "Taxes", taxes.Cursor); log.asked != 1 || len(quiet.Changes) != 0 || quiet.Cursor != taxes.Cursor {
+		t.Fatalf("quiet, asked %d times: %+v", log.asked, quiet)
+	}
+	// Once the answer is older than a pass, the provider is asked again.
+	defer func(d time.Duration) { reuseFor = d }(reuseFor)
+	reuseFor = 0
+	log.changes = append(log.changes, "Taxes/b.pdf")
+	later, _ := ChangesSince(ctx, "paths", "Taxes", taxes.Cursor)
+	if log.asked != 2 || len(later.Changes) != 1 || later.Changes[0].Path != "Taxes/b.pdf" {
+		t.Fatalf("later, asked %d times: %+v", log.asked, later)
+	}
+}
+
+// countingLog counts the queries that reach the provider.
+type countingLog struct {
+	fakeLog
+	asked int
+}
+
+func (f *countingLog) ChangesSince(ctx context.Context, notify func(string, fs.EntryType), token string) (string, error) {
+	f.asked++
+	return f.fakeLog.ChangesSince(ctx, notify, token)
 }

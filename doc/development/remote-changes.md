@@ -27,6 +27,13 @@ A sync pass needs the remote state of its folder. Listing it costs one request p
 | Google Drive, Dropbox | the provider's change-log token, asked once per pass through Syncative's rclone fork | the folders holding the paths it reported (`src/go/rclone/changes.go`) | one full listing: rclone names Drive's changes through the folders its backend has listed in this run |
 | Other rclone backends | none | | every pass lists |
 
+One answer per remote:
+
+- The sync folders of a remote ask one after the other in a pass and share one answer: an answer up to 4 s old stands in for the request (`reuseFor` in `src/go/rclone/changes.go`). The window is shorter than the shortest interval (5 s), so every pass asks at least once.
+- Proton, Google Drive, Dropbox: the change log covers the whole remote, so a quiet pass makes one request for all folders. A folder whose cursor stayed behind gets the kept answers since its cursor.
+- Nextcloud, ownCloud: the server renews the root's ETag with every change below it, also for a change by the owner of a folder shared with the user (tested on Nextcloud 34). A pass asks the root's ETag once; a folder whose ETag was read under the root's current ETag skips its own request (`tagGate` in `src/go/rclone/davtags.go`). A quiet pass makes one request, a pass with changes one more than without the gate.
+- Every ETag request goes through one HTTP client, so its connection stays open between passes.
+
 Google Drive and Dropbox:
 
 - Every sync folder of a remote asks with its own token. The answers stay in memory by the token they start from (the last 64), so all of them hear the same changes: Drive's backend names a renamed or moved folder's old path only once, since the fork then drops that folder from rclone's folder cache, where its old path would otherwise still lead to it.
