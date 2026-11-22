@@ -13,6 +13,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/rclone/rclone/backend/webdav"
 	"github.com/rclone/rclone/fs"
@@ -83,9 +84,12 @@ func davOptions(remote string, vendors ...string) (*webdav.Options, error) {
 	return opt, nil
 }
 
+// davHTTP is the HTTP client of every ETag request. One for all keeps its connections open between passes: a client of its own per request would dial and shake hands anew each time, and leave the old connection idle until the server closes it.
+var davHTTP = sync.OnceValue(func() *http.Client { return fshttp.NewClient(context.Background()) })
+
 // davClient is rclone's HTTP client for `endpoint`, signed in as the remote's user.
 func davClient(ctx context.Context, opt *webdav.Options, endpoint *url.URL) *rest.Client {
-	srv := rest.NewClient(fshttp.NewClient(ctx)).SetRoot(endpoint.String())
+	srv := rest.NewClient(davHTTP()).SetRoot(endpoint.String())
 	if opt.User != "" || opt.Pass != "" {
 		srv.SetUserPass(opt.User, opt.Pass)
 	}
