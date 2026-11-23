@@ -28,7 +28,11 @@ impl SyncativeApp {
         }
         // A pass can create leftovers (a synced sub-folder that now belongs to another folder) or record new files under an exclusion.
         if old.passes_finished != self.snapshot.passes_finished {
-            return Task::batch([self.refresh_exclusions(), self.reload_changing_folders()]);
+            return Task::batch([
+                self.run_deferred_clean(),
+                self.refresh_exclusions(),
+                self.reload_changing_folders(),
+            ]);
         }
         Task::none()
     }

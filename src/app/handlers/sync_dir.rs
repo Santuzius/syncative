@@ -260,7 +260,9 @@ impl SyncativeApp {
                 self.engine.send(Command::Log(sd_id, format!("⚠ {why}")));
                 self.nested_filter_problem = Some((sd_id, nested_id, why));
             }
-            Ok(Some(relative)) => self.offer_clean_up = Some((sd_id, relative)),
+            Ok(Some(relative)) => {
+                self.offer_clean_up = Some((sd_id, relative, self.snapshot.passes_finished))
+            }
             Ok(None) => {}
         }
         self.reload_exclusions(sd_id, |_| async {})
@@ -708,7 +710,7 @@ impl SyncativeApp {
                     })
             })
         };
-        let offer = self.offer_clean_up.take_if(|(id, path)| {
+        let offer = self.offer_clean_up.take_if(|(id, path, _)| {
             *id == sd_id
                 && (excls.iter().any(|e| &e.remote_path == path) || is_nested_exclusion(path))
         });
@@ -716,7 +718,8 @@ impl SyncativeApp {
         self.nested_filters.insert(sd_id, nested);
         self.sync_dir_exclusions.insert(sd_id, excls);
         match offer {
-            Some((_, path)) if self.pending_delete.is_none() => {
+            Some((_, path, excluded_at)) if self.pending_delete.is_none() => {
+                self.clean_waits_for = Some((sd_id, excluded_at));
                 self.handle_request_clean_leftovers(sd_id, path)
             }
             _ => Task::none(),
@@ -819,11 +822,36 @@ impl SyncativeApp {
         root: String,
         relative: String,
     ) -> Task<Message> {
+        // Asked right after the exclusion, but deleted only once a pass that started after it has ended: one still running from before can be downloading into the path.
+        if let Some((_, excluded_at)) = self.clean_waits_for.filter(|(id, _)| *id == sd_id)
+            && !self.exclusion_applied(sd_id, excluded_at)
+        {
+            self.deferred_clean = Some((sd_id, root, relative, excluded_at));
+            return Task::none();
+        }
         let repo = self.repo.clone();
         Task::perform(
             async move { leftovers::clean(repo.as_ref(), sd_id, &root).await },
             move |res| Message::LeftoversCleaned(sd_id, relative.clone(), res),
         )
+    }
+
+    /// A pass that started after the exclusion added when `excluded_at` passes had finished has ended.
+    fn exclusion_applied(&self, sd_id: SyncDirId, excluded_at: u64) -> bool {
+        self.snapshot.passes_finished > excluded_at && !self.snapshot.applying.contains(&sd_id)
+    }
+
+    /// Run a clean-up the user confirmed while its exclusion was still being applied, once it is.
+    pub(in crate::app) fn run_deferred_clean(&mut self) -> Task<Message> {
+        let ready = self
+            .deferred_clean
+            .as_ref()
+            .is_some_and(|(id, _, _, at)| self.exclusion_applied(*id, *at));
+        let Some((sd_id, root, relative, _)) = self.deferred_clean.take_if(|_| ready) else {
+            return Task::none();
+        };
+        self.clean_waits_for = None;
+        self.handle_clean_leftovers(sd_id, root, relative)
     }
 
     /// Handle [`Message::LeftoversCleaned`] — report in the folder's log and refresh the button.
@@ -886,9 +914,14 @@ impl SyncativeApp {
             return Task::none();
         }
         self.draft_exclusion.insert(sd_id, String::new());
-        self.offer_clean_up = Some((sd_id, path.clone()));
+        self.offer_clean_up = Some((sd_id, path.clone(), self.snapshot.passes_finished));
+        let apply = self.apply_command(sd_id);
+        let engine = self.engine.clone();
         self.reload_exclusions(sd_id, move |repo| async move {
             let _ = repo.insert_exclusion(sd_id, path).await;
+            if let Some(apply) = apply {
+                engine.send(apply);
+            }
         })
     }
 
@@ -897,8 +930,22 @@ impl SyncativeApp {
         excl_id: SyncDirExclusionId,
         sd_id: SyncDirId,
     ) -> Task<Message> {
+        let apply = self.apply_command(sd_id);
+        let engine = self.engine.clone();
         self.reload_exclusions(sd_id, move |repo| async move {
             let _ = repo.delete_exclusion(excl_id).await;
+            if let Some(apply) = apply {
+                engine.send(apply);
+            }
+        })
+    }
+
+    /// [`Command::Apply`] for the folder: a changed filter takes effect with the next pass, which starts right away.
+    pub(in crate::app) fn apply_command(&self, sd_id: SyncDirId) -> Option<Command> {
+        let sd = self.all_known_sync_dirs.iter().find(|d| d.id == sd_id)?;
+        Some(Command::Apply {
+            remote_id: sd.remote_id,
+            sync_dir_id: sd_id,
         })
     }
 

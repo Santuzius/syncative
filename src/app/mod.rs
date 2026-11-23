@@ -187,8 +187,12 @@ pub struct SyncativeApp {
     nested_filter_problem: Option<(SyncDirId, SyncDirId, String)>,
     /// Synced files still on this computer under an excluded path, by sync_dir and path relative to it; only non-zero counts.
     exclusion_leftovers: HashMap<SyncDirId, HashMap<String, leftovers::Found>>,
-    /// An exclusion just added: once its reload is in, the clean-up is offered if copies are left behind.
-    offer_clean_up: Option<(SyncDirId, String)>,
+    /// An exclusion just added, with the number of passes finished then: once its reload is in, the clean-up is offered if copies are left behind.
+    offer_clean_up: Option<(SyncDirId, String, u64)>,
+    /// The folder whose clean-up was just offered, with the number of passes finished when its exclusion was added: a confirmed clean-up waits until a pass has applied the exclusion.
+    clean_waits_for: Option<(SyncDirId, u64)>,
+    /// A confirmed clean-up waiting for that pass: folder, local root, path relative to the folder, passes finished at the exclusion.
+    deferred_clean: Option<(SyncDirId, String, String, u64)>,
     /// Draft remote sub-path for the "add exclusion" form per sync_dir.
     draft_exclusion: HashMap<SyncDirId, String>,
     /// In-progress (local_path, remote_path) inputs for the Add sync_dir form
@@ -310,6 +314,8 @@ impl SyncativeApp {
             nested_filter_problem: None,
             exclusion_leftovers: HashMap::new(),
             offer_clean_up: None,
+            clean_waits_for: None,
+            deferred_clean: None,
             draft_exclusion: HashMap::new(),
             sync_dir_drafts: HashMap::new(),
             settings_open: false,

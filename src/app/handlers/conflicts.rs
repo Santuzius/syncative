@@ -224,7 +224,10 @@ impl SyncativeApp {
             for relative in relatives {
                 let _ = repo.insert_exclusion(sd_id, relative).await;
             }
-            engine.send(Command::SyncNow(remote_id));
+            engine.send(Command::Apply {
+                remote_id,
+                sync_dir_id: sd_id,
+            });
         })
     }
 }
