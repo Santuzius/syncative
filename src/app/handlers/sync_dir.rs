@@ -230,7 +230,10 @@ impl SyncativeApp {
                         .map(|e| e.to_string()),
                     Err(err) => Some(err),
                 };
-                engine.send(Command::SyncNow(parent.remote_id));
+                engine.send(Command::Apply {
+                    remote_id: parent.remote_id,
+                    sync_dir_id: parent.id,
+                });
                 match problem {
                     Some(err) => Err(tr::tr!(
                         "Couldn't change the filter of '{}': {}",

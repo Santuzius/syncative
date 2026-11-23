@@ -58,6 +58,15 @@ pub fn on_fill_icon<'a>(icon_data: icondata::Icon, size: f32) -> Svg<'a, Theme> 
     })
 }
 
+/// A folder applying changes that wait for a pass (a mode change, choices for the folders inside), in the colour of syncing.
+pub fn applying_icon<'a, Msg: 'a>(size: f32) -> Element<'a, Msg> {
+    icon(icondata::TbClockCogOutline, size)
+        .style(|theme: &Theme, _| svg::Style {
+            color: Some(theme::tones(theme).accent),
+        })
+        .into()
+}
+
 /// Glyph for a run-state, coloured by severity.
 pub fn status_icon<'a, Msg: 'a>(state: RunState, size: f32) -> Element<'a, Msg> {
     let glyph = match state {

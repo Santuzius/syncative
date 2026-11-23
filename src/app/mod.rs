@@ -1243,6 +1243,7 @@ impl SyncativeApp {
                 latest_problem: self.snapshot.problems.get(&dir.id).map(String::as_str),
                 log: self.sync_dir_log_content.get(&dir.id),
                 exclusions_open: self.exclusion_panel == Some(dir.id),
+                applying: dir.pending.is_some() || self.snapshot.applying.contains(&dir.id),
                 nested: remote_page_auto_excluded(dir, &self.all_known_sync_dirs)
                     .into_iter()
                     .map(|d| {

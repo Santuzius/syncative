@@ -98,6 +98,8 @@ pub(crate) struct Core {
     conflicts: HashMap<SyncDirId, Vec<Conflict>>,
     /// How many sync folders inside each folder wait for the user's choice, as the last pass reported.
     undecided_nested: HashMap<SyncDirId, usize>,
+    /// Folders applying new choices (see [`Command::Apply`]), with their remote and whether a pass of it started since.
+    applying: HashMap<SyncDirId, (RemoteId, bool)>,
     pass_lines: HashMap<SyncDirId, String>,
     problems: HashMap<SyncDirId, String>,
     logs: Logs,
@@ -142,6 +144,7 @@ impl Core {
             resolutions: HashMap::new(),
             conflicts: HashMap::new(),
             undecided_nested: HashMap::new(),
+            applying: HashMap::new(),
             pass_lines: HashMap::new(),
             problems: HashMap::new(),
             logs,
@@ -256,6 +259,10 @@ impl Core {
                 sync_dir_id,
                 resolutions,
             } => self.resolve(remote_id, sync_dir_id, resolutions),
+            Command::Apply {
+                remote_id,
+                sync_dir_id,
+            } => self.apply_choices(remote_id, sync_dir_id),
             Command::Log(sync_dir_id, line) => self.push_log_line(sync_dir_id, line),
             Command::Online(online) => {
                 let was_offline = std::mem::replace(&mut self.offline, !online);
@@ -397,6 +404,7 @@ impl Core {
                 self.pass_lines.remove(id);
                 self.problems.remove(id);
                 self.undecided_nested.remove(id);
+                self.applying.remove(id);
                 if self.conflicts.remove(id).is_some() {
                     self.conflicts_version += 1;
                 }
@@ -528,6 +536,9 @@ impl Core {
             .clone();
         cancel.store(false, Ordering::Release);
         self.syncing.insert(id);
+        for (remote, started) in self.applying.values_mut() {
+            *started |= *remote == id;
+        }
         // Folders after the first would show Offline from the last pass until their turn.
         self.state.back_online(Some(id));
         let events = self.tx.clone();
@@ -558,6 +569,15 @@ impl Core {
             return;
         }
         self.state.finish_pass(id);
+        // A pass that started after the choices applied them; a cancelled one leaves them to the next.
+        let applied = !matches!(verdict, PassVerdict::Aborted);
+        for (remote, started) in self.applying.values_mut() {
+            if *remote == id && !applied {
+                *started = false;
+            }
+        }
+        self.applying
+            .retain(|_, (remote, started)| !(applied && *remote == id && *started));
         // A pass cut off by the network leaves its folders Offline, not Waiting, also those it didn't get to.
         if self.unreachable.remove(&id) {
             self.state.remote_went_offline(id);
@@ -742,6 +762,14 @@ impl Core {
         sync_dir_id: SyncDirId,
         count: usize,
     ) {
+        // A pass that started before the user's choices still counts the folders as undecided.
+        if self
+            .applying
+            .get(&sync_dir_id)
+            .is_some_and(|(_, started)| !started)
+        {
+            return;
+        }
         let known = if count == 0 {
             self.undecided_nested.remove(&sync_dir_id)
         } else {
@@ -753,6 +781,16 @@ impl Core {
         if count > 0 {
             self.state.problem(remote_id, sync_dir_id);
         }
+    }
+
+    /// The folder's choices for the folders inside it changed: drop the Warning the undecided ones caused, as it would last until the next pass reports, and start that pass.
+    fn apply_choices(&mut self, remote_id: RemoteId, sync_dir_id: SyncDirId) {
+        self.applying.insert(sync_dir_id, (remote_id, false));
+        if !self.conflicts.contains_key(&sync_dir_id) {
+            self.state
+                .transition_dir(remote_id, sync_dir_id, RunState::Waiting);
+        }
+        self.sync_now(remote_id);
     }
 
     /// Store the user's choice for the next pass, hide the conflict and start that pass.
@@ -817,6 +855,7 @@ impl Core {
             log_versions: self.log_versions.clone(),
             conflicts_version: self.conflicts_version,
             passes_finished: self.passes_finished,
+            applying: self.applying.keys().copied().collect(),
             offline: self.offline,
             usage: self.usage.clone(),
             uploads: self.upload_status(),

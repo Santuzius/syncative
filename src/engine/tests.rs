@@ -535,6 +535,41 @@ async fn conflicts_are_logged_once_and_hidden_once_decided() {
     assert_eq!(rig.snap().conflicts[&D1].len(), 1);
 }
 
+// Choices for the folders inside take the folder out of Warning and show it as applying them until a pass that started afterwards ends; the running pass still counts them as undecided.
+#[tokio::test]
+async fn new_choices_for_folders_inside_apply_with_the_next_pass() {
+    let mut rig = rig().await;
+    let undecided = |count| SyncEvent::SyncDirConflicts {
+        remote_id: R1,
+        sync_dir_id: D1,
+        conflicts: vec![],
+        resolutions: vec![],
+        undecided_nested: count,
+    };
+    rig.set_enabled(R2, false);
+    rig.send(Command::Reload).await;
+    rig.event(undecided(1)).await;
+    assert_eq!(rig.snap().state.dir_state(R1, D1), RunState::Warning);
+
+    rig.core.start_due(Instant::now());
+    assert!(rig.snap().syncing.contains(&R1));
+    rig.send(Command::Apply {
+        remote_id: R1,
+        sync_dir_id: D1,
+    })
+    .await;
+    assert_eq!(rig.snap().state.dir_state(R1, D1), RunState::Waiting);
+    assert_eq!(rig.snap().applying, [D1].into());
+    rig.event(undecided(1)).await;
+    assert_ne!(rig.snap().state.dir_state(R1, D1), RunState::Warning);
+
+    rig.settle().await;
+    let snap = rig.snap();
+    assert_eq!(snap.passes_finished, 2, "the choices queue a second pass");
+    assert!(snap.applying.is_empty());
+    assert_eq!(snap.state.dir_state(R1, D1), RunState::Synced);
+}
+
 #[tokio::test]
 async fn removed_folders_and_remotes_are_forgotten() {
     let mut rig = rig().await;

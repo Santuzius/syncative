@@ -33,7 +33,7 @@ use crate::{
     util::{fmt_home, fmt_size},
     widgets::{
         bullet,
-        icon::{icon, muted_icon, on_fill_icon, status_icon},
+        icon::{applying_icon, icon, muted_icon, on_fill_icon, status_icon},
         segmented::segmented,
         text,
     },
@@ -204,6 +204,8 @@ pub struct Folder<'a> {
     /// `Some` while the activity log is expanded.
     pub log: Option<&'a text_editor::Content>,
     pub exclusions_open: bool,
+    /// A mode change (see `SyncDir::pending`) or new choices for the folders inside wait for a pass; meanwhile the folder can't be changed.
+    pub applying: bool,
     /// Folders inside this one that are also synced as their own folder, with what this one does with them (`None`: undecided, left out until then).
     pub nested: Vec<(&'a SyncDir, Option<NestedFilter>)>,
     /// Why the last choice for a nested folder (its id) failed.
@@ -882,8 +884,7 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         (differ, unsyncable) => differ.or(unsyncable),
     };
     let undecided = folder.nested.iter().filter(|(_, f)| f.is_none()).count();
-    // A mode change waits for a pass in the current mode; meanwhile the folder can't be changed (see `SyncDir::pending`).
-    let applying = sd.pending.is_some();
+    let applying = folder.applying;
     let detail: String = match folder.state {
         _ if applying => "Applying changes…".to_owned(),
         RunState::Syncing(_) => folder
@@ -916,7 +917,11 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
 
     let excluded = folder.nested.len() + folder.custom_excluded.len();
     let top = row![
-        status_icon(folder.state, 20.0),
+        if applying {
+            applying_icon(20.0)
+        } else {
+            status_icon(folder.state, 20.0)
+        },
         column![
             text(crate::services::network_drive::title(sd))
                 .size(TEXT)
@@ -939,7 +944,8 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
             &remote_display,
             excluded,
             folder.exclusions_open,
-            folder.log.is_some()
+            folder.log.is_some(),
+            applying,
         ),
     ]
     .spacing(10)
@@ -1014,7 +1020,8 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         );
     }
 
-    if folder.exclusions_open {
+    // The filters are settings too; they come back once the changes are applied.
+    if folder.exclusions_open && !applying {
         card = card.push(exclusion_panel(
             sd,
             &remote_display,
@@ -1041,10 +1048,10 @@ fn folder_actions<'a>(
     excluded: usize,
     exclusions_open: bool,
     log_open: bool,
+    // While changes are applied, only opening the folder, reading the log and removing the folder stay.
+    applying: bool,
 ) -> Element<'a, Msg> {
     let android = cfg!(target_os = "android");
-    // While a mode change is applied, only opening the folder, reading the log and removing the folder stay.
-    let applying = sd.pending.is_some();
     let (size, icon_size) = if android { (40.0, 18.0) } else { (32.0, 16.0) };
     // A blocked button's icon is muted, as the button itself doesn't change.
     let blockable_icon = |data, size| {

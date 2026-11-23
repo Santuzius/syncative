@@ -62,6 +62,11 @@ pub enum Command {
         sync_dir_id: SyncDirId,
         resolutions: Vec<Resolution>,
     },
+    /// A folder's choices for the folders inside it changed: sync its remote now and show the folder as applying them until a pass that started afterwards has ended.
+    Apply {
+        remote_id: RemoteId,
+        sync_dir_id: SyncDirId,
+    },
     /// Add a line to a folder's log.
     Log(SyncDirId, String),
     /// How often to sync to save battery, e.g. less often with the phone's screen off (see [`crate::services::power`]). A less restrictive cadence syncs everything right away.
@@ -151,6 +156,8 @@ pub struct Snapshot {
     pub conflicts_version: u64,
     /// Bumped when a pass ends.
     pub passes_finished: u64,
+    /// Folders whose new choices wait for a pass (see [`Command::Apply`]).
+    pub applying: HashSet<SyncDirId>,
     /// The device has no network (see [`Command::Online`]); nothing is scheduled until it has.
     pub offline: bool,
     /// Space at each provider that reports one, refreshed at the end of every pass and asked right away when a page opens a remote it doesn't know yet. Remotes without a quota (plain WebDAV) stay absent.
