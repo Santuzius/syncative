@@ -190,6 +190,16 @@ pub struct SyncDir {
     pub rows_mode: SyncMode,
     /// For [`SyncMode::Upload`] and [`SyncMode::Download`]: what was deleted on the source side after it was synced is deleted on the backup side too, also what was deleted before the switch was turned on. What only the backup side ever had stays.
     pub sync_deletions: bool,
+    /// The mode and switch the user applied, which take over after the folder's next successful pass in [`Self::mode`]. That pass finishes what the current mode owes (a local backup downloads files deleted here again, a cloud backup uploads files deleted on the remote again), so the new mode doesn't read those as deletions. Until then the folder can't be changed.
+    pub pending: Option<ModeChange>,
+}
+
+/// A sync folder's mode with its deletions switch, as the folder settings apply them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ModeChange {
+    pub mode: SyncMode,
+    /// [`SyncDir::sync_deletions`]; off for a mode without the switch.
+    pub sync_deletions: bool,
 }
 
 impl SyncDir {
@@ -412,6 +422,7 @@ mod tests {
             mode: Default::default(),
             rows_mode: Default::default(),
             sync_deletions: false,
+            pending: None,
         };
         assert_eq!(dir("Docs").relative("Docs/a/b.txt"), "a/b.txt");
         assert_eq!(dir("Docs").relative("Docs"), "Docs");

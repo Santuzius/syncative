@@ -176,8 +176,11 @@ fn remote_entries(
                 exclusions,
                 hidden,
                 nested,
-                mode: (dir.mode != SyncMode::TwoWay).then(|| dir.mode.as_str().to_owned()),
-                sync_deletions: dir.sync_deletions,
+                // A change still waiting is what the user chose.
+                mode: Some(dir.pending.map_or(dir.mode, |c| c.mode))
+                    .filter(|&mode| mode != SyncMode::TwoWay)
+                    .map(|mode| mode.as_str().to_owned()),
+                sync_deletions: dir.pending.map_or(dir.sync_deletions, |c| c.sync_deletions),
             });
         }
         entries.push(RemoteEntry {

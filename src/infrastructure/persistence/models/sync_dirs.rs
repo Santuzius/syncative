@@ -26,6 +26,10 @@ pub struct Model {
     pub rows_mode: String,
     /// 1 if a backup folder deletes on the backup side what was deleted on the source side.
     pub sync_deletions: i32,
+    /// The mode the folder switches to after its next pass in `mode`, as `domain::sync::SyncMode::as_str`.
+    pub pending_mode: Option<String>,
+    /// `sync_deletions` that comes with `pending_mode`.
+    pub pending_sync_deletions: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

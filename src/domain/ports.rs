@@ -21,8 +21,9 @@ use std::{
 use super::{
     remote::{Remote, RemoteId, RemoteUsage, SyncPolicy},
     sync::{
-        Changes, FileDetails, ListFilter, NestedFilter, RemoteCursor, RemoteItem, RemoteMeta,
-        SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId, SyncMode,
+        Changes, FileDetails, ListFilter, ModeChange, NestedFilter, RemoteCursor, RemoteItem,
+        RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId,
+        SyncMode,
     },
 };
 
@@ -134,6 +135,18 @@ pub trait Repository: Send + Sync {
         &self,
         sync_dir: SyncDirId,
         on: bool,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    /// Set or clear the change the folder makes after its next pass ([`SyncDir::pending`]).
+    fn set_sync_dir_pending(
+        &self,
+        sync_dir: SyncDirId,
+        change: Option<ModeChange>,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    /// Make the pending `change` the folder's mode and switch, and clear [`SyncDir::pending`].
+    fn apply_sync_dir_pending(
+        &self,
+        sync_dir: SyncDirId,
+        change: ModeChange,
     ) -> BoxFuture<'_, Result<(), RepositoryError>>;
     fn list_sync_items(
         &self,

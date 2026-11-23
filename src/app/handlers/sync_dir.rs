@@ -423,73 +423,81 @@ impl SyncativeApp {
         }
     }
 
-    /// Handle [`remote_page::Msg::SetSyncMode`] — store which way the folder syncs, then sync it that way.
-    pub(in crate::app) fn handle_set_sync_mode(
-        &mut self,
-        sd_id: SyncDirId,
-        mode: SyncMode,
-    ) -> Task<Message> {
+    /// Handle [`remote_page::Msg::ApplyFolderSettings`] — close the folder settings and apply them. The switch alone takes effect right away; a new mode only after a pass in the current one (see [`SyncDir::pending`]), which starts now and holds the folder until it ends.
+    pub(in crate::app) fn handle_apply_folder_settings(&mut self) -> Task<Message> {
+        let Some(draft) = self.folder_settings.take() else {
+            return Task::none();
+        };
+        let offline = self.snapshot.offline;
         let Some(dir) = self
             .sync_dirs
             .values_mut()
             .flatten()
-            .find(|d| d.id == sd_id)
+            .find(|d| d.id == draft.id)
         else {
             return Task::none();
         };
-        if dir.mode == mode {
-            return Task::none();
-        }
-        dir.mode = mode;
-        let remote_id = dir.remote_id;
+        let change = draft.applied();
+        let (sd_id, remote_id) = (dir.id, dir.remote_id);
         let repo = self.repo.clone();
         let engine = self.engine.clone();
-        Task::perform(
-            async move {
-                let line = match repo.set_sync_dir_mode(sd_id, mode).await {
-                    Ok(()) => tr::tr!("Mode changed to {}.", mode.label()),
-                    Err(err) => tr::tr!("⚠ Couldn't change the folder's mode: {}", err),
-                };
-                engine.send(Command::Log(sd_id, line));
-                engine.send(Command::Reload);
-                engine.send(Command::SyncNow(remote_id));
-                remote_id
-            },
-            |id| Message::Main(main_page::Msg::Selected(id)),
-        )
-    }
-
-    /// Handle [`remote_page::Msg::SetSyncDeletions`] — store whether the backup folder passes deletions on, then sync it.
-    pub(in crate::app) fn handle_set_sync_deletions(
-        &mut self,
-        sd_id: SyncDirId,
-        on: bool,
-    ) -> Task<Message> {
-        let Some(dir) = self
-            .sync_dirs
-            .values_mut()
-            .flatten()
-            .find(|d| d.id == sd_id)
-        else {
-            return Task::none();
-        };
-        if dir.sync_deletions == on {
+        if change.mode == dir.mode {
+            if change.sync_deletions == dir.sync_deletions {
+                return Task::none();
+            }
+            dir.sync_deletions = change.sync_deletions;
+            return Task::perform(
+                async move {
+                    let line = match repo
+                        .set_sync_dir_sync_deletions(sd_id, change.sync_deletions)
+                        .await
+                    {
+                        Ok(()) if change.sync_deletions => {
+                            tr::tr!("Deletions are now synced to the backup.")
+                        }
+                        Ok(()) => tr::tr!("Deletions are no longer synced to the backup."),
+                        Err(err) => {
+                            tr::tr!("⚠ Couldn't change whether deletions are synced: {}", err)
+                        }
+                    };
+                    engine.send(Command::Log(sd_id, line));
+                    engine.send(Command::Reload);
+                    engine.send(Command::SyncNow(remote_id));
+                    remote_id
+                },
+                |id| Message::Main(main_page::Msg::Selected(id)),
+            );
+        }
+        // The pass in the current mode can't run without a network.
+        if offline {
+            self.engine.send(Command::Log(
+                sd_id,
+                tr::tr!("Offline — apply the new mode once the connection is back."),
+            ));
             return Task::none();
         }
-        dir.sync_deletions = on;
-        let remote_id = dir.remote_id;
-        let repo = self.repo.clone();
-        let engine = self.engine.clone();
+        dir.pending = Some(change);
+        if self.exclusion_panel == Some(sd_id) {
+            self.exclusion_panel = None;
+        }
         Task::perform(
             async move {
-                let line = match repo.set_sync_dir_sync_deletions(sd_id, on).await {
-                    Ok(()) if on => tr::tr!("Deletions are now synced to the backup."),
-                    Ok(()) => tr::tr!("Deletions are no longer synced to the backup."),
-                    Err(err) => tr::tr!("⚠ Couldn't change whether deletions are synced: {}", err),
-                };
-                engine.send(Command::Log(sd_id, line));
-                engine.send(Command::Reload);
-                engine.send(Command::SyncNow(remote_id));
+                match repo.set_sync_dir_pending(sd_id, Some(change)).await {
+                    Ok(()) => {
+                        engine.send(Command::Log(
+                            sd_id,
+                            tr::tr!(
+                                "Applying changes: one more sync in the current mode, then the mode changes to {}.",
+                                change.mode.label()
+                            ),
+                        ));
+                        engine.send(Command::SyncNow(remote_id));
+                    }
+                    Err(err) => engine.send(Command::Log(
+                        sd_id,
+                        tr::tr!("⚠ Couldn't change the folder's mode: {}", err),
+                    )),
+                }
                 remote_id
             },
             |id| Message::Main(main_page::Msg::Selected(id)),

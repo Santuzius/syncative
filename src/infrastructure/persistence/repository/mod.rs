@@ -9,8 +9,8 @@ use crate::domain::{
     ports::{BoxFuture, Repository, RepositoryError},
     remote::{Backend, Interval, Remote, RemoteId, SyncPolicy},
     sync::{
-        NestedFilter, RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId,
-        SyncDirId, SyncItem, SyncItemId, SyncMode,
+        ModeChange, NestedFilter, RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion,
+        SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId, SyncMode,
     },
 };
 
@@ -58,6 +58,14 @@ fn map_sync_dir(m: SyncDirsModel) -> SyncDir {
         mode: SyncMode::parse(&m.mode).unwrap_or_default(),
         rows_mode: SyncMode::parse(&m.rows_mode).unwrap_or_default(),
         sync_deletions: m.sync_deletions != 0,
+        pending: m
+            .pending_mode
+            .as_deref()
+            .and_then(SyncMode::parse)
+            .map(|mode| ModeChange {
+                mode,
+                sync_deletions: m.pending_sync_deletions != 0,
+            }),
     }
 }
 
@@ -176,6 +184,22 @@ impl Repository for SeaOrmRepository {
         on: bool,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         sync_dirs::set_sync_deletions(&self.db, sync_dir, on)
+    }
+
+    fn set_sync_dir_pending(
+        &self,
+        sync_dir: SyncDirId,
+        change: Option<ModeChange>,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        sync_dirs::set_pending(&self.db, sync_dir, change)
+    }
+
+    fn apply_sync_dir_pending(
+        &self,
+        sync_dir: SyncDirId,
+        change: ModeChange,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        sync_dirs::apply_pending(&self.db, sync_dir, change)
     }
 
     fn sync_dir_exists(
@@ -376,7 +400,7 @@ mod tests {
     use crate::{
         domain::{
             ports::Repository,
-            sync::{NestedFilter, SyncMode},
+            sync::{ModeChange, NestedFilter, SyncMode},
         },
         infrastructure::persistence::migrations::{Migrator, MigratorTrait},
         util::await_future,
@@ -490,6 +514,59 @@ mod tests {
             await_future(repo.list_nested_filters(id_of("/other")))
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_pending_mode_change_touches_only_its_folder() {
+        let db = await_future(Database::connect("sqlite::memory:")).unwrap();
+        await_future(Migrator::up(&db, None)).unwrap();
+        let repo = SeaOrmRepository::new(db);
+        let id = await_future(repo.insert_remote("R".to_owned())).unwrap();
+        for local in ["/a", "/b", "/c"] {
+            await_future(repo.insert_sync_dir(
+                id,
+                local.to_owned(),
+                local[1..].to_owned(),
+                SyncMode::TwoWay,
+            ))
+            .unwrap();
+        }
+        let dirs = await_future(repo.list_sync_dirs(id)).unwrap();
+        let b = dirs.iter().find(|d| d.local_path == "/b").unwrap().id;
+        let change = ModeChange {
+            mode: SyncMode::Upload,
+            sync_deletions: true,
+        };
+
+        await_future(repo.set_sync_dir_pending(b, Some(change))).unwrap();
+        let pending: Vec<_> = await_future(repo.list_sync_dirs(id))
+            .unwrap()
+            .into_iter()
+            .map(|d| (d.local_path, d.mode, d.pending))
+            .collect();
+        assert_eq!(
+            pending,
+            [
+                ("/a".to_owned(), SyncMode::TwoWay, None),
+                ("/b".to_owned(), SyncMode::TwoWay, Some(change)),
+                ("/c".to_owned(), SyncMode::TwoWay, None)
+            ]
+        );
+
+        await_future(repo.apply_sync_dir_pending(b, change)).unwrap();
+        let applied: Vec<_> = await_future(repo.list_sync_dirs(id))
+            .unwrap()
+            .into_iter()
+            .map(|d| (d.local_path, d.mode, d.sync_deletions, d.pending))
+            .collect();
+        assert_eq!(
+            applied,
+            [
+                ("/a".to_owned(), SyncMode::TwoWay, false, None),
+                ("/b".to_owned(), SyncMode::Upload, true, None),
+                ("/c".to_owned(), SyncMode::TwoWay, false, None)
+            ]
         );
     }
 

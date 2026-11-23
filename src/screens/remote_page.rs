@@ -17,8 +17,8 @@ use crate::{
         remote::{Remote, RemoteId, RemoteUsage},
         run_state::RunState,
         sync::{
-            Conflict, NestedFilter, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId,
-            SyncMode,
+            Conflict, ModeChange, NestedFilter, SyncDir, SyncDirExclusion, SyncDirExclusionId,
+            SyncDirId, SyncMode,
         },
     },
     icons::CLOUD_FOLDER_OPEN_OUTLINE,
@@ -100,10 +100,39 @@ pub enum Msg {
     /// Open / close a folder's settings dialog.
     OpenFolderSettings(SyncDirId),
     CloseFolderSettings,
-    /// Change which way a folder syncs.
-    SetSyncMode(SyncDirId, SyncMode),
-    /// Turn passing deletions on to the backup on or off.
-    SetSyncDeletions(SyncDirId, bool),
+    /// Pick a mode in the open folder settings.
+    PickFolderMode(SyncMode),
+    /// Turn the open folder settings' deletions switch on or off.
+    PickSyncDeletions(bool),
+    /// Apply the open folder settings and close them.
+    ApplyFolderSettings,
+}
+
+/// The folder settings as the dialog edits them, applied only with Apply.
+#[derive(Debug, Clone, Copy)]
+pub struct FolderSettingsDraft {
+    pub id: SyncDirId,
+    pub change: ModeChange,
+}
+
+impl FolderSettingsDraft {
+    pub fn of(sd: &SyncDir) -> Self {
+        Self {
+            id: sd.id,
+            change: ModeChange {
+                mode: sd.mode,
+                sync_deletions: sd.sync_deletions,
+            },
+        }
+    }
+
+    /// What Apply stores: the switch only for a mode that has it.
+    pub fn applied(&self) -> ModeChange {
+        ModeChange {
+            mode: self.change.mode,
+            sync_deletions: self.change.sync_deletions && self.change.mode.has_sync_deletions(),
+        }
+    }
 }
 
 /// What the user is about to delete, pending confirmation. Stored at the app level and rendered by [`confirm_delete_overlay`].
@@ -445,9 +474,15 @@ fn mode_choice<'a>(
     choice.into()
 }
 
-/// Settings of one sync folder, laid out like the remote's settings and Preferences: its mode and, on Android, the folders hidden from the gallery.
-pub fn folder_settings_dialog<'a>(sd: &'a SyncDir, beta: bool) -> Element<'a, Msg> {
+/// Settings of one sync folder, laid out like the remote's settings and Preferences: its mode and, on Android, the folders hidden from the gallery. Mode and switch take effect with Apply.
+pub fn folder_settings_dialog<'a>(
+    sd: &'a SyncDir,
+    draft: FolderSettingsDraft,
+    beta: bool,
+) -> Element<'a, Msg> {
     let id = sd.id;
+    let picked = draft.change;
+    let changed = draft.applied() != FolderSettingsDraft::of(sd).applied();
     let mut rows = column![
         column![
             column![
@@ -459,25 +494,25 @@ pub fn folder_settings_dialog<'a>(sd: &'a SyncDir, beta: bool) -> Element<'a, Ms
             .spacing(2),
             mode_choice(
                 &SyncMode::choices(beta, Some(sd.mode)),
-                Some(sd.mode),
+                Some(picked.mode),
                 true,
-                move |mode| Msg::SetSyncMode(id, mode)
+                Msg::PickFolderMode
             ),
         ]
         .spacing(10)
         .padding([12, 14])
     ];
-    if sd.mode.has_sync_deletions() {
+    if picked.mode.has_sync_deletions() {
         rows = rows.push(rule::horizontal(1).style(theme::separator));
         rows = rows.push(setting_row(
             "Sync deletions to backup",
-            if sd.mode == SyncMode::Upload {
+            if picked.mode == SyncMode::Upload {
                 "Delete on the remote what is deleted here, also what was deleted before. Files only ever on the remote stay."
             } else {
                 "Delete here what is deleted on the remote. Files only ever here stay."
             },
-            toggler(sd.sync_deletions)
-                .on_toggle(move |on| Msg::SetSyncDeletions(id, on))
+            toggler(picked.sync_deletions)
+                .on_toggle(Msg::PickSyncDeletions)
                 .size(20)
                 .into(),
         ));
@@ -508,11 +543,16 @@ pub fn folder_settings_dialog<'a>(sd: &'a SyncDir, beta: bool) -> Element<'a, Ms
                 .style(theme::card),
             row![
                 Space::new().width(Length::Fill),
-                button(text("Close").size(TEXT))
+                button(text("Cancel").size(TEXT))
                     .padding([6, 16])
                     .style(theme::button_secondary)
                     .on_press(Msg::CloseFolderSettings),
-            ],
+                button(text("Apply").size(TEXT))
+                    .padding([6, 16])
+                    .style(theme::button_primary)
+                    .on_press_maybe(changed.then_some(Msg::ApplyFolderSettings)),
+            ]
+            .spacing(8),
         ]
         .spacing(16),
     )
@@ -797,7 +837,10 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         (differ, unsyncable) => differ.or(unsyncable),
     };
     let undecided = folder.nested.iter().filter(|(_, f)| f.is_none()).count();
+    // A mode change waits for a pass in the current mode; meanwhile the folder can't be changed (see `SyncDir::pending`).
+    let applying = sd.pending.is_some();
     let detail: String = match folder.state {
+        _ if applying => "Applying changes…".to_owned(),
         RunState::Syncing(_) => folder
             .latest_line
             .unwrap_or(status_label(folder.state))
@@ -875,7 +918,7 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
                     button(text("Resolve…").size(TEXT))
                         .padding([5, 12])
                         .style(theme::button_secondary)
-                        .on_press(Msg::OpenConflicts(sd.id)),
+                        .on_press_maybe((!applying).then_some(Msg::OpenConflicts(sd.id))),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -903,7 +946,7 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
                     button(text("Resolve…").size(TEXT))
                         .padding([5, 12])
                         .style(theme::button_secondary)
-                        .on_press(Msg::ResolveNested(sd.id)),
+                        .on_press_maybe((!applying).then_some(Msg::ResolveNested(sd.id))),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -955,7 +998,17 @@ fn folder_actions<'a>(
     log_open: bool,
 ) -> Element<'a, Msg> {
     let android = cfg!(target_os = "android");
+    // While a mode change is applied, only opening the folder, reading the log and removing the folder stay.
+    let applying = sd.pending.is_some();
     let (size, icon_size) = if android { (40.0, 18.0) } else { (32.0, 16.0) };
+    // A blocked button's icon is muted, as the button itself doesn't change.
+    let blockable_icon = |data, size| {
+        if applying {
+            muted_icon(data, size)
+        } else {
+            icon(data, size)
+        }
+    };
     let square = |content: Element<'a, Msg>| {
         button(container(content).center(Length::Fixed(size))).padding(0)
     };
@@ -971,7 +1024,7 @@ fn folder_actions<'a>(
     // A count too wide for the square widens the button instead of overflowing it.
     let count_fits = excluded < if android { 100 } else { 10 };
     let exclusions_content = row![
-        icon(icondata::TbFilterOutline, icon_size),
+        blockable_icon(icondata::TbFilterOutline, icon_size),
         text(excluded.to_string()).size(CAPTION)
     ]
     .spacing(3)
@@ -983,7 +1036,7 @@ fn folder_actions<'a>(
             button(container(exclusions_content).center_y(Length::Fixed(size))).padding([0, 8])
         }
         .style(theme::button_toggle(exclusions_open))
-        .on_press(Msg::ToggleExclusions(sd.id)),
+        .on_press_maybe((!applying).then_some(Msg::ToggleExclusions(sd.id))),
         "Filters",
     );
     let delete = with_tip(
@@ -1016,9 +1069,9 @@ fn folder_actions<'a>(
         "Activity log",
     );
     let settings = with_tip(
-        square(icon(icondata::TbSettingsOutline, icon_size).into())
+        square(blockable_icon(icondata::TbSettingsOutline, icon_size).into())
             .style(theme::button_toggle(false))
-            .on_press(Msg::OpenFolderSettings(sd.id)),
+            .on_press_maybe((!applying).then_some(Msg::OpenFolderSettings(sd.id))),
         "Folder settings",
     );
     if !android {

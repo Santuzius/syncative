@@ -5,7 +5,7 @@ use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, ModelTr
 use crate::domain::{
     ports::{BoxFuture, RepositoryError},
     remote::RemoteId,
-    sync::{RemoteCursor, SyncDir, SyncDirId, SyncMode},
+    sync::{ModeChange, RemoteCursor, SyncDir, SyncDirId, SyncMode},
 };
 
 use super::super::models::{
@@ -108,6 +108,52 @@ pub(super) fn set_sync_deletions(
         let active = SyncDirsActiveModel {
             id: ActiveValue::Unchanged(sync_dir.0),
             sync_deletions: ActiveValue::Set(i32::from(on)),
+            ..Default::default()
+        };
+        SyncDirsEntity::update(active)
+            .exec(db)
+            .await
+            .map_err(map_err)?;
+        Ok(())
+    })
+}
+
+/// Set or clear the change the folder makes after its next pass ([`crate::domain::sync::SyncDir::pending`]).
+pub(super) fn set_pending(
+    db: &DatabaseConnection,
+    sync_dir: SyncDirId,
+    change: Option<ModeChange>,
+) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    Box::pin(async move {
+        let active = SyncDirsActiveModel {
+            id: ActiveValue::Unchanged(sync_dir.0),
+            pending_mode: ActiveValue::Set(change.map(|c| c.mode.as_str().to_owned())),
+            pending_sync_deletions: ActiveValue::Set(i32::from(
+                change.is_some_and(|c| c.sync_deletions),
+            )),
+            ..Default::default()
+        };
+        SyncDirsEntity::update(active)
+            .exec(db)
+            .await
+            .map_err(map_err)?;
+        Ok(())
+    })
+}
+
+/// Make the pending `change` the folder's mode and switch in one write, and clear it.
+pub(super) fn apply_pending(
+    db: &DatabaseConnection,
+    sync_dir: SyncDirId,
+    change: ModeChange,
+) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    Box::pin(async move {
+        let active = SyncDirsActiveModel {
+            id: ActiveValue::Unchanged(sync_dir.0),
+            mode: ActiveValue::Set(change.mode.as_str().to_owned()),
+            sync_deletions: ActiveValue::Set(i32::from(change.sync_deletions)),
+            pending_mode: ActiveValue::Set(None),
+            pending_sync_deletions: ActiveValue::Set(0),
             ..Default::default()
         };
         SyncDirsEntity::update(active)

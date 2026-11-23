@@ -261,8 +261,8 @@ pub struct SyncativeApp {
     add_folder_open: bool,
     /// The mode picked in the add-folder dialog, two-way until the user picks another.
     add_folder_mode: SyncMode,
-    /// The folder whose settings dialog is open.
-    folder_settings: Option<SyncDirId>,
+    /// The settings dialog of a folder, open with what the user picked so far.
+    folder_settings: Option<remote_page::FolderSettingsDraft>,
     /// The folder picker, over every other dialog while open.
     folder_picker: Option<folder_picker::Picker>,
     /// Counts the pickers opened, so a late listing can't land in a newer one.
@@ -729,18 +729,32 @@ impl SyncativeApp {
                 Task::none()
             }
             Message::Remote(remote_page::Msg::OpenFolderSettings(sd_id)) => {
-                self.folder_settings = Some(sd_id);
+                self.folder_settings = self
+                    .sync_dirs
+                    .values()
+                    .flatten()
+                    .find(|d| d.id == sd_id)
+                    .map(remote_page::FolderSettingsDraft::of);
                 Task::none()
             }
             Message::Remote(remote_page::Msg::CloseFolderSettings) => {
                 self.folder_settings = None;
                 Task::none()
             }
-            Message::Remote(remote_page::Msg::SetSyncMode(sd_id, mode)) => {
-                self.handle_set_sync_mode(sd_id, mode)
+            Message::Remote(remote_page::Msg::PickFolderMode(mode)) => {
+                if let Some(draft) = &mut self.folder_settings {
+                    draft.change.mode = mode;
+                }
+                Task::none()
             }
-            Message::Remote(remote_page::Msg::SetSyncDeletions(sd_id, on)) => {
-                self.handle_set_sync_deletions(sd_id, on)
+            Message::Remote(remote_page::Msg::PickSyncDeletions(on)) => {
+                if let Some(draft) = &mut self.folder_settings {
+                    draft.change.sync_deletions = on;
+                }
+                Task::none()
+            }
+            Message::Remote(remote_page::Msg::ApplyFolderSettings) => {
+                self.handle_apply_folder_settings()
             }
             Message::Remote(remote_page::Msg::OpenFolder(path)) => {
                 crate::util::open_folder(&path);
@@ -992,13 +1006,18 @@ impl SyncativeApp {
                 }
             }]
             .into()
-        } else if let Some(dir) = self.folder_settings.and_then(|id| {
+        } else if let Some((dir, draft)) = self.folder_settings.and_then(|draft| {
             let remote = self.selected_remote()?;
-            self.sync_dirs.get(&remote.id)?.iter().find(|d| d.id == id)
+            let dir = self
+                .sync_dirs
+                .get(&remote.id)?
+                .iter()
+                .find(|d| d.id == draft.id)?;
+            Some((dir, draft))
         }) {
             stack![
                 base,
-                remote_page::folder_settings_dialog(dir, self.beta).map(Message::Remote)
+                remote_page::folder_settings_dialog(dir, draft, self.beta).map(Message::Remote)
             ]
             .into()
         } else if let Some(remote) = self

@@ -10,8 +10,8 @@ use crate::domain::{
     ports::{BoxFuture, Repository, RepositoryError},
     remote::{Remote, RemoteId, SyncPolicy},
     sync::{
-        NestedFilter, RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId,
-        SyncDirId, SyncItem, SyncItemId, SyncMode,
+        ModeChange, NestedFilter, RemoteCursor, RemoteMeta, SyncDir, SyncDirExclusion,
+        SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId, SyncMode,
     },
 };
 
@@ -211,6 +211,32 @@ impl Repository for FakeRepo {
         for dir in self.sync_dirs.lock().unwrap().iter_mut() {
             if dir.id == sd {
                 dir.sync_deletions = on;
+            }
+        }
+        Box::pin(async { Ok(()) })
+    }
+    fn set_sync_dir_pending(
+        &self,
+        sd: SyncDirId,
+        change: Option<ModeChange>,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        for dir in self.sync_dirs.lock().unwrap().iter_mut() {
+            if dir.id == sd {
+                dir.pending = change;
+            }
+        }
+        Box::pin(async { Ok(()) })
+    }
+    fn apply_sync_dir_pending(
+        &self,
+        sd: SyncDirId,
+        change: ModeChange,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        for dir in self.sync_dirs.lock().unwrap().iter_mut() {
+            if dir.id == sd {
+                dir.mode = change.mode;
+                dir.sync_deletions = change.sync_deletions;
+                dir.pending = None;
             }
         }
         Box::pin(async { Ok(()) })

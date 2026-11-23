@@ -233,6 +233,20 @@ mod tests {
         ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
+        fn set_sync_dir_pending(
+            &self,
+            _sd: SyncDirId,
+            _c: Option<crate::domain::sync::ModeChange>,
+        ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn apply_sync_dir_pending(
+            &self,
+            _sd: SyncDirId,
+            _c: crate::domain::sync::ModeChange,
+        ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+            Box::pin(async { Ok(()) })
+        }
         fn list_sync_items(
             &self,
             _sd: SyncDirId,

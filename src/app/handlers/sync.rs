@@ -28,9 +28,31 @@ impl SyncativeApp {
         }
         // A pass can create leftovers (a synced sub-folder that now belongs to another folder) or record new files under an exclusion.
         if old.passes_finished != self.snapshot.passes_finished {
-            return self.refresh_exclusions();
+            return Task::batch([self.refresh_exclusions(), self.reload_changing_folders()]);
         }
         Task::none()
+    }
+
+    /// After a pass, read the folders again of each remote with a mode change waiting (see [`crate::domain::sync::SyncDir::pending`]): the pass applied it or dropped it.
+    fn reload_changing_folders(&self) -> Task<Message> {
+        let remotes: Vec<RemoteId> = self
+            .sync_dirs
+            .iter()
+            .filter(|(_, dirs)| dirs.iter().any(|d| d.pending.is_some()))
+            .map(|(&id, _)| id)
+            .collect();
+        if remotes.is_empty() {
+            return Task::none();
+        }
+        // The engine keeps its own copy of the folders.
+        self.engine.send(crate::engine::Command::Reload);
+        Task::batch(remotes.into_iter().map(|id| {
+            let repo = self.repo.clone();
+            Task::perform(
+                async move { repo.list_sync_dirs(id).await.unwrap_or_default() },
+                move |dirs| Message::SyncDirsLoaded(id, dirs),
+            )
+        }))
     }
 
     /// Enabled by the user and not blocked on reauthentication.
