@@ -424,11 +424,64 @@ impl SyncativeApp {
         }
     }
 
-    /// Handle [`remote_page::Msg::ApplyFolderSettings`] — close the folder settings and apply them. The switch alone takes effect right away; a new mode only after a pass in the current one (see [`SyncDir::pending`]), which starts now and holds the folder until it ends.
+    /// Handle [`remote_page::Msg::OpenFolderSettings`] — open a folder's settings and, where folders can be hidden from the gallery, read its hidden ones into them.
+    pub(in crate::app) fn handle_open_folder_settings(
+        &mut self,
+        sd_id: SyncDirId,
+    ) -> Task<Message> {
+        self.folder_settings = self
+            .sync_dirs
+            .values()
+            .flatten()
+            .find(|d| d.id == sd_id)
+            .map(remote_page::FolderSettingsDraft::of);
+        if self.folder_settings.is_none() || !crate::services::nomedia::APPLIES {
+            return Task::none();
+        }
+        let repo = self.repo.clone();
+        Task::perform(
+            async move { repo.list_hidden_folders(sd_id).await.unwrap_or_default() },
+            move |hidden| Message::HiddenFoldersLoaded(sd_id, hidden),
+        )
+    }
+
+    /// Handle [`Message::HiddenFoldersLoaded`].
+    pub(in crate::app) fn handle_hidden_folders_loaded(
+        &mut self,
+        sd_id: SyncDirId,
+        mut hidden: Vec<String>,
+    ) -> Task<Message> {
+        if let Some(draft) = self
+            .folder_settings
+            .as_mut()
+            .filter(|draft| draft.id == sd_id && draft.hidden_before.is_none())
+        {
+            hidden.sort();
+            draft.hidden = hidden.clone();
+            draft.hidden_before = Some(hidden);
+        }
+        Task::none()
+    }
+
+    /// Handle [`remote_page::Msg::ApplyFolderSettings`] — close the folder settings and apply them. Hidden folders and the switch take effect right away; a new mode only after a pass in the current one (see [`SyncDir::pending`]), which starts now and holds the folder until it ends.
     pub(in crate::app) fn handle_apply_folder_settings(&mut self) -> Task<Message> {
         let Some(draft) = self.folder_settings.take() else {
             return Task::none();
         };
+        let hidden = match (&draft.hidden_before, self.sync_dir(draft.id)) {
+            (Some(before), Some(dir)) if draft.hidden_changed() => self.save_hidden_folders(
+                draft.id,
+                dir.local_path.clone(),
+                before.clone(),
+                draft.hidden.clone(),
+            ),
+            _ => Task::none(),
+        };
+        Task::batch([hidden, self.apply_mode_change(&draft)])
+    }
+
+    /// The mode part of [`Self::handle_apply_folder_settings`].
+    fn apply_mode_change(&mut self, draft: &remote_page::FolderSettingsDraft) -> Task<Message> {
         let offline = self.snapshot.offline;
         let Some(dir) = self
             .sync_dirs

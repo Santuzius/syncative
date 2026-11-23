@@ -111,10 +111,14 @@ pub enum Msg {
 }
 
 /// The folder settings as the dialog edits them, applied only with Apply.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FolderSettingsDraft {
     pub id: SyncDirId,
     pub change: ModeChange,
+    /// The hidden folders as stored, `None` until they are read.
+    pub hidden_before: Option<Vec<String>>,
+    /// The hidden folders as picked in the dialog, sorted.
+    pub hidden: Vec<String>,
 }
 
 impl FolderSettingsDraft {
@@ -125,7 +129,16 @@ impl FolderSettingsDraft {
                 mode: sd.mode,
                 sync_deletions: sd.sync_deletions,
             },
+            hidden_before: None,
+            hidden: Vec::new(),
         }
+    }
+
+    /// Whether Apply would store other hidden folders.
+    pub fn hidden_changed(&self) -> bool {
+        self.hidden_before
+            .as_ref()
+            .is_some_and(|before| *before != self.hidden)
     }
 
     /// What Apply stores: the switch only for a mode that has it.
@@ -500,15 +513,16 @@ fn mode_choice<'a>(
     choice.into()
 }
 
-/// Settings of one sync folder, laid out like the remote's settings and Preferences: its mode and, on Android, the folders hidden from the gallery. Mode and switch take effect with Apply.
+/// Settings of one sync folder, laid out like the remote's settings and Preferences: its mode and, on Android, the folders hidden from the gallery. All of them take effect with Apply.
 pub fn folder_settings_dialog<'a>(
     sd: &'a SyncDir,
-    draft: FolderSettingsDraft,
+    draft: &FolderSettingsDraft,
     beta: bool,
 ) -> Element<'a, Msg> {
     let id = sd.id;
     let picked = draft.change;
-    let changed = draft.applied() != FolderSettingsDraft::of(sd).applied();
+    let changed =
+        draft.applied() != FolderSettingsDraft::of(sd).applied() || draft.hidden_changed();
     let mut rows = column![
         column![
             column![
@@ -536,11 +550,28 @@ pub fn folder_settings_dialog<'a>(
         rows = rows.push(setting_row(
             "Hidden folders",
             "Sub-folders kept out of the gallery and other media apps.",
-            button(text("Hide…").size(TEXT))
-                .padding([6, 14])
-                .style(theme::button_secondary)
-                .on_press(Msg::BrowseHidden(id))
-                .into(),
+            row![
+                text(match draft.hidden.len() {
+                    0 => "None".to_owned(),
+                    1 => "1 folder".to_owned(),
+                    n => format!("{n} folders"),
+                })
+                .size(CAPTION)
+                .style(theme::muted),
+                button(text("Hide…").size(TEXT))
+                    .padding([6, 14])
+                    .style(theme::button_secondary)
+                    // The picker opens with the hidden folders ticked, so it waits until they are read.
+                    .on_press_maybe(
+                        draft
+                            .hidden_before
+                            .is_some()
+                            .then_some(Msg::BrowseHidden(id))
+                    )
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center)
+            .into(),
         ));
     }
     let card = container(

@@ -37,21 +37,16 @@ impl SyncativeApp {
         self.open_picker(target, source, &base, Vec::new())
     }
 
-    /// Handle [`remote_page::Msg::BrowseHidden`](crate::screens::remote_page::Msg::BrowseHidden) — read the folder's hidden folders, then open the picker with them ticked.
+    /// Handle [`remote_page::Msg::BrowseHidden`](crate::screens::remote_page::Msg::BrowseHidden) — open the picker with the hidden folders of the open folder settings ticked.
     pub(in crate::app) fn handle_browse_hidden(&mut self, sd_id: SyncDirId) -> Task<Message> {
-        let repo = self.repo.clone();
-        Task::perform(
-            async move { repo.list_hidden_folders(sd_id).await.unwrap_or_default() },
-            move |hidden| Message::HiddenFoldersLoaded(sd_id, hidden),
-        )
-    }
-
-    /// Handle [`Message::HiddenFoldersLoaded`].
-    pub(in crate::app) fn handle_hidden_folders_loaded(
-        &mut self,
-        sd_id: SyncDirId,
-        hidden: Vec<String>,
-    ) -> Task<Message> {
+        let Some(hidden) = self
+            .folder_settings
+            .as_ref()
+            .filter(|draft| draft.id == sd_id)
+            .map(|draft| draft.hidden.clone())
+        else {
+            return Task::none();
+        };
         let Some(dir) = self.sync_dir(sd_id) else {
             return Task::none();
         };
@@ -118,9 +113,17 @@ impl SyncativeApp {
                             .insert(sd_id, picked.into_iter().next().unwrap_or_default());
                         Task::none()
                     }
+                    // Only the dialog's draft changes; Apply stores it.
                     Target::Hidden(sd_id) => {
                         picked.sort();
-                        self.save_hidden_folders(sd_id, picker.base, picker.initial, picked)
+                        if let Some(draft) = self
+                            .folder_settings
+                            .as_mut()
+                            .filter(|draft| draft.id == sd_id)
+                        {
+                            draft.hidden = picked;
+                        }
+                        Task::none()
                     }
                     Target::Share => {
                         self.save_share_in(picked.into_iter().next().unwrap_or_default())
@@ -140,7 +143,7 @@ impl SyncativeApp {
     }
 
     /// Store the hidden folders and bring the `.nomedia` files in line right away instead of at the next pass: new ones get theirs, unticked ones lose theirs.
-    fn save_hidden_folders(
+    pub(in crate::app) fn save_hidden_folders(
         &self,
         sd_id: SyncDirId,
         local_root: String,
@@ -290,7 +293,10 @@ impl SyncativeApp {
         Some(picker)
     }
 
-    fn sync_dir(&self, sd_id: SyncDirId) -> Option<&crate::domain::sync::SyncDir> {
+    pub(in crate::app) fn sync_dir(
+        &self,
+        sd_id: SyncDirId,
+    ) -> Option<&crate::domain::sync::SyncDir> {
         self.sync_dirs.values().flatten().find(|d| d.id == sd_id)
     }
 

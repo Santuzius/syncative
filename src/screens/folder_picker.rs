@@ -52,8 +52,6 @@ pub struct Picker {
     pub source: Source,
     /// Path the cabinet's root stands for: on a remote `""` is the whole drive, locally an absolute path.
     pub base: String,
-    /// The paths ticked when the picker opened.
-    pub initial: Vec<String>,
     pub browser: Browser,
     /// Set when the picker closes, so listings still running stop where the backend allows.
     pub cancel: Cancel,
@@ -110,7 +108,6 @@ impl Picker {
             generation,
             source,
             base,
-            initial: preselected,
             browser,
             cancel: cancel_never(),
             error: None,
@@ -160,7 +157,7 @@ pub fn view(picker: &Picker, full_screen: bool) -> Element<'_, Msg> {
             "Choose a folder to exclude".to_owned(),
             "Exclude this folder",
         ),
-        (Target::Hidden(_), _) => ("Hide folders from the gallery".to_owned(), "Save"),
+        (Target::Hidden(_), _) => ("Hide folders from the gallery".to_owned(), "OK"),
         (Target::Share, _) => ("Choose a folder".to_owned(), "Save here"),
     };
     let mut action = ActionButton::new(confirm, Msg::Confirm).placement(ActionPlacement::Footer);

@@ -90,7 +90,7 @@ pub enum Message {
         String,
         Result<Result<Vec<iced_fabi::Entry>, String>, String>,
     ),
-    /// A sync folder's hidden folders, read to open the picker with them ticked.
+    /// A sync folder's hidden folders, read into its open settings.
     HiddenFoldersLoaded(SyncDirId, Vec<String>),
     /// The hidden folders were stored and their `.nomedia` files brought in line.
     HiddenFoldersSaved,
@@ -735,13 +735,7 @@ impl SyncativeApp {
                 Task::none()
             }
             Message::Remote(remote_page::Msg::OpenFolderSettings(sd_id)) => {
-                self.folder_settings = self
-                    .sync_dirs
-                    .values()
-                    .flatten()
-                    .find(|d| d.id == sd_id)
-                    .map(remote_page::FolderSettingsDraft::of);
-                Task::none()
+                self.handle_open_folder_settings(sd_id)
             }
             Message::Remote(remote_page::Msg::CloseFolderSettings) => {
                 self.folder_settings = None;
@@ -1012,7 +1006,7 @@ impl SyncativeApp {
                 }
             }]
             .into()
-        } else if let Some((dir, draft)) = self.folder_settings.and_then(|draft| {
+        } else if let Some((dir, draft)) = self.folder_settings.as_ref().and_then(|draft| {
             let remote = self.selected_remote()?;
             let dir = self
                 .sync_dirs
