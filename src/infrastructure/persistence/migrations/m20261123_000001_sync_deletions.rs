@@ -12,7 +12,7 @@ const DOWN: &str = "ALTER TABLE sync_dirs DROP COLUMN sync_deletions";
 
 async fn run(manager: &SchemaManager<'_>, sql: &str) -> Result<(), DbErr> {
     let stmt = Statement::from_string(manager.get_database_backend(), sql.to_owned());
-    manager.get_connection().execute(stmt).await?;
+    manager.get_connection().execute_raw(stmt).await?;
     Ok(())
 }
 

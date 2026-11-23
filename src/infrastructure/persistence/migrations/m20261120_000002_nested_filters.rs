@@ -21,7 +21,7 @@ impl MigrationTrait for Migration {
             );
         "#;
         let stmt = Statement::from_string(manager.get_database_backend(), sql.to_owned());
-        manager.get_connection().execute(stmt).await?;
+        manager.get_connection().execute_raw(stmt).await?;
         // Folders nested before were always left out: keep that as their choice.
         let sql = r#"
             INSERT OR IGNORE INTO sync_dir_nested_filters (sync_dir_id, nested_sync_dir_id, filter)
@@ -32,12 +32,12 @@ impl MigrationTrait for Migration {
                OR substr(inner_dir.remote_path, 1, length(outer_dir.remote_path) + 1) = outer_dir.remote_path || '/';
         "#;
         let stmt = Statement::from_string(manager.get_database_backend(), sql.to_owned());
-        manager.get_connection().execute(stmt).await.map(|_| ())
+        manager.get_connection().execute_raw(stmt).await.map(|_| ())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         let sql = "DROP TABLE IF EXISTS sync_dir_nested_filters;";
         let stmt = Statement::from_string(manager.get_database_backend(), sql.to_owned());
-        manager.get_connection().execute(stmt).await.map(|_| ())
+        manager.get_connection().execute_raw(stmt).await.map(|_| ())
     }
 }

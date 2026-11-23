@@ -9,9 +9,19 @@ pub const THIS_DEVICE: &str = if cfg!(target_os = "android") {
     "this computer"
 };
 
-/// Block the current thread on a future. Safe from any thread;
-/// `block_on` has no main-context requirements.
+/// Runtime whose context database futures run in: sqlx spawns its pool's tasks and sets its timeouts on tokio, which needs a runtime in reach of the polling thread.
+static RUNTIME: std::sync::LazyLock<tokio::runtime::Runtime> = std::sync::LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .thread_name("syncative-db")
+        .enable_all()
+        .build()
+        .expect("tokio runtime for the database")
+});
+
+/// Block the current thread on a future. Safe from any thread, also from inside another runtime's task (unlike tokio's `block_on`): it only enters the runtime's context, so whatever the future spawns runs on that runtime's worker.
 pub fn await_future<F: Future>(future: F) -> F::Output {
+    let _context = RUNTIME.enter();
     futures::executor::block_on(future)
 }
 

@@ -13,7 +13,7 @@ use self::migrations::LEGACY_MIGRATION_IDS;
 /// exit.
 pub async fn has_legacy_migrations(db: &DatabaseConnection) -> bool {
     let table_exists = db
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Sqlite,
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='seaql_migrations'".to_owned(),
         ))
@@ -26,7 +26,7 @@ pub async fn has_legacy_migrations(db: &DatabaseConnection) -> bool {
     }
     for id in LEGACY_MIGRATION_IDS {
         let row = db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Sqlite,
                 "SELECT 1 FROM seaql_migrations WHERE version = ? LIMIT 1",
                 [(*id).into()],

@@ -493,7 +493,7 @@ mod tests {
             (other, "/other", "Docs/Notes"),
         ] {
             // The table as it was then, without the later columns.
-            await_future(repo.db.execute(Statement::from_string(
+            await_future(repo.db.execute_raw(Statement::from_string(
                 DatabaseBackend::Sqlite,
                 format!(
                     "INSERT INTO sync_dirs (remote_id, local_path, remote_path) VALUES ({}, '{local}', '{path}')",
