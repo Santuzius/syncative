@@ -498,7 +498,7 @@ pub fn folder_settings_dialog<'a>(sd: &'a SyncDir, beta: bool) -> Element<'a, Ms
         column![
             text(format!(
                 "Settings for {}",
-                crate::services::network_drive::local_display(sd)
+                crate::services::network_drive::title(sd)
             ))
             .size(HEADING + 2.0)
             .wrapping(Wrapping::WordOrGlyph),
@@ -830,7 +830,7 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
     let top = row![
         status_icon(folder.state, 20.0),
         column![
-            text(crate::services::network_drive::local_display(sd))
+            text(crate::services::network_drive::title(sd))
                 .size(TEXT)
                 .wrapping(Wrapping::WordOrGlyph),
             row![

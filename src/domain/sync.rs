@@ -122,8 +122,9 @@ impl SyncMode {
             Self::TwoWay => "Sync",
             Self::Upload => "Cloud backup",
             Self::Download => "Local backup",
-            // With the mark of `services::beta::MARK`, also when the beta features are off, as for other beta features in use.
-            Self::NetworkDrive => "Network drive 🧪",
+            // With the mark of `services::beta::MARK` while it is a beta feature, also when the beta features are off, as for other beta features in use.
+            Self::NetworkDrive if self.is_beta() => "Network drive 🧪",
+            Self::NetworkDrive => "Network drive",
         }
     }
 

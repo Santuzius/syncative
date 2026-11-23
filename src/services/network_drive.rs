@@ -226,6 +226,11 @@ pub fn is_android_drive(local_path: &str) -> bool {
     cfg!(target_os = "android") && local_path.starts_with(ANDROID_ROOT)
 }
 
+/// [`local_display`] as the window names the folder: with the beta mark (🧪) while its mode is a beta feature, as a beta provider's remote.
+pub fn title(sync_dir: &SyncDir) -> String {
+    crate::services::beta::marked(&local_display(sync_dir), sync_dir.mode.is_beta())
+}
+
 /// How a folder's local side reads in the app: the path, or for an Android network drive where other apps find it.
 pub fn local_display(sync_dir: &SyncDir) -> String {
     if is_android_drive(&sync_dir.local_path) {
