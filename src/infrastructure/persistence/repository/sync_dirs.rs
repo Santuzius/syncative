@@ -5,12 +5,13 @@ use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, ModelTr
 use crate::domain::{
     ports::{BoxFuture, RepositoryError},
     remote::RemoteId,
-    sync::{ModeChange, RemoteCursor, SyncDir, SyncDirId, SyncMode},
+    sync::{ModeChange, NestedFilter, RemoteCursor, SyncDir, SyncDirId, SyncMode},
 };
 
 use super::super::models::{
-    SyncDirExclusionsColumn, SyncDirExclusionsEntity, SyncDirsActiveModel, SyncDirsColumn,
-    SyncDirsEntity, SyncItemsColumn, SyncItemsEntity,
+    SyncDirExclusionsColumn, SyncDirExclusionsEntity, SyncDirNestedFiltersColumn,
+    SyncDirNestedFiltersEntity, SyncDirsActiveModel, SyncDirsColumn, SyncDirsEntity,
+    SyncItemsColumn, SyncItemsEntity,
 };
 use super::{map_err, map_sync_dir};
 
@@ -235,6 +236,34 @@ pub(super) fn cascade_delete_sync_dir(
                 .exec(db)
                 .await
                 .map_err(map_err)?;
+            // A folder around it that left it out keeps it out: the choice becomes a plain exclusion there, as the sub-folder is no longer synced on its own.
+            let excluding = SyncDirNestedFiltersEntity::find()
+                .filter(SyncDirNestedFiltersColumn::NestedSyncDirId.eq(sd.id))
+                .filter(SyncDirNestedFiltersColumn::Filter.eq(NestedFilter::Exclude.as_str()))
+                .all(db)
+                .await
+                .map_err(map_err)?;
+            for row in excluding {
+                let Some(outer) = SyncDirsEntity::find_by_id(row.sync_dir_id)
+                    .one(db)
+                    .await
+                    .map_err(map_err)?
+                else {
+                    continue;
+                };
+                let relative = map_sync_dir(outer).relative(&sd.remote_path).to_owned();
+                let present = SyncDirExclusionsEntity::find()
+                    .filter(SyncDirExclusionsColumn::SyncDirId.eq(row.sync_dir_id))
+                    .filter(SyncDirExclusionsColumn::RemotePath.eq(relative.as_str()))
+                    .one(db)
+                    .await
+                    .map_err(map_err)?
+                    .is_some();
+                if !present {
+                    super::exclusions::insert_exclusion(db, SyncDirId(row.sync_dir_id), relative)
+                        .await?;
+                }
+            }
             // Its exclusions, hidden folders and nested filters refer to it; SQLite refuses to delete it before them.
             SyncDirExclusionsEntity::delete_many()
                 .filter(SyncDirExclusionsColumn::SyncDirId.eq(sd.id))

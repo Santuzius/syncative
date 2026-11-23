@@ -444,14 +444,34 @@ mod tests {
         );
 
         // /b is both a nested folder of /a and has one of its own.
+        await_future(repo.set_nested_filter(a, c, Some(NestedFilter::Exclude))).unwrap();
         await_future(repo.cascade_delete_sync_dir("/b", "Inner")).unwrap();
+        // /a synced /b through a symlink, so it syncs Inner itself now.
+        assert_eq!(
+            await_future(repo.list_nested_filters(a)).unwrap(),
+            HashMap::from([(c, NestedFilter::Exclude)])
+        );
+        let paths = |dir| {
+            let mut paths: Vec<String> = await_future(repo.list_exclusions(dir))
+                .unwrap()
+                .into_iter()
+                .map(|e| e.remote_path)
+                .collect();
+            paths.sort();
+            paths
+        };
+        assert_eq!(paths(a), ["Big"]);
+        // /a left /c out, and still does once /c is no longer synced on its own, without a second exclusion where it already had one.
+        await_future(repo.insert_exclusion(a, "Inner/Deeper".to_owned())).unwrap();
+        await_future(repo.cascade_delete_sync_dir("/c", "Inner/Deeper")).unwrap();
+        assert_eq!(paths(a), ["Big", "Inner/Deeper"]);
         assert!(
             await_future(repo.list_nested_filters(a))
                 .unwrap()
                 .is_empty()
         );
         await_future(repo.cascade_delete_sync_dir("/a", "")).unwrap();
-        assert_eq!(await_future(repo.list_sync_dirs(id)).unwrap().len(), 1);
+        assert_eq!(await_future(repo.list_sync_dirs(id)).unwrap().len(), 0);
 
         await_future(repo.cascade_delete_remote(id)).unwrap();
         assert!(await_future(repo.list_remotes()).unwrap().is_empty());
