@@ -1089,7 +1089,7 @@ fn folder_actions<'a>(
         "Folder settings",
     );
     if !android {
-        return row![open, settings, exclusions, log, delete]
+        return row![open, exclusions, log, settings, delete]
             .spacing(6)
             .align_y(Alignment::Center)
             .into();
