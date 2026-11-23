@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Makes a release as doc/packaging/release.md describes: bumps the version, regenerates the licenses, builds and checks the APK and the AppImage, pins the AppImage for Nix, commits and tags, pushes develop, main and the tag, and creates a draft GitHub release with the files. Publishing the draft and the Nix check stay manual. Run it from develop, by hand or through .github/workflows/release.yml.
+# Makes a release as doc/packaging/release.md describes: bumps the version, regenerates the licenses, builds and checks the APK and the AppImage, pins the AppImage for Nix, commits and tags, pushes develop, main and the tag, and creates a draft GitHub release with the files. Publishing the draft stays manual; .github/workflows/nix-release.yml then checks the Nix package. Run it from develop, by hand or through .github/workflows/release.yml.
 #   scripts/release.sh X.Y.Z                    full release; notes from temp/release/notes-X.Y.Z.md if present, else a placeholder to edit on GitHub
 #   scripts/release.sh X.Y.Z --dry-run          builds and checks the APK and the AppImage, then puts the release files back; no commit, tag, push or release
-#   scripts/release.sh --check-nix X.Y.Z        after publishing: the flake fetches the AppImage and runs it
 # SYNCATIVE_KEYSTORE_PROPERTIES names a keystore.properties to use when android/keystore.properties is absent (the runner's copy).
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,15 +11,6 @@ RELEASE_FILES=(Cargo.toml Cargo.lock assets/licenses.json nix/release.json)
 
 die() { echo "release: $*" >&2; exit 1; }
 step() { echo; echo "== $*"; }
-
-if [ "${1:-}" = "--check-nix" ]; then
-  version="${2:-}"
-  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: $0 --check-nix X.Y.Z"
-  out="$(nix build --no-link --print-out-paths --refresh "github:Santuzius/syncative/v$version")"
-  "$out/bin/syncative" --help >/dev/null
-  echo "Nix: v$version builds from the release's AppImage and runs."
-  exit 0
-fi
 
 version="${1:-}"
 dry_run=0
@@ -109,4 +99,4 @@ sha256sum "$apk" "$appimage" > SHA256SUMS
 if [ -f "notes-$version.md" ]; then notes=(--notes-file "notes-$version.md"); else notes=(--notes "Release notes still to be written."); fi
 gh release create "$tag" --draft --verify-tag --latest --title "Syncative $version" "${notes[@]}" "$apk" "$appimage" "$appimage.zsync" SHA256SUMS
 echo
-echo "Done. Write the notes and publish the draft on GitHub, then run: scripts/release.sh --check-nix $version"
+echo "Done. Check the notes and publish the draft on GitHub; the workflow Nix release then checks the Nix package."

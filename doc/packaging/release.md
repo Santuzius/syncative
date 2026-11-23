@@ -22,7 +22,7 @@ The branch flow:
 
 ## Steps
 
-`scripts/release.sh X.Y.Z` does all of this from `develop`, by hand or [through GitHub Actions](#releasing-through-github-actions). It runs the [checks](#checks-before-announcing-it) on the APK and the AppImage before it commits and tags, and creates the release of step 6 as a draft, with the notes from `temp/release/notes-X.Y.Z.md` if that file exists. Publish the draft on GitHub, then run `scripts/release.sh --check-nix X.Y.Z`. A run that fails before the commit can simply be started again. With `--dry-run` (in the workflow: the "Dry run" box) it stops after the checks, puts the release files back and commits, pushes and releases nothing. The steps it follows:
+`scripts/release.sh X.Y.Z` does all of this from `develop`, by hand or [through GitHub Actions](#releasing-through-github-actions). It runs the [checks](#checks-before-announcing-it) on the APK and the AppImage before it commits and tags, and creates the release of step 6 as a draft, with the notes from `temp/release/notes-X.Y.Z.md` if that file exists. Publish the draft on GitHub; publishing starts the [Nix check](#checks-before-announcing-it) on GitHub's runners. A run that fails before the commit can simply be started again. With `--dry-run` (in the workflow: the "Dry run" box) it stops after the checks, puts the release files back and commits, pushes and releases nothing. The steps it follows:
 
 1. **Bump** the version in `[workspace.package]` of `Cargo.toml`, then run `cargo metadata` in the dev shell so `Cargo.lock` follows. Run `scripts/update-licenses.sh` (the first run installs ScanCode into `temp/scancode-venv/`), which rewrites `assets/licenses.json` (the "Open source licenses" in About) from the licenses of all Rust crates and Go packages. Don't commit yet.
 2. **Build the APK and the AppImage** from this tree. Both write to `temp/release/`:
@@ -52,7 +52,7 @@ The branch flow:
   - `aapt2 dump badging` shows the new versionCode.
 - **AppImage:** It runs `--help` in `ubuntu:24.04`, `debian:12` and `fedora:42` containers (with `--appimage-extract-and-run` and the distribution's dbus library). It needs nothing but glibc 2.35 and `libdbus-1`.
   - Pipe the file into the container (`docker run -i … sh -c 'cat > a'`) instead of mounting it, and blank its bytes 8–10 there (`printf '\0\0\0' | dd of=a bs=1 seek=8 conv=notrunc`): on a NixOS host with `programs.appimage.binfmt`, the kernel otherwise hands the file to `appimage-run`, which the container lacks, and the start fails with "not found".
-- **Nix:** `nix build github:Santuzius/syncative/vX.Y.Z` downloads the AppImage without compiling anything, and `result/bin/syncative --help` runs. This only works once the release is published, because the flake fetches the AppImage from it.
+- **Nix:** `nix build github:Santuzius/syncative/vX.Y.Z` downloads the AppImage without compiling anything, and `result/bin/syncative --help` runs. This only works once the release is published, because the flake fetches the AppImage from it, so `.github/workflows/nix-release.yml` runs it on GitHub's runners when a release is published. A failed run shows in Actions and GitHub mails it; Actions → Nix release → Run workflow repeats it for a tag.
 
 ## Releasing through GitHub Actions
 

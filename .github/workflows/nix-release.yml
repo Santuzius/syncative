@@ -1,0 +1,29 @@
+# Checks a published release the way Nix users get it, on GitHub's runners: the flake at the release's tag downloads the AppImage from the release, takes the program out of it without compiling, and the program starts (doc/packaging/release.md#checks-before-announcing-it). Runs when a release is published; by hand under Actions → Nix release → Run workflow, with the tag.
+name: Nix release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag vX.Y.Z"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  nix:
+    if: github.repository == 'Santuzius/syncative'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: cachix/install-nix-action@v32
+      - name: Build from the release's AppImage and start it
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          out="$(nix build --no-link --print-out-paths "github:${{ github.repository }}/$TAG")"
+          "$out/bin/syncative" --help >/dev/null
+          echo "Nix: $TAG builds from the release's AppImage and runs."
