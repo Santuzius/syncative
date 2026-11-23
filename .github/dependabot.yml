@@ -1,12 +1,13 @@
-# Weekly dependency updates as pull requests into develop (doc/development/dependencies.md). .github/workflows/check.yml tests each one and merges it if every update in it is a patch, or a minor step of a 1.x or later version; everything else waits for review. GitHub reads this file from main.
+# Dependency updates as pull requests into develop (doc/development/dependencies.md): crates and Go modules Monday to Thursday at 12, 16 and 20 o'clock, so an update that needs another one merged first follows a few hours later; flake inputs and Actions weekly. .github/workflows/check.yml tests each one and merges it if every update in it is a patch, or a minor step of a 1.x or later version; everything else waits for review. GitHub reads this file from main.
 version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
     target-branch: develop
     schedule:
-      interval: weekly
-      day: monday
+      interval: cron
+      cronjob: "0 12,16,20 * * 1-4"
+      timezone: Europe/Berlin
     commit-message:
       prefix: ":arrow_up:"
     # The forks share one tag and move together, by hand (doc/packaging/release.md#the-android-forks).
@@ -25,8 +26,9 @@ updates:
     directory: /src/go
     target-branch: develop
     schedule:
-      interval: weekly
-      day: monday
+      interval: cron
+      cronjob: "0 12,16,20 * * 1-4"
+      timezone: Europe/Berlin
     commit-message:
       prefix: ":arrow_up:"
     # The rclone fork and resty are pinned through `replace` in go.mod (doc/packaging/release.md#the-rclone-fork). Proton's modules come with go-proton-api, a submodule, and follow its versions; several are Proton's own `-proton` builds, which a newer upstream release would replace.
