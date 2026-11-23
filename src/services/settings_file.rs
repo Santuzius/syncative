@@ -64,6 +64,9 @@ struct FolderEntry {
     /// Which way the folder syncs: `sync`, `upload` or `download` ([`SyncMode::as_str`]). Files without it sync both ways.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<String>,
+    /// Whether a backup folder passes deletions on ([`SyncDir::sync_deletions`]). Files without it keep them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    sync_deletions: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -174,6 +177,7 @@ fn remote_entries(
                 hidden,
                 nested,
                 mode: (dir.mode != SyncMode::TwoWay).then(|| dir.mode.as_str().to_owned()),
+                sync_deletions: dir.sync_deletions,
             });
         }
         entries.push(RemoteEntry {
@@ -262,7 +266,7 @@ pub fn import(
                 folder.remote_path.clone(),
                 folder.nested,
             ));
-            if folder.exclusions.is_empty() && folder.hidden.is_empty() {
+            if folder.exclusions.is_empty() && folder.hidden.is_empty() && !folder.sync_deletions {
                 continue;
             }
             let dirs = util::await_future(repo.list_sync_dirs(id)).map_err(|e| e.to_string())?;
@@ -272,6 +276,10 @@ pub fn import(
             else {
                 continue;
             };
+            if folder.sync_deletions {
+                util::await_future(repo.set_sync_dir_sync_deletions(dir.id, true))
+                    .map_err(|e| e.to_string())?;
+            }
             for exclusion in folder.exclusions {
                 util::await_future(repo.insert_exclusion(dir.id, exclusion))
                     .map_err(|e| e.to_string())?;
@@ -460,6 +468,32 @@ mod tests {
         };
         assert_eq!(hidden_of("/sdcard/Pictures"), ["Private"]);
         assert!(hidden_of("/sdcard/Music").is_empty());
+    }
+
+    #[test]
+    fn modes_and_sync_deletions_survive_export_and_import() {
+        use crate::infrastructure::persistence::migrations::{Migrator, MigratorTrait};
+        let db = util::await_future(sea_orm::Database::connect("sqlite::memory:")).unwrap();
+        util::await_future(Migrator::up(&db, None)).unwrap();
+        let repo = crate::infrastructure::persistence::repository::SeaOrmRepository::new(db);
+        let router = ClientRouter::new(std::sync::Arc::new(
+            crate::test_support::FakeBackend::default(),
+        ));
+        let file = r#"{"format":"syncative-settings","version":1,"preferences":{},"remotes":[{"name":"P","type":"native-proton","interval_seconds":300,"enabled":true,
+            "folders":[{"local_path":"/sdcard/DCIM","remote_path":"DCIM","mode":"upload","sync_deletions":true},{"local_path":"/sdcard/Music","remote_path":"Music","mode":"download"}]}]}"#;
+
+        import(file, &repo, &router).unwrap();
+        let remotes = remote_entries(&repo, &router).unwrap();
+        let of = |local: &str| {
+            let f = remotes[0]
+                .folders
+                .iter()
+                .find(|f| f.local_path == local)
+                .unwrap();
+            (f.mode.clone(), f.sync_deletions)
+        };
+        assert_eq!(of("/sdcard/DCIM"), (Some("upload".to_owned()), true));
+        assert_eq!(of("/sdcard/Music"), (Some("download".to_owned()), false));
     }
 
     #[test]

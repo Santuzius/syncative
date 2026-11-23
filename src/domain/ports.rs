@@ -129,6 +129,12 @@ pub trait Repository: Send + Sync {
         sync_dir: SyncDirId,
         mode: SyncMode,
     ) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    /// Set whether the backup folder passes deletions on ([`SyncDir::sync_deletions`]).
+    fn set_sync_dir_sync_deletions(
+        &self,
+        sync_dir: SyncDirId,
+        on: bool,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>>;
     fn list_sync_items(
         &self,
         sync_dir: SyncDirId,

@@ -739,6 +739,9 @@ impl SyncativeApp {
             Message::Remote(remote_page::Msg::SetSyncMode(sd_id, mode)) => {
                 self.handle_set_sync_mode(sd_id, mode)
             }
+            Message::Remote(remote_page::Msg::SetSyncDeletions(sd_id, on)) => {
+                self.handle_set_sync_deletions(sd_id, on)
+            }
             Message::Remote(remote_page::Msg::OpenFolder(path)) => {
                 crate::util::open_folder(&path);
                 Task::none()

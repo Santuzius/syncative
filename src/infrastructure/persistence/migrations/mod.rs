@@ -10,6 +10,7 @@ mod m20261029_000001_hidden_folders;
 mod m20261120_000001_remote_state;
 mod m20261120_000002_nested_filters;
 mod m20261120_000003_sync_modes;
+mod m20261123_000001_sync_deletions;
 
 /// Legacy migration IDs we refuse to cohabit with. If any of these show
 /// up in `seaql_migrations` at startup, the old-config popup fires and
@@ -40,6 +41,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261120_000001_remote_state::Migration),
             Box::new(m20261120_000002_nested_filters::Migration),
             Box::new(m20261120_000003_sync_modes::Migration),
+            Box::new(m20261123_000001_sync_deletions::Migration),
         ]
     }
 }

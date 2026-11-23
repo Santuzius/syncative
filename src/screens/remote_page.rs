@@ -6,7 +6,7 @@ use iced::{
     Alignment, Element, Length,
     widget::{
         Column, Space, button, center, column, container, mouse_area, opaque, row, rule,
-        scrollable, stack, text::Wrapping, text_editor, text_input, tooltip,
+        scrollable, stack, text::Wrapping, text_editor, text_input, toggler, tooltip,
     },
 };
 
@@ -102,6 +102,8 @@ pub enum Msg {
     CloseFolderSettings,
     /// Change which way a folder syncs.
     SetSyncMode(SyncDirId, SyncMode),
+    /// Turn passing deletions on to the backup on or off.
+    SetSyncDeletions(SyncDirId, bool),
 }
 
 /// What the user is about to delete, pending confirmation. Stored at the app level and rendered by [`confirm_delete_overlay`].
@@ -420,16 +422,22 @@ pub fn mode_glyph(mode: SyncMode) -> icondata::Icon {
     }
 }
 
-/// The modes as a button group with what the chosen one does beneath, as the power mode in Preferences.
+/// The modes as a button group with what the chosen one does beneath, as the power mode in Preferences. `beside_switch`: the folder settings show the switch of `SyncDir::sync_deletions` below, which takes the place of the point on deletions.
 fn mode_choice<'a>(
     choices: &[SyncMode],
     current: Option<SyncMode>,
+    beside_switch: bool,
     on_pick: impl Fn(SyncMode) -> Msg,
 ) -> Element<'a, Msg> {
     let mut choice = column![segmented(choices, SyncMode::label, current, on_pick)].spacing(10);
     if let Some(mode) = current {
         let mut points = column![].spacing(4);
-        for &point in mode.points() {
+        let described = if beside_switch {
+            mode.points_beside_switch()
+        } else {
+            mode.points().to_vec()
+        };
+        for point in described {
             points = points.push(bullet(point));
         }
         choice = choice.push(points);
@@ -452,12 +460,28 @@ pub fn folder_settings_dialog<'a>(sd: &'a SyncDir, beta: bool) -> Element<'a, Ms
             mode_choice(
                 &SyncMode::choices(beta, Some(sd.mode)),
                 Some(sd.mode),
+                true,
                 move |mode| Msg::SetSyncMode(id, mode)
             ),
         ]
         .spacing(10)
         .padding([12, 14])
     ];
+    if sd.mode.has_sync_deletions() {
+        rows = rows.push(rule::horizontal(1).style(theme::separator));
+        rows = rows.push(setting_row(
+            "Sync deletions to backup",
+            if sd.mode == SyncMode::Upload {
+                "Delete on the remote what is deleted here, also what was deleted before. Files only ever on the remote stay."
+            } else {
+                "Delete here what is deleted on the remote. Files only ever here stay."
+            },
+            toggler(sd.sync_deletions)
+                .on_toggle(move |on| Msg::SetSyncDeletions(id, on))
+                .size(20)
+                .into(),
+        ));
+    }
     if crate::services::nomedia::APPLIES {
         rows = rows.push(rule::horizontal(1).style(theme::separator));
         rows = rows.push(setting_row(
@@ -1265,7 +1289,12 @@ fn add_folder_form<'a>(
     let mode_field: Element<'a, Msg> = if compact {
         column![
             text("Mode").size(CAPTION).style(theme::muted),
-            mode_choice(&SyncMode::choices(beta, None), Some(mode), Msg::PickAddMode)
+            mode_choice(
+                &SyncMode::choices(beta, None),
+                Some(mode),
+                false,
+                Msg::PickAddMode
+            )
         ]
         .spacing(4)
         .into()
@@ -1274,7 +1303,12 @@ fn add_folder_form<'a>(
             container(text("Mode").size(TEXT))
                 .padding([6, 0])
                 .width(Length::Fixed(FORM_LABEL_WIDTH)),
-            mode_choice(&SyncMode::choices(beta, None), Some(mode), Msg::PickAddMode)
+            mode_choice(
+                &SyncMode::choices(beta, None),
+                Some(mode),
+                false,
+                Msg::PickAddMode
+            )
         ]
         .spacing(ROW_SPACING)
         .into()

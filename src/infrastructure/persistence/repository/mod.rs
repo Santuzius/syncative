@@ -57,6 +57,7 @@ fn map_sync_dir(m: SyncDirsModel) -> SyncDir {
         remote_path: m.remote_path,
         mode: SyncMode::parse(&m.mode).unwrap_or_default(),
         rows_mode: SyncMode::parse(&m.rows_mode).unwrap_or_default(),
+        sync_deletions: m.sync_deletions != 0,
     }
 }
 
@@ -167,6 +168,14 @@ impl Repository for SeaOrmRepository {
         mode: SyncMode,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         sync_dirs::set_mode(&self.db, sync_dir, None, Some(mode))
+    }
+
+    fn set_sync_dir_sync_deletions(
+        &self,
+        sync_dir: SyncDirId,
+        on: bool,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        sync_dirs::set_sync_deletions(&self.db, sync_dir, on)
     }
 
     fn sync_dir_exists(

@@ -226,6 +226,13 @@ mod tests {
         ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
+        fn set_sync_dir_sync_deletions(
+            &self,
+            _sd: SyncDirId,
+            _on: bool,
+        ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+            Box::pin(async { Ok(()) })
+        }
         fn list_sync_items(
             &self,
             _sd: SyncDirId,

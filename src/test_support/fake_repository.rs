@@ -203,6 +203,18 @@ impl Repository for FakeRepo {
         }
         Box::pin(async { Ok(()) })
     }
+    fn set_sync_dir_sync_deletions(
+        &self,
+        sd: SyncDirId,
+        on: bool,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        for dir in self.sync_dirs.lock().unwrap().iter_mut() {
+            if dir.id == sd {
+                dir.sync_deletions = on;
+            }
+        }
+        Box::pin(async { Ok(()) })
+    }
     fn list_sync_items(
         &self,
         sd: SyncDirId,

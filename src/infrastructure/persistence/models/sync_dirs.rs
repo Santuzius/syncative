@@ -24,6 +24,8 @@ pub struct Model {
     pub mode: String,
     /// The mode `sync_items` were last written under.
     pub rows_mode: String,
+    /// 1 if a backup folder deletes on the backup side what was deleted on the source side.
+    pub sync_deletions: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

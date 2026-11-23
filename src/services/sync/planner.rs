@@ -342,14 +342,7 @@ fn plan_one(
         // Equivalent of the GoogleDrive-era sibling verification in
         // 6117026, adapted to the snapshot algorithm.
         (Some(l), None, Some(db)) => {
-            // Reported gone by the change source is certain; only an absence from a full listing needs a sibling as proof.
-            if !snapshot.reported_gone.contains(remote_path)
-                && !parent_is_verified(remote_path, &snapshot.remote, db_by_parent)
-            {
-                eprintln!(
-                    "sync: SKIP DeleteLocal for '{remote_path}' — listing enumerated no entries under '{}' (likely rate-limited / cache flush); preserving local copy.",
-                    parent_of(remote_path),
-                );
+            if !remote_absence_trusted(remote_path, snapshot, db_by_parent) {
                 return None;
             }
             // If the local file has been modified since the last successful
@@ -374,16 +367,7 @@ fn plan_one(
                 is_dir: l.is_dir,
             })
         }
-        // Was tracked, local gone — mirror delete remotely. Two
-        // guards before we fire anything destructive:
-        //   1. Ancestor reliability. If the local walk reported an
-        //      I/O error anywhere in this path's chain, the absence
-        //      isn't a deletion signal — it's a walk glitch (most
-        //      commonly a concurrent writer like Syncthing racing
-        //      Syncative mid-readdir). Refuse.
-        //   2. Sibling presence. Weaker backstop for paths whose
-        //      ancestors look healthy but whose parent holds other
-        //      DB-tracked rows that didn't make the walk either.
+        // Was tracked, local gone — mirror delete remotely, with the guards of `delete_remote`.
         // Rows a one-way mode kept for files missing here aren't deletions: until a pass finds none left (`rows_settled`), such files come back as a local backup restores them.
         (None, Some(r), Some(_)) if sync_dir.rows_mode != SyncMode::TwoWay => {
             restore_local(r, sync_dir, snapshot, db_by_parent)
@@ -401,31 +385,7 @@ fn plan_one(
                     is_dir: false,
                 });
             }
-            if ancestor_in_set(&r.path, &snapshot.walk_unreliable) {
-                eprintln!(
-                    "sync: SKIP DeleteRemote for '{}' — local walk reported an error on this path or an ancestor; preserving remote copy.",
-                    r.path,
-                );
-                return None;
-            }
-            // A sub-folder the walk read without error and found empty was emptied on purpose, so its files go remotely too. The sync folder itself is never in the walk and keeps the stricter check: an empty root more likely means an unmounted disk.
-            let parent_walked = snapshot
-                .local
-                .get(parent_of(&r.path))
-                .is_some_and(|p| p.is_dir);
-            if !parent_walked && !parent_is_verified(&r.path, &snapshot.local, db_by_parent) {
-                eprintln!(
-                    "sync: SKIP DeleteRemote for '{}' — walk found no entries under '{}' (likely concurrent-write race); preserving remote copy.",
-                    r.path,
-                    parent_of(&r.path),
-                );
-                return None;
-            }
-            Some(Action::DeleteRemote {
-                local_path: derive_local_path(&r.path, sync_dir),
-                remote_path: r.path.clone(),
-                is_dir: r.is_dir,
-            })
+            delete_remote(r, sync_dir, snapshot, db_by_parent)
         }
         // Full triple — compare timestamps against the recorded values.
         // A folder's time changes with every file added or removed in it; there is nothing to transfer for the folder itself.
@@ -478,7 +438,7 @@ fn plan_one(
     }
 }
 
-/// [`plan_one`] for [`SyncMode::Upload`] and [`SyncMode::Download`]: the source side wins, its deletions are not passed on, and what only the backup side has is left alone. Nothing is ever deleted.
+/// [`plan_one`] for [`SyncMode::Upload`] and [`SyncMode::Download`]: the source side wins, and what only the backup side has is left alone. The source's deletions are passed on only with [`SyncDir::sync_deletions`]; otherwise nothing is ever deleted.
 fn plan_one_way(
     remote_path: &str,
     local: Option<&LocalEntry>,
@@ -566,11 +526,27 @@ fn plan_one_way(
                 is_dir: l.is_dir,
             })
         }
+        // Deleted on the remote, with deletions passed on: the local backup deletes its copy too, unless the listing looks cut short.
+        (Some(l), None, Some(_)) if sync_dir.sync_deletions => {
+            remote_absence_trusted(remote_path, snapshot, db_by_parent).then(|| {
+                Action::DeleteLocal {
+                    local_path: l.absolute_path.clone(),
+                    remote_path: remote_path.to_owned(),
+                    is_dir: l.is_dir,
+                }
+            })
+        }
         // Deleted on the remote: the local backup keeps its copy, which is no longer synced.
         (Some(_), None, Some(_)) => Some(Action::ClearDbRow {
             local_path: db_local_path(remote_path, sync_dir),
             remote_path: remote_path.to_owned(),
         }),
+        // Deleted here after it was synced, with deletions passed on: the cloud backup deletes its copy too. A row with no local time stands for a file only the cloud backup ever had (see above), which stays.
+        (None, Some(r), Some(db))
+            if upload && sync_dir.sync_deletions && db.last_local_timestamp != 0 =>
+        {
+            delete_remote(r, sync_dir, snapshot, db_by_parent)
+        }
         // Deleted here: the cloud backup keeps its copy. The row stays, so the rows still stand in for the remote listing.
         (None, Some(_), Some(_)) if upload => None,
         (None, Some(r), Some(_)) => restore_local(r, sync_dir, snapshot, db_by_parent),
@@ -584,6 +560,60 @@ fn plan_one_way(
                 .flatten()
         }
     }
+}
+
+/// Whether a file the database knows is really gone from the remote: reported gone by the change source, which is certain, or missing from a full listing that still holds a synced sibling. A listing cut short (rate limit, cache flush) would otherwise read as a deletion.
+fn remote_absence_trusted(
+    remote_path: &str,
+    snapshot: &Snapshot,
+    db_by_parent: &HashMap<&str, Vec<&str>>,
+) -> bool {
+    if snapshot.reported_gone.contains(remote_path)
+        || parent_is_verified(remote_path, &snapshot.remote, db_by_parent)
+    {
+        return true;
+    }
+    eprintln!(
+        "sync: SKIP DeleteLocal for '{remote_path}' — listing enumerated no entries under '{}' (likely rate-limited / cache flush); preserving local copy.",
+        parent_of(remote_path),
+    );
+    false
+}
+
+/// Delete remotely a file or folder deleted here, unless the walk can't be trusted to have missed it on purpose:
+/// 1. Ancestor reliability. If the local walk reported an I/O error anywhere in this path's chain, the absence isn't a deletion signal but a walk glitch (most commonly a concurrent writer like Syncthing racing Syncative mid-readdir).
+/// 2. Sibling presence. A weaker backstop for paths whose ancestors look healthy but whose parent holds other DB-tracked rows that didn't make the walk either.
+fn delete_remote(
+    r: &RemoteItem,
+    sync_dir: &SyncDir,
+    snapshot: &Snapshot,
+    db_by_parent: &HashMap<&str, Vec<&str>>,
+) -> Option<Action> {
+    if ancestor_in_set(&r.path, &snapshot.walk_unreliable) {
+        eprintln!(
+            "sync: SKIP DeleteRemote for '{}' — local walk reported an error on this path or an ancestor; preserving remote copy.",
+            r.path,
+        );
+        return None;
+    }
+    // A sub-folder the walk read without error and found empty was emptied on purpose, so its files go remotely too. The sync folder itself is never in the walk and keeps the stricter check: an empty root more likely means an unmounted disk.
+    let parent_walked = snapshot
+        .local
+        .get(parent_of(&r.path))
+        .is_some_and(|p| p.is_dir);
+    if !parent_walked && !parent_is_verified(&r.path, &snapshot.local, db_by_parent) {
+        eprintln!(
+            "sync: SKIP DeleteRemote for '{}' — walk found no entries under '{}' (likely concurrent-write race); preserving remote copy.",
+            r.path,
+            parent_of(&r.path),
+        );
+        return None;
+    }
+    Some(Action::DeleteRemote {
+        local_path: derive_local_path(&r.path, sync_dir),
+        remote_path: r.path.clone(),
+        is_dir: r.is_dir,
+    })
 }
 
 /// Download a file or folder missing here that the database knows, unless the walk can't be trusted to have seen it: a walk error on the way, or a parent that came back empty (an unmounted disk).

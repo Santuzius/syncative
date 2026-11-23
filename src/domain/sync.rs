@@ -156,6 +156,20 @@ impl SyncMode {
             ],
         }
     }
+
+    /// [`Self::points`] without the point on deletions where the switch [`SyncDir::sync_deletions`] stands right below and says it.
+    pub fn points_beside_switch(self) -> Vec<&'static str> {
+        let mut points = self.points().to_vec();
+        if self.has_sync_deletions() {
+            points.remove(1);
+        }
+        points
+    }
+
+    /// Whether the folder settings offer [`SyncDir::sync_deletions`].
+    pub fn has_sync_deletions(self) -> bool {
+        matches!(self, Self::Upload | Self::Download)
+    }
 }
 
 impl std::fmt::Display for SyncMode {
@@ -173,6 +187,8 @@ pub struct SyncDir {
     pub mode: SyncMode,
     /// The mode the folder's `sync_items` were last written under. Until a pass brings them in line after a switch to [`SyncMode::TwoWay`], rows the one-way modes kept for files missing here don't count as deletions (see `services::sync::planner`).
     pub rows_mode: SyncMode,
+    /// For [`SyncMode::Upload`] and [`SyncMode::Download`]: what was deleted on the source side after it was synced is deleted on the backup side too, also what was deleted before the switch was turned on. What only the backup side ever had stays.
+    pub sync_deletions: bool,
 }
 
 impl SyncDir {
@@ -394,6 +410,7 @@ mod tests {
             remote_path: remote_path.to_owned(),
             mode: Default::default(),
             rows_mode: Default::default(),
+            sync_deletions: false,
         };
         assert_eq!(dir("Docs").relative("Docs/a/b.txt"), "a/b.txt");
         assert_eq!(dir("Docs").relative("Docs"), "Docs");

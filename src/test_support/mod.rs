@@ -98,6 +98,7 @@ pub fn sync_dir(id: i32, remote_id: i32, local_path: &str, remote_path: &str) ->
         remote_path: remote_path.to_owned(),
         mode: Default::default(),
         rows_mode: Default::default(),
+        sync_deletions: false,
     }
 }
 

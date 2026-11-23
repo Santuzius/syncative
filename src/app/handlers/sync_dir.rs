@@ -459,6 +459,43 @@ impl SyncativeApp {
         )
     }
 
+    /// Handle [`remote_page::Msg::SetSyncDeletions`] — store whether the backup folder passes deletions on, then sync it.
+    pub(in crate::app) fn handle_set_sync_deletions(
+        &mut self,
+        sd_id: SyncDirId,
+        on: bool,
+    ) -> Task<Message> {
+        let Some(dir) = self
+            .sync_dirs
+            .values_mut()
+            .flatten()
+            .find(|d| d.id == sd_id)
+        else {
+            return Task::none();
+        };
+        if dir.sync_deletions == on {
+            return Task::none();
+        }
+        dir.sync_deletions = on;
+        let remote_id = dir.remote_id;
+        let repo = self.repo.clone();
+        let engine = self.engine.clone();
+        Task::perform(
+            async move {
+                let line = match repo.set_sync_dir_sync_deletions(sd_id, on).await {
+                    Ok(()) if on => tr::tr!("Deletions are now synced to the backup."),
+                    Ok(()) => tr::tr!("Deletions are no longer synced to the backup."),
+                    Err(err) => tr::tr!("⚠ Couldn't change whether deletions are synced: {}", err),
+                };
+                engine.send(Command::Log(sd_id, line));
+                engine.send(Command::Reload);
+                engine.send(Command::SyncNow(remote_id));
+                remote_id
+            },
+            |id| Message::Main(main_page::Msg::Selected(id)),
+        )
+    }
+
     /// Handle [`remote_page::Msg::BrowseLocalPath`] — open the desktop's
     /// folder chooser off the UI thread.
     pub(in crate::app) fn handle_browse_local_path(&mut self) -> Task<Message> {

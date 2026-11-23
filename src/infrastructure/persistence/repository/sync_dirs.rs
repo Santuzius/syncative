@@ -98,6 +98,26 @@ pub(super) fn set_mode(
     })
 }
 
+/// Set whether the backup folder passes deletions on ([`crate::domain::sync::SyncDir::sync_deletions`]).
+pub(super) fn set_sync_deletions(
+    db: &DatabaseConnection,
+    sync_dir: SyncDirId,
+    on: bool,
+) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    Box::pin(async move {
+        let active = SyncDirsActiveModel {
+            id: ActiveValue::Unchanged(sync_dir.0),
+            sync_deletions: ActiveValue::Set(i32::from(on)),
+            ..Default::default()
+        };
+        SyncDirsEntity::update(active)
+            .exec(db)
+            .await
+            .map_err(map_err)?;
+        Ok(())
+    })
+}
+
 pub(super) fn list_all_sync_dirs(
     db: &DatabaseConnection,
 ) -> BoxFuture<'_, Result<Vec<SyncDir>, RepositoryError>> {

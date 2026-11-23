@@ -64,7 +64,7 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
 
 ## Most Important Features
 - Two-way sync, several folders per account, several accounts at the same time
-- One-way backups: *Cloud backup* uploads, *Local backup* downloads. A file deleted on the source side stays in the backup, and edits on the backup side get undone on the next pass
+- One-way backups: *Cloud backup* uploads, *Local backup* downloads. A file deleted on the source side stays in the backup, or is deleted there too with the folder's *Sync deletions to backup* switch. Edits on the backup side get undone on the next pass
 - Filters: exclude sub-folders or files, and leftover copies get cleaned up. If a synced folder sits inside another one, you choose: a symlink, sync it in both, or exclude it
 - Conflicts: a file changed on both sides never gets overwritten silently. Keep the local version, the remote one or both, per file or for all at once
 - Credentials stay on the device: in the system keyring on Linux, encrypted with the Android Keystore on Android
