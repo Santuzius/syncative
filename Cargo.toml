@@ -50,7 +50,7 @@ libc = "0.2"
 # Rasterise tray SVGs to ARGB32 at startup so KDE's symbolic-icon
 # recolour pipeline never touches them — it collapses the
 # Inkscape-era masked paths to a solid black square.
-resvg = { version = "0.47", default-features = false }
+resvg = { version = "0.50", default-features = false }
 # Syncative's combined Go archive — provides the librclone RPC surface
 # plus the native ProtonDrive entry points. See `src/go/` for the Go
 # side.
