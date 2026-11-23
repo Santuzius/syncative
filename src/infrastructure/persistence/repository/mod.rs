@@ -157,7 +157,7 @@ impl Repository for SeaOrmRepository {
         remote: RemoteId,
         local_path: String,
         remote_path: String,
-        mode: SyncMode,
+        mode: ModeChange,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         sync_dirs::insert_sync_dir(&self.db, remote, local_path, remote_path, mode)
     }
@@ -417,7 +417,7 @@ mod tests {
                 id,
                 local.to_owned(),
                 remote.to_owned(),
-                Default::default(),
+                SyncMode::TwoWay.into(),
             ))
             .unwrap();
         }
@@ -528,7 +528,7 @@ mod tests {
                 id,
                 local.to_owned(),
                 local[1..].to_owned(),
-                SyncMode::TwoWay,
+                SyncMode::TwoWay.into(),
             ))
             .unwrap();
         }
@@ -576,8 +576,13 @@ mod tests {
         await_future(Migrator::up(&db, None)).unwrap();
         let repo = SeaOrmRepository::new(db);
         let id = await_future(repo.insert_remote("R".to_owned())).unwrap();
-        await_future(repo.insert_sync_dir(id, "/a".to_owned(), String::new(), SyncMode::Upload))
-            .unwrap();
+        await_future(repo.insert_sync_dir(
+            id,
+            "/a".to_owned(),
+            String::new(),
+            SyncMode::Upload.into(),
+        ))
+        .unwrap();
         let dir = await_future(repo.list_sync_dirs(id)).unwrap().remove(0);
         assert_eq!(
             (dir.mode, dir.rows_mode),
@@ -605,8 +610,13 @@ mod tests {
         await_future(Migrator::up(&db, None)).unwrap();
         let repo = SeaOrmRepository::new(db);
         let id = await_future(repo.insert_remote("R".to_owned())).unwrap();
-        await_future(repo.insert_sync_dir(id, "/a".to_owned(), String::new(), Default::default()))
-            .unwrap();
+        await_future(repo.insert_sync_dir(
+            id,
+            "/a".to_owned(),
+            String::new(),
+            SyncMode::TwoWay.into(),
+        ))
+        .unwrap();
         let dir = await_future(repo.list_sync_dirs(id)).unwrap().remove(0);
 
         await_future(

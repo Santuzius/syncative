@@ -9,7 +9,7 @@ use crate::{
     domain::{
         ports::{BackendClient, Repository},
         remote::{Backend, Interval, SyncPolicy},
-        sync::{NestedFilter, SyncDir, SyncMode},
+        sync::{ModeChange, NestedFilter, SyncDir, SyncMode},
     },
     infrastructure::{client_router::ClientRouter, proton::client::DisabledProtonClient},
     services::{appearance::Appearance, autostart, power},
@@ -255,11 +255,14 @@ pub fn import(
                     id,
                     folder.local_path.clone(),
                     folder.remote_path.clone(),
-                    folder
-                        .mode
-                        .as_deref()
-                        .and_then(SyncMode::parse)
-                        .unwrap_or_default(),
+                    ModeChange {
+                        mode: folder
+                            .mode
+                            .as_deref()
+                            .and_then(SyncMode::parse)
+                            .unwrap_or_default(),
+                        sync_deletions: folder.sync_deletions,
+                    },
                 ),
             )
             .map_err(|e| e.to_string())?;
@@ -269,7 +272,7 @@ pub fn import(
                 folder.remote_path.clone(),
                 folder.nested,
             ));
-            if folder.exclusions.is_empty() && folder.hidden.is_empty() && !folder.sync_deletions {
+            if folder.exclusions.is_empty() && folder.hidden.is_empty() {
                 continue;
             }
             let dirs = util::await_future(repo.list_sync_dirs(id)).map_err(|e| e.to_string())?;
@@ -279,10 +282,6 @@ pub fn import(
             else {
                 continue;
             };
-            if folder.sync_deletions {
-                util::await_future(repo.set_sync_dir_sync_deletions(dir.id, true))
-                    .map_err(|e| e.to_string())?;
-            }
             for exclusion in folder.exclusions {
                 util::await_future(repo.insert_exclusion(dir.id, exclusion))
                     .map_err(|e| e.to_string())?;

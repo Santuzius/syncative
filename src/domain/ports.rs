@@ -116,7 +116,7 @@ pub trait Repository: Send + Sync {
         remote: RemoteId,
         local_path: String,
         remote_path: String,
-        mode: SyncMode,
+        mode: ModeChange,
     ) -> BoxFuture<'_, Result<(), RepositoryError>>;
     /// Change which way the folder syncs; its `rows_mode` stays for the next pass to bring in line.
     fn set_sync_dir_mode(

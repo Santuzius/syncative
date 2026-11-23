@@ -174,7 +174,7 @@ impl Repository for FakeRepo {
         _r: RemoteId,
         _l: String,
         _rp: String,
-        _m: SyncMode,
+        _m: ModeChange,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         Box::pin(async { Ok(()) })
     }

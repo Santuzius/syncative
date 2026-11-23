@@ -300,7 +300,8 @@ impl SyncativeApp {
         };
         // Nothing typed yet is a draft too: an Android network drive of the whole remote needs no input.
         let (local, remote) = self.sync_dir_drafts.get(&id).cloned().unwrap_or_default();
-        let mode = self.add_folder_mode;
+        let picked = self.add_folder_mode;
+        let mode = picked.mode;
         let Some(remote_name) = self
             .remotes
             .iter()
@@ -386,7 +387,7 @@ impl SyncativeApp {
                 .unwrap_or_else(|e| Err(e.to_string()));
                 let result = match created {
                     Ok(()) => repo
-                        .insert_sync_dir(id, local_norm, remote_norm, mode)
+                        .insert_sync_dir(id, local_norm, remote_norm, picked)
                         .await
                         .map(|_| ())
                         .map_err(|e| e.to_string()),

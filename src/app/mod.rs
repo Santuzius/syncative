@@ -21,7 +21,9 @@ use crate::{
         ports::Repository,
         remote::{Remote, RemoteId},
         run_state::RunState,
-        sync::{Conflict, NestedFilter, SyncDir, SyncDirExclusion, SyncDirId, SyncMode},
+        sync::{
+            Conflict, ModeChange, NestedFilter, SyncDir, SyncDirExclusion, SyncDirId, SyncMode,
+        },
     },
     engine::{self, Snapshot},
     infrastructure::{
@@ -259,8 +261,8 @@ pub struct SyncativeApp {
     drawer_open: bool,
     /// The add-folder dialog is open.
     add_folder_open: bool,
-    /// The mode picked in the add-folder dialog, two-way until the user picks another.
-    add_folder_mode: SyncMode,
+    /// The mode and deletions switch picked in the add-folder dialog, two-way until the user picks another.
+    add_folder_mode: ModeChange,
     /// The settings dialog of a folder, open with what the user picked so far.
     folder_settings: Option<remote_page::FolderSettingsDraft>,
     /// The folder picker, over every other dialog while open.
@@ -348,7 +350,7 @@ impl SyncativeApp {
             pending_delete: None,
             drawer_open: false,
             add_folder_open: false,
-            add_folder_mode: SyncMode::TwoWay,
+            add_folder_mode: SyncMode::TwoWay.into(),
             folder_settings: None,
             folder_picker: None,
             folder_picker_generation: 0,
@@ -720,12 +722,16 @@ impl SyncativeApp {
             }
             Message::Remote(remote_page::Msg::OpenAddFolder) => {
                 self.add_folder_open = true;
-                self.add_folder_mode = SyncMode::TwoWay;
+                self.add_folder_mode = SyncMode::TwoWay.into();
                 self.add_sync_dir_error = None;
                 Task::none()
             }
             Message::Remote(remote_page::Msg::PickAddMode(mode)) => {
-                self.add_folder_mode = mode;
+                self.add_folder_mode.mode = mode;
+                Task::none()
+            }
+            Message::Remote(remote_page::Msg::PickAddSyncDeletions(on)) => {
+                self.add_folder_mode.sync_deletions = on;
                 Task::none()
             }
             Message::Remote(remote_page::Msg::OpenFolderSettings(sd_id)) => {

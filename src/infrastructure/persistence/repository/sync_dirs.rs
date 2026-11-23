@@ -178,15 +178,19 @@ pub(super) fn insert_sync_dir(
     remote: RemoteId,
     local_path: String,
     remote_path: String,
-    mode: SyncMode,
+    change: ModeChange,
 ) -> BoxFuture<'_, Result<(), RepositoryError>> {
     Box::pin(async move {
+        let mode = change.mode.as_str();
         let active = SyncDirsActiveModel {
             remote_id: ActiveValue::Set(remote.0),
             local_path: ActiveValue::Set(local_path),
             remote_path: ActiveValue::Set(remote_path),
-            mode: ActiveValue::Set(mode.as_str().to_owned()),
-            rows_mode: ActiveValue::Set(mode.as_str().to_owned()),
+            mode: ActiveValue::Set(mode.to_owned()),
+            rows_mode: ActiveValue::Set(mode.to_owned()),
+            sync_deletions: ActiveValue::Set(i32::from(
+                change.sync_deletions && change.mode.has_sync_deletions(),
+            )),
             ..Default::default()
         };
         SyncDirsEntity::insert(active)

@@ -97,6 +97,8 @@ pub enum Msg {
     CloseAddFolder,
     /// The mode picked in the add-folder dialog.
     PickAddMode(SyncMode),
+    /// Turn the add-folder dialog's deletions switch on or off.
+    PickAddSyncDeletions(bool),
     /// Open / close a folder's settings dialog.
     OpenFolderSettings(SyncDirId),
     CloseFolderSettings,
@@ -419,7 +421,7 @@ fn compact_header<'a>(page: &Page<'a>) -> Element<'a, Msg> {
 /// The add-folder dialog: the mode, and where the folder is on both sides.
 pub fn add_folder_dialog<'a>(
     remote: &'a Remote,
-    mode: SyncMode,
+    picked: ModeChange,
     draft_local: &'a str,
     draft_remote: &'a str,
     error: Option<&'a str>,
@@ -428,7 +430,7 @@ pub fn add_folder_dialog<'a>(
 ) -> Element<'a, Msg> {
     container(add_folder_form(
         remote,
-        mode,
+        picked,
         draft_local,
         draft_remote,
         error,
@@ -451,22 +453,46 @@ pub fn mode_glyph(mode: SyncMode) -> icondata::Icon {
     }
 }
 
-/// The modes as a button group with what the chosen one does beneath, as the power mode in Preferences. `beside_switch`: the folder settings show the switch of `SyncDir::sync_deletions` below, which takes the place of the point on deletions.
+/// The switch "Sync deletions to backup" for a mode that has it ([`SyncMode::has_sync_deletions`]), as the folder settings and the add-folder dialog show it below the mode.
+fn sync_deletions_switch<'a>(
+    picked: ModeChange,
+    on_toggle: fn(bool) -> Msg,
+) -> Option<Element<'a, Msg>> {
+    let detail = match picked.mode {
+        SyncMode::Upload => {
+            "Delete on the remote what is deleted here, also what was deleted before. Files only ever on the remote stay."
+        }
+        SyncMode::Download => {
+            "Delete here what is deleted on the remote. Files only ever here stay."
+        }
+        SyncMode::TwoWay | SyncMode::NetworkDrive => return None,
+    };
+    Some(
+        row![
+            column![
+                text("Sync deletions to backup").size(TEXT),
+                text(detail).size(CAPTION).style(theme::muted)
+            ]
+            .spacing(2)
+            .width(Length::Fill),
+            toggler(picked.sync_deletions).on_toggle(on_toggle).size(20),
+        ]
+        .spacing(16)
+        .align_y(Alignment::Center)
+        .into(),
+    )
+}
+
+/// The modes as a button group with what the chosen one does beneath, as the power mode in Preferences. The point on deletions is left out where [`sync_deletions_switch`] below says it.
 fn mode_choice<'a>(
     choices: &[SyncMode],
     current: Option<SyncMode>,
-    beside_switch: bool,
     on_pick: impl Fn(SyncMode) -> Msg,
 ) -> Element<'a, Msg> {
     let mut choice = column![segmented(choices, SyncMode::label, current, on_pick)].spacing(10);
     if let Some(mode) = current {
         let mut points = column![].spacing(4);
-        let described = if beside_switch {
-            mode.points_beside_switch()
-        } else {
-            mode.points().to_vec()
-        };
-        for point in described {
+        for point in mode.points_beside_switch() {
             points = points.push(bullet(point));
         }
         choice = choice.push(points);
@@ -495,27 +521,15 @@ pub fn folder_settings_dialog<'a>(
             mode_choice(
                 &SyncMode::choices(beta, Some(sd.mode)),
                 Some(picked.mode),
-                true,
                 Msg::PickFolderMode
             ),
         ]
         .spacing(10)
         .padding([12, 14])
     ];
-    if picked.mode.has_sync_deletions() {
+    if let Some(switch) = sync_deletions_switch(picked, Msg::PickSyncDeletions) {
         rows = rows.push(rule::horizontal(1).style(theme::separator));
-        rows = rows.push(setting_row(
-            "Sync deletions to backup",
-            if picked.mode == SyncMode::Upload {
-                "Delete on the remote what is deleted here, also what was deleted before. Files only ever on the remote stay."
-            } else {
-                "Delete here what is deleted on the remote. Files only ever here stay."
-            },
-            toggler(picked.sync_deletions)
-                .on_toggle(Msg::PickSyncDeletions)
-                .size(20)
-                .into(),
-        ));
+        rows = rows.push(container(switch).padding([12, 14]));
     }
     if crate::services::nomedia::APPLIES {
         rows = rows.push(rule::horizontal(1).style(theme::separator));
@@ -1310,13 +1324,14 @@ fn browse_button<'a>(
 /// The add-folder dialog's second step: where the folder is on both sides.
 fn add_folder_form<'a>(
     remote: &'a Remote,
-    mode: SyncMode,
+    picked: ModeChange,
     draft_local: &'a str,
     draft_remote: &'a str,
     error: Option<&'a str>,
     compact: bool,
     beta: bool,
 ) -> Element<'a, Msg> {
+    let mode = picked.mode;
     // On Android a network drive has no local folder; other apps reach it through the document provider.
     let local_needed = !(mode == SyncMode::NetworkDrive && cfg!(target_os = "android"));
     let can_add = !local_needed || !draft_local.trim().is_empty();
@@ -1338,30 +1353,24 @@ fn add_folder_form<'a>(
             .into()
         }
     };
-    // Like the other fields, but the label stays at the top beside the button group and its points.
+    // Like the other fields, but the label stays at the top beside the button group, its points and the deletions switch.
+    let choice = column![mode_choice(
+        &SyncMode::choices(beta, None),
+        Some(mode),
+        Msg::PickAddMode
+    )]
+    .push(sync_deletions_switch(picked, Msg::PickAddSyncDeletions))
+    .spacing(12);
     let mode_field: Element<'a, Msg> = if compact {
-        column![
-            text("Mode").size(CAPTION).style(theme::muted),
-            mode_choice(
-                &SyncMode::choices(beta, None),
-                Some(mode),
-                false,
-                Msg::PickAddMode
-            )
-        ]
-        .spacing(4)
-        .into()
+        column![text("Mode").size(CAPTION).style(theme::muted), choice]
+            .spacing(4)
+            .into()
     } else {
         row![
             container(text("Mode").size(TEXT))
                 .padding([6, 0])
                 .width(Length::Fixed(FORM_LABEL_WIDTH)),
-            mode_choice(
-                &SyncMode::choices(beta, None),
-                Some(mode),
-                false,
-                Msg::PickAddMode
-            )
+            choice
         ]
         .spacing(ROW_SPACING)
         .into()

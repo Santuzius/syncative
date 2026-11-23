@@ -202,6 +202,16 @@ pub struct ModeChange {
     pub sync_deletions: bool,
 }
 
+/// The mode with deletions not passed on.
+impl From<SyncMode> for ModeChange {
+    fn from(mode: SyncMode) -> Self {
+        Self {
+            mode,
+            sync_deletions: false,
+        }
+    }
+}
+
 impl SyncDir {
     /// `remote_path` relative to this folder's remote path, e.g. as an exclusion is stored; a path outside it comes back whole.
     pub fn relative<'a>(&self, remote_path: &'a str) -> &'a str {

@@ -208,7 +208,7 @@ mod tests {
             _r: RemoteId,
             _l: String,
             _rp: String,
-            _m: crate::domain::sync::SyncMode,
+            _m: crate::domain::sync::ModeChange,
         ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
