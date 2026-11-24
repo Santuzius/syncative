@@ -66,6 +66,7 @@ fn map_sync_dir(m: SyncDirsModel) -> SyncDir {
                 mode,
                 sync_deletions: m.pending_sync_deletions != 0,
             }),
+        dates_checked: m.dates_checked != 0,
     }
 }
 
@@ -200,6 +201,13 @@ impl Repository for SeaOrmRepository {
         change: ModeChange,
     ) -> BoxFuture<'_, Result<(), RepositoryError>> {
         sync_dirs::apply_pending(&self.db, sync_dir, change)
+    }
+
+    fn set_sync_dir_dates_checked(
+        &self,
+        sync_dir: SyncDirId,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
+        sync_dirs::set_dates_checked(&self.db, sync_dir)
     }
 
     fn sync_dir_exists(

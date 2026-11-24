@@ -148,6 +148,11 @@ pub trait Repository: Send + Sync {
         sync_dir: SyncDirId,
         change: ModeChange,
     ) -> BoxFuture<'_, Result<(), RepositoryError>>;
+    /// Record that the folder had its check for files that kept the upload's date ([`SyncDir::dates_checked`]).
+    fn set_sync_dir_dates_checked(
+        &self,
+        sync_dir: SyncDirId,
+    ) -> BoxFuture<'_, Result<(), RepositoryError>>;
     fn list_sync_items(
         &self,
         sync_dir: SyncDirId,

@@ -165,6 +165,25 @@ pub(super) fn apply_pending(
     })
 }
 
+/// Record that the folder had its check for files that kept the upload's date ([`crate::domain::sync::SyncDir::dates_checked`]).
+pub(super) fn set_dates_checked(
+    db: &DatabaseConnection,
+    sync_dir: SyncDirId,
+) -> BoxFuture<'_, Result<(), RepositoryError>> {
+    Box::pin(async move {
+        let active = SyncDirsActiveModel {
+            id: ActiveValue::Unchanged(sync_dir.0),
+            dates_checked: ActiveValue::Set(1),
+            ..Default::default()
+        };
+        SyncDirsEntity::update(active)
+            .exec(db)
+            .await
+            .map_err(map_err)?;
+        Ok(())
+    })
+}
+
 pub(super) fn list_all_sync_dirs(
     db: &DatabaseConnection,
 ) -> BoxFuture<'_, Result<Vec<SyncDir>, RepositoryError>> {

@@ -899,7 +899,7 @@ fn same_content(
 }
 
 /// Sets a file's modification time to `secs` after 1970.
-fn set_mtime(path: &str, secs: i64) -> std::io::Result<()> {
+pub(super) fn set_mtime(path: &str, secs: i64) -> std::io::Result<()> {
     let secs =
         u64::try_from(secs).map_err(|_| std::io::Error::other("modification time before 1970"))?;
     fs::File::options()
@@ -1124,7 +1124,7 @@ fn save_row(
     }
 }
 
-fn local_timestamp(path: &Path) -> Option<u64> {
+pub(super) fn local_timestamp(path: &Path) -> Option<u64> {
     timestamp(fs::metadata(path).ok()?.modified().ok()?)
 }
 
