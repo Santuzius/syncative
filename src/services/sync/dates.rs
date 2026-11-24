@@ -6,14 +6,47 @@ use std::path::Path;
 
 use crate::domain::{
     ports::{BackendClient, Cancel, Repository},
-    remote::Remote,
-    sync::{SyncDir, SyncItem},
+    remote::{Backend, Remote},
+    sync::{SyncDir, SyncItem, SyncMode},
 };
 
 use super::applier::{local_timestamp, set_mtime};
 
+/// Whether the folder still owes its check for files that kept the upload's date ([`SyncDir::dates_checked`]): only Proton listed that date, and a network drive keeps no files here.
+pub(super) fn needs_check(remote: &Remote, sync_dir: &SyncDir) -> bool {
+    !sync_dir.dates_checked
+        && remote.backend == Backend::NativeProton
+        && sync_dir.mode != SyncMode::NetworkDrive
+}
+
+/// At the end of a pass that synced the folder, its rows match both sides: give files that kept the upload's date the time they were last modified, once, while the folder still shows that it syncs. When a time couldn't be asked for, a later pass tries again.
+pub(super) fn check(
+    remote: &Remote,
+    sync_dir: &SyncDir,
+    repo: &dyn Repository,
+    client: &dyn BackendClient,
+    cancel: &Cancel,
+    emit_status: impl Fn(String),
+) {
+    match repaired_dates(remote, sync_dir, repo, client, cancel) {
+        Ok(repaired) => {
+            let _ = crate::util::await_future(repo.set_sync_dir_dates_checked(sync_dir.id));
+            if repaired > 0 {
+                emit_status(tr::tr!(
+                    "Gave {} files back the date they were last modified, which an earlier version had replaced with the date of their upload.",
+                    repaired
+                ));
+            }
+        }
+        Err(err) => eprintln!(
+            "sync: the check of '{}' for files with the date of their upload stopped; the next pass tries again: {err}",
+            sync_dir.remote_path
+        ),
+    }
+}
+
 /// Give each file of `sync_dir` that still has the time Proton lists the time it was last modified, and update its row; how many files got another time. An error when a time couldn't be asked for, so a later pass tries again.
-pub(crate) fn repaired_dates(
+fn repaired_dates(
     remote: &Remote,
     sync_dir: &SyncDir,
     repo: &dyn Repository,

@@ -28,7 +28,7 @@ use crate::domain::{
 };
 
 mod applier;
-pub(crate) mod dates;
+mod dates;
 pub mod local_names;
 mod planner;
 mod remote_view;
@@ -322,6 +322,9 @@ where
                 failed
             )
         });
+    }
+    if dates::needs_check(remote, sync_dir) && !is_cancelled() {
+        dates::check(remote, sync_dir, repo, client, cancel, emit_status);
     }
     emit_state(RunState::Synced);
     Outcome::Synced

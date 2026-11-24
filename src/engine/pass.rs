@@ -10,8 +10,8 @@ use crate::{
     domain::{
         events::SyncEvent,
         ports::{BackendClient, Cancel, Repository},
-        remote::{Backend, Remote, RemoteId},
-        sync::{ModeChange, Resolution, SyncDir, SyncDirId, SyncMode},
+        remote::RemoteId,
+        sync::{ModeChange, Resolution, SyncDir, SyncDirId},
     },
     infrastructure::{stderr_capture::CaptureHandle, translators::rclone::RATE_LIMIT_MARKERS},
     services::sync::Outcome,
@@ -134,9 +134,6 @@ impl Pass {
                 }
                 match outcome {
                     Outcome::Synced => {
-                        if needs_date_check(&remote, &sd) && !cancel.load(Ordering::Acquire) {
-                            check_dates(&remote, &sd, &*repo, &*backend, &cancel, &emit);
-                        }
                         synced.insert(sd.id);
                     }
                     Outcome::Degraded => any_degraded = true,
@@ -191,43 +188,6 @@ fn switch_mode(
     }
 }
 
-/// Whether the folder still owes its check for files that kept the upload's date ([`SyncDir::dates_checked`]): only Proton listed that date, and a network drive keeps no files here.
-fn needs_date_check(remote: &Remote, sd: &SyncDir) -> bool {
-    !sd.dates_checked
-        && remote.backend == Backend::NativeProton
-        && sd.mode != SyncMode::NetworkDrive
-}
-
-/// After a pass that synced the folder, its rows match both sides: give files that kept the upload's date the time they were last modified, once (see `services::sync::dates`). When a time couldn't be asked for, a later pass tries again.
-fn check_dates(
-    remote: &Remote,
-    sd: &SyncDir,
-    repo: &dyn Repository,
-    backend: &dyn BackendClient,
-    cancel: &Cancel,
-    emit: &impl Fn(SyncEvent),
-) {
-    match crate::services::sync::dates::repaired_dates(remote, sd, repo, backend, cancel) {
-        Ok(repaired) => {
-            let _ = crate::util::await_future(repo.set_sync_dir_dates_checked(sd.id));
-            if repaired > 0 {
-                emit_line(
-                    sd,
-                    tr::tr!(
-                        "Gave {} files back the date they were last modified, which an earlier version had replaced with the date of their upload.",
-                        repaired
-                    ),
-                    emit,
-                );
-            }
-        }
-        Err(err) => eprintln!(
-            "sync: the check of '{}' for files with the date of their upload stopped; the next pass tries again: {err}",
-            sd.remote_path
-        ),
-    }
-}
-
 /// The pass in the current mode didn't go through: the folder keeps its mode, and the user can apply the change again.
 fn drop_change(repo: &dyn Repository, sd: &SyncDir, change: ModeChange, emit: &impl Fn(SyncEvent)) {
     let _ = crate::util::await_future(repo.set_sync_dir_pending(sd.id, None));
@@ -253,6 +213,7 @@ fn emit_line(sd: &SyncDir, text: String, emit: &impl Fn(SyncEvent)) {
 mod tests {
     use super::*;
     use crate::{
+        domain::{remote::Backend, sync::SyncMode},
         infrastructure::stderr_capture,
         test_support::{
             FakeBackend, FakeRepo, TempDir, remote, remote_item, sync_dir, touch_mtime,
