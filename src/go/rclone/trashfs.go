@@ -436,6 +436,9 @@ func (o *wrappedObject) Fs() fs.Info { return o.f }
 // UnWrap returns the remote's file.
 func (o *wrappedObject) UnWrap() fs.Object { return o.Object }
 
+// ModTime is the time the file was last modified where the remote lists another one (see shownModTime): the mount shows it, and rclone's VFS compares it to the cached copy's, along with size and hash.
+func (o *wrappedObject) ModTime(ctx context.Context) time.Time { return shownModTime(ctx, o.Object) }
+
 // ID is the remote's ID of the file, if it has one.
 func (o *wrappedObject) ID() string {
 	if ider, ok := o.Object.(fs.IDer); ok {

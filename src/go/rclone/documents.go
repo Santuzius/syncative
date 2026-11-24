@@ -112,7 +112,7 @@ func entry(name string, info os.FileInfo) rc.Params {
 		"name":     name,
 		"dir":      info.IsDir(),
 		"size":     info.Size(),
-		"modified": info.ModTime().UnixMilli(),
+		"modified": nodeModTime(info).UnixMilli(),
 	}
 }
 

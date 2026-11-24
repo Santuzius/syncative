@@ -526,6 +526,14 @@ func (o *Object) Metadata(ctx context.Context) (fs.Metadata, error) {
 	return fs.Metadata{"mtime": attrs.ModTime.UTC().Format(time.RFC3339Nano)}, nil
 }
 
+// ModifiedTime is the time the file was last modified before its upload, which a network drive shows (src/go/rclone/modtime.go); the revision's time when the attributes couldn't be fetched.
+func (o *Object) ModifiedTime(ctx context.Context) time.Time {
+	if attrs, err := o.fileAttrs(ctx); err == nil {
+		return attrs.ModTime
+	}
+	return o.ModTime(ctx)
+}
+
 // fileAttrs decrypts the revision's extended attributes once; an error when they couldn't be fetched.
 func (o *Object) fileAttrs(ctx context.Context) (*drive.FileAttrs, error) {
 	o.attrsOnce.Do(func() {
