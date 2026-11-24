@@ -201,6 +201,7 @@ type Object struct {
 
 	attrsOnce sync.Once
 	attrs     *drive.FileAttrs
+	attrsErr  error
 }
 
 // NewFs makes the backend for remote `name` with the path `root`.
@@ -218,6 +219,7 @@ func NewFs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, e
 	f.features = (&fs.Features{
 		CanHaveEmptyDirectories: true,
 		ReadMimeType:            true,
+		ReadMetadata:            true,
 	}).Fill(ctx, f)
 	rootID := sess.RootLinkID()
 	f.dirCache = dircache.New(root, rootID, f)
@@ -515,26 +517,37 @@ func (o *Object) ModTime(ctx context.Context) time.Time { return o.item.ModTime(
 // SetModTime can't be done without a new revision.
 func (o *Object) SetModTime(ctx context.Context, t time.Time) error { return fs.ErrorCantSetModTime }
 
-// fileAttrs decrypts the revision's extended attributes once; nil when they can't be read.
-func (o *Object) fileAttrs(ctx context.Context) *drive.FileAttrs {
+// Metadata gives, as "mtime", the time the file was last modified before its upload, from the revision's extended attributes (the revision's time where it has none): downloads take that time, while ModTime stays the revision's, the one the sync compares. An error when the attributes couldn't be fetched, so that a download fails instead of taking the upload's time.
+func (o *Object) Metadata(ctx context.Context) (fs.Metadata, error) {
+	attrs, err := o.fileAttrs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fs.Metadata{"mtime": attrs.ModTime.UTC().Format(time.RFC3339Nano)}, nil
+}
+
+// fileAttrs decrypts the revision's extended attributes once; an error when they couldn't be fetched.
+func (o *Object) fileAttrs(ctx context.Context) (*drive.FileAttrs, error) {
 	o.attrsOnce.Do(func() {
 		sess, err := o.fs.session()
 		if err != nil {
+			o.attrsErr = err
 			return
 		}
 		attrs, err := sess.Attrs(ctx, &o.item)
 		if err != nil {
 			fs.Debugf(o, "extended attributes: %v", err)
+			o.attrsErr = fmt.Errorf("extended attributes: %w", err)
 			return
 		}
 		o.attrs = attrs
 	})
-	return o.attrs
+	return o.attrs, o.attrsErr
 }
 
 // Size is the plaintext size the uploader recorded; -1 when the revision has none, as the encrypted size Proton keeps is larger.
 func (o *Object) Size() int64 {
-	if attrs := o.fileAttrs(context.Background()); attrs != nil {
+	if attrs, err := o.fileAttrs(context.Background()); err == nil {
 		return attrs.Size
 	}
 	return -1
@@ -545,7 +558,7 @@ func (o *Object) Hash(ctx context.Context, t hash.Type) (string, error) {
 	if t != hash.SHA1 {
 		return "", hash.ErrUnsupported
 	}
-	if attrs := o.fileAttrs(ctx); attrs != nil {
+	if attrs, err := o.fileAttrs(ctx); err == nil {
 		return attrs.SHA1, nil
 	}
 	return "", nil
@@ -617,6 +630,7 @@ func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, op
 	o.item = *item
 	o.attrsOnce = sync.Once{}
 	o.attrs = nil
+	o.attrsErr = nil
 	return nil
 }
 
@@ -765,4 +779,5 @@ var (
 	_ fs.Object          = (*Object)(nil)
 	_ fs.MimeTyper       = (*Object)(nil)
 	_ fs.IDer            = (*Object)(nil)
+	_ fs.Metadataer      = (*Object)(nil)
 )

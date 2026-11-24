@@ -12,6 +12,7 @@
 //! the source of truth lives behind libsecret.
 
 use std::{collections::HashMap, path::PathBuf};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::domain::{
     ports::{BackendClient, Cancel},
@@ -66,6 +67,24 @@ impl LibrcloneClient {
         if let Err(err) = secrets::store(secrets::RCLONE_ACCOUNT, &body) {
             eprintln!("syncative: rclone config keyring sync failed: {err}");
         }
+    }
+}
+
+/// A file's details from rclone's `operations/stat` with hashes and metadata.
+pub(crate) fn file_details(item: BackendRemoteItem) -> FileDetails {
+    FileDetails {
+        size: u64::try_from(item.size).ok(),
+        // The time the file was last modified where the backend keeps it apart from the listing's time (Proton lists the upload's).
+        mod_time: item
+            .metadata
+            .get("mtime")
+            .and_then(|t| OffsetDateTime::parse(t, &Rfc3339).ok())
+            .unwrap_or(item.mod_time),
+        sha1: item
+            .hashes
+            .get("sha1")
+            .filter(|h| !h.is_empty())
+            .map(|h| h.to_lowercase()),
     }
 }
 
@@ -152,15 +171,7 @@ impl BackendClient for LibrcloneClient {
         cancel: &Cancel,
     ) -> Result<Option<FileDetails>, String> {
         let item = rpc::sync::details(remote, path, cancel).map_err(|err| err.error)?;
-        Ok(item.filter(|item| !item.is_dir).map(|item| FileDetails {
-            size: u64::try_from(item.size).ok(),
-            mod_time: item.mod_time,
-            sha1: item
-                .hashes
-                .get("sha1")
-                .filter(|h| !h.is_empty())
-                .map(|h| h.to_lowercase()),
-        }))
+        Ok(item.filter(|item| !item.is_dir).map(file_details))
     }
 
     fn mkdir(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {
@@ -192,7 +203,8 @@ impl BackendClient for LibrcloneClient {
         remote_path: &str,
         cancel: &Cancel,
     ) -> Result<(), String> {
-        rpc::sync::copy_to_local(local_path, remote, remote_path, cancel).map_err(|err| err.error)
+        rpc::sync::copy_to_local(local_path, remote, remote_path, false, cancel)
+            .map_err(|err| err.error)
     }
 
     fn delete_config(&self, remote: &str) -> Result<(), String> {
@@ -364,5 +376,31 @@ impl BackendClient for LibrcloneClient {
             used: about.used as u64,
             total: (about.total > 0).then_some(about.total as u64),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(json: &str) -> BackendRemoteItem {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn details_take_the_metadata_mtime_over_the_listed_time() {
+        let details = file_details(item(
+            r#"{"IsDir":false,"Path":"a.jpg","Name":"a.jpg","ModTime":"2026-11-20T10:00:00Z","Size":3,"Hashes":{"sha1":"ABC"},"Metadata":{"mtime":"2024-03-01T08:30:00Z"}}"#,
+        ));
+        assert_eq!(details.mod_time.unix_timestamp(), 1_709_281_800);
+        assert_eq!(details.sha1.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn details_keep_the_listed_time_without_metadata() {
+        let details = file_details(item(
+            r#"{"IsDir":false,"Path":"a.jpg","Name":"a.jpg","ModTime":"2026-11-20T10:00:00Z","Size":3}"#,
+        ));
+        assert_eq!(details.mod_time.unix_timestamp(), 1_795_168_800);
     }
 }

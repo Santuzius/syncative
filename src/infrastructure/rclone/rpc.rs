@@ -223,6 +223,9 @@ pub struct BackendRemoteItem {
     /// Only filled when requested (see [`sync::details`]); keys are rclone hash names such as `sha1`.
     #[serde(rename = "Hashes", default)]
     pub hashes: std::collections::HashMap<String, String>,
+    /// Only filled when requested (see [`sync::details`]) and the backend has metadata; Proton's "mtime" is the time the file was last modified before its upload.
+    #[serde(rename = "Metadata", default)]
+    pub metadata: std::collections::HashMap<String, String>,
 }
 
 /// The types of items to show in an `operations/list` command.
@@ -318,7 +321,7 @@ pub mod sync {
         }
     }
 
-    /// Like [`stat`], with the SHA-1 of the content where the backend has one (Google Drive does).
+    /// Like [`stat`], with the SHA-1 of the content where the backend has one (Google Drive does) and the backend's metadata.
     pub fn details(
         remote_name: &str,
         path: &str,
@@ -329,7 +332,7 @@ pub mod sync {
             &json!({
                 "fs": get_remote_name(remote_name),
                 "remote": util::strip_slashes(path),
-                "opt": { "showHash": true, "hashTypes": ["sha1"] }
+                "opt": { "showHash": true, "hashTypes": ["sha1"], "metadata": true }
             })
             .to_string(),
             cancel,
@@ -462,10 +465,13 @@ pub mod sync {
     }
 
     /// Copy a file from the remote to the local machine.
+    ///
+    /// With `metadata`, the local file also takes the remote's metadata, where Proton keeps the time the file was last modified before its upload; a remote whose metadata can't be read then fails the copy.
     pub fn copy_to_local(
         local_destination: &str,
         remote_name: &str,
         remote_file: &str,
+        metadata: bool,
         cancel: &Cancel,
     ) -> Result<(), RcloneError> {
         copy(
@@ -473,7 +479,7 @@ pub mod sync {
             remote_file,
             "/",
             local_destination,
-            None,
+            metadata.then(|| json!({ "Metadata": true })),
             cancel,
         )
     }

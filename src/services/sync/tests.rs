@@ -443,6 +443,34 @@ fn a_download_keeps_the_remote_modification_time() {
     assert!(repo.has_item(local_path.to_str().unwrap(), "new.txt"));
 }
 
+/// Without the details a downloaded file keeps the time its download gave it, not the listed time, which on Proton is the upload's (issue 25).
+#[test]
+fn a_download_without_details_keeps_its_own_time() {
+    let tmp = TempDir::new("sync_download_no_details");
+    let repo = FakeRepo::new();
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![remote_item("new.txt", false, 1_600_000_000)]));
+    client.set_stat(
+        "new.txt",
+        Ok(Some(remote_item("new.txt", false, 1_600_000_000))),
+    );
+    *client.details_error.lock().unwrap() = Some("Proton didn't answer".to_owned());
+
+    let (outcome, events) = run_full(&tmp, &repo, &client);
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    let local_path = tmp.path.join("new.txt");
+    let mtime = fs::metadata(&local_path)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    assert_ne!(mtime, 1_600_000_000);
+    assert!(repo.has_item(local_path.to_str().unwrap(), "new.txt"));
+}
+
 /// A file put back from a backup keeps its old modification time; it still counts as changed and goes up.
 #[test]
 fn a_file_restored_with_an_older_time_is_uploaded() {

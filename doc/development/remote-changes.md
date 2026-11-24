@@ -45,4 +45,8 @@ More than 64 folders to fetch, a folder without an ETag, the sync folder itself 
 
 Proton addresses items by link ID, and rclone by path. Syncative's Proton backend finds a folder's ID through rclone's folder cache, as the drive backend does, and a file's in its folder's listing. The last four listings answer for 30 s, so copying a folder's files lists it once, not once per file; a change by another client clears them.
 
+## Times
+
+Proton lists a file with the time its active revision was uploaded, which never drifts, and keeps the time the file was last modified before the upload in the revision's encrypted extended attributes. The sync compares the listed time (rclone's `ModTime`); downloads and the conflict dialog take the other one, which the Proton backend gives as the metadata `mtime`. Proton downloads copy with rclone's `Metadata` option, so the file gets that time from the copy, and `details` asks for it. When Proton doesn't answer for the attributes, the copy and `details` fail and the next pass tries again: the listed time would give old files today's date and reorder galleries sorted by date (issue 25).
+
 Testing: *Remote change detection* in [testing.md](testing.md).

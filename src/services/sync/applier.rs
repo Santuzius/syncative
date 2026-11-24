@@ -1056,15 +1056,19 @@ fn record_download(
             return;
         }
     };
-    let remote_ts = rstat.mod_time.unix_timestamp();
-    // The file gets the time it was last modified, which Proton keeps apart from the listing's time (the upload's); the row keeps the listing's time to compare against.
-    let file_ts = client
-        .details(remote_name, remote_path, cancel)
-        .ok()
-        .flatten()
-        .map_or(remote_ts, |d| d.mod_time.unix_timestamp());
-    if let Err(err) = set_mtime(local_path, file_ts) {
-        eprintln!("sync: could not give '{local_path}' the remote's modification time: {err}");
+    // The file gets the time it was last modified, which Proton keeps apart from the listing's time (the upload's); the row keeps the listing's time to compare against. Without the details the file keeps the time the copy gave it: the listing's time would give it the upload's date.
+    match client.details(remote_name, remote_path, cancel) {
+        Ok(Some(details)) => {
+            if let Err(err) = set_mtime(local_path, details.mod_time.unix_timestamp()) {
+                eprintln!(
+                    "sync: could not give '{local_path}' the remote's modification time: {err}"
+                );
+            }
+        }
+        Ok(None) => {}
+        Err(err) => eprintln!(
+            "sync: could not ask for the modification time of '{remote_path}', so '{local_path}' keeps the one its download gave it: {err}"
+        ),
     }
     let Some(local_ts) = local_timestamp(Path::new(local_path)) else {
         eprintln!("sync: could not record '{remote_path}': no modification time for {local_path}.");

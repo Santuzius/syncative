@@ -10,7 +10,7 @@ use crate::{
         remote::RemoteUsage,
         sync::{Changes, FileDetails, ListFilter, RemoteItem},
     },
-    infrastructure::rclone::LibrcloneClient,
+    infrastructure::rclone::{LibrcloneClient, client::file_details, rpc},
 };
 
 /// The rclone type of Syncative's Proton backend, also the remote type the app shows.
@@ -59,7 +59,14 @@ impl BackendClient for ProtonClient {
         path: &str,
         cancel: &Cancel,
     ) -> Result<Option<FileDetails>, String> {
-        self.rclone.details(remote, path, cancel)
+        let item = rpc::sync::details(remote, path, cancel).map_err(|err| err.error)?;
+        match item.filter(|item| !item.is_dir) {
+            // The backend gives every file's time as "mtime" and leaves it out when Proton didn't answer: the listed time, the upload's, would give the file a wrong date.
+            Some(item) if !item.metadata.contains_key("mtime") => Err(format!(
+                "Proton didn't give the modification time of '{path}'; it is asked again in a later pass."
+            )),
+            item => Ok(item.map(file_details)),
+        }
     }
 
     fn mkdir(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {
@@ -93,8 +100,9 @@ impl BackendClient for ProtonClient {
         remote_path: &str,
         cancel: &Cancel,
     ) -> Result<(), String> {
-        self.rclone
-            .copy_to_local(local_path, remote, remote_path, cancel)
+        // The copy takes the time the file was last modified from the metadata; ModTime is the upload's.
+        rpc::sync::copy_to_local(local_path, remote, remote_path, true, cancel)
+            .map_err(|err| err.error)
     }
 
     /// The session belongs to the sign-in, see [`crate::services::remote_lifecycle::delete_remote`].

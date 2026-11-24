@@ -26,6 +26,8 @@ pub struct FakeBackend {
     pub sha1_map: Mutex<HashMap<String, String>>,
     /// Modification time `details` reports per path (Proton: the one the uploader recorded); without an entry the `stat` time.
     pub details_time_map: Mutex<HashMap<String, i64>>,
+    /// An error `details` returns for every path, as when Proton doesn't answer.
+    pub details_error: Mutex<Option<String>>,
     pub copy_to_remote_result: Mutex<Result<(), String>>,
     pub copy_to_local_result: Mutex<Result<(), String>>,
     pub delete_file_result: Mutex<Result<(), String>>,
@@ -62,6 +64,7 @@ impl Default for FakeBackend {
             list_map: Mutex::new(HashMap::new()),
             sha1_map: Mutex::new(HashMap::new()),
             details_time_map: Mutex::new(HashMap::new()),
+            details_error: Mutex::new(None),
             copy_to_remote_result: Mutex::new(Ok(())),
             copy_to_local_result: Mutex::new(Ok(())),
             delete_file_result: Mutex::new(Ok(())),
@@ -169,6 +172,9 @@ impl BackendClient for FakeBackend {
         path: &str,
         cancel: &Cancel,
     ) -> Result<Option<FileDetails>, String> {
+        if let Some(err) = self.details_error.lock().unwrap().clone() {
+            return Err(err);
+        }
         let sha1 = self.sha1_map.lock().unwrap().get(path).cloned();
         let recorded = self.details_time_map.lock().unwrap().get(path).copied();
         Ok(self
