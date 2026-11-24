@@ -89,6 +89,40 @@ fn snapshot_aborts_when_list_fails() {
     assert_eq!(repo.item_count(), 1);
 }
 
+/// A listing cut short by a pause is no failure: the folder doesn't turn to Error.
+#[test]
+fn a_listing_stopped_by_a_pause_is_no_failure() {
+    let tmp = TempDir::new("sync_list_paused");
+    let client = FakeBackend::default();
+    client.set_list("", Err("context canceled".to_owned()));
+    let cancel = cancel_never();
+    cancel.store(true, std::sync::atomic::Ordering::Release);
+    let captured: Mutex<Vec<SyncEvent>> = Mutex::new(Vec::new());
+
+    let outcome = run(
+        &remote(1, "TestRemote"),
+        &sync_dir(1, 1, tmp.as_str(), ""),
+        &FakeRepo::new(),
+        &client,
+        &[],
+        &[],
+        |e| captured.lock().unwrap().push(e),
+        &cancel,
+        |_| false,
+    );
+
+    let events = captured.into_inner().unwrap();
+    assert_eq!(outcome, Outcome::Aborted);
+    assert!(errors(&events).is_empty());
+    assert!(!events.iter().any(|e| matches!(
+        e,
+        SyncEvent::SyncDirStateChanged {
+            state: crate::domain::run_state::RunState::Error,
+            ..
+        }
+    )));
+}
+
 /// Everything in sync → no destructive actions, no transfers.
 #[test]
 fn steady_state_produces_no_actions() {

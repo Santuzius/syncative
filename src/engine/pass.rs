@@ -1,7 +1,7 @@
 //! One sync pass over all folders of a remote.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, atomic::Ordering},
     time::Instant,
 };
@@ -28,6 +28,23 @@ pub enum PassVerdict {
     Aborted,
 }
 
+/// How a pass ended: its verdict and the folders it synced to the end, which applied the user's latest changes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PassEnd {
+    pub verdict: PassVerdict,
+    pub synced: HashSet<SyncDirId>,
+}
+
+impl PassEnd {
+    /// A pass that synced no folder.
+    pub fn without_folders(verdict: PassVerdict) -> Self {
+        Self {
+            verdict,
+            synced: HashSet::new(),
+        }
+    }
+}
+
 /// Everything a pass needs, taken from the engine when it starts.
 pub(crate) struct Pass {
     pub remote_id: RemoteId,
@@ -42,7 +59,7 @@ pub(crate) struct Pass {
 
 impl Pass {
     /// Load the remote and its folders, then sync them one after the other off the async runtime.
-    pub async fn run(self) -> PassVerdict {
+    pub async fn run(self) -> PassEnd {
         let Pass {
             remote_id,
             repo,
@@ -54,7 +71,7 @@ impl Pass {
         } = self;
         let remote = match repo.find_remote(remote_id).await {
             Ok(Some(r)) => r,
-            _ => return PassVerdict::Aborted,
+            _ => return PassEnd::without_folders(PassVerdict::Aborted),
         };
         let sync_dirs = repo.list_sync_dirs(remote_id).await.unwrap_or_default();
         let all_sync_dirs = repo.list_all_sync_dirs().await.unwrap_or_default();
@@ -72,7 +89,8 @@ impl Pass {
                     })
             };
             let emit = move |event: SyncEvent| emit(event);
-            let (mut any_degraded, mut any_error, mut any_synced) = (false, false, false);
+            let (mut any_degraded, mut any_error) = (false, false);
+            let mut synced = HashSet::new();
             let mut dirs = sync_dirs.into_iter();
             while let Some(mut sd) = dirs.next() {
                 if cancel.load(Ordering::Acquire) {
@@ -115,24 +133,27 @@ impl Pass {
                     }
                 }
                 match outcome {
-                    Outcome::Synced => any_synced = true,
+                    Outcome::Synced => {
+                        synced.insert(sd.id);
+                    }
                     Outcome::Degraded => any_degraded = true,
                     Outcome::Aborted => any_error = true,
                 }
             }
-            if any_degraded {
+            let verdict = if any_degraded {
                 PassVerdict::Degraded
-            } else if any_synced {
+            } else if !synced.is_empty() {
                 PassVerdict::Clean
             } else if any_error {
                 PassVerdict::Aborted
             } else {
                 // No sync_dirs to run (or everything cancelled before the first): no reason to accrue backoff.
                 PassVerdict::Clean
-            }
+            };
+            PassEnd { verdict, synced }
         })
         .await
-        .unwrap_or(PassVerdict::Aborted)
+        .unwrap_or(PassEnd::without_folders(PassVerdict::Aborted))
     }
 }
 
@@ -245,6 +266,7 @@ mod tests {
         }
         .run()
         .await
+        .verdict
     }
 
     /// Local backup to cloud backup with deletions passed on: the pass in the old mode downloads the file deleted here again, so the new mode doesn't delete it from the remote.

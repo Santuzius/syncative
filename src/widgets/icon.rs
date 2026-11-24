@@ -67,6 +67,15 @@ pub fn applying_icon<'a, Msg: 'a>(size: f32) -> Element<'a, Msg> {
         .into()
 }
 
+/// A folder whose changes wait for a pass while the user holds the passes back (`state` is `Paused` or `Held`): the applying glyph in that state's colour.
+pub fn pending_icon<'a, Msg: 'a>(state: RunState, size: f32) -> Element<'a, Msg> {
+    icon(icondata::TbClockCogOutline, size)
+        .style(move |theme: &Theme, _| svg::Style {
+            color: Some(theme::status_color(theme, state)),
+        })
+        .into()
+}
+
 /// Glyph for a run-state, coloured by severity.
 pub fn status_icon<'a, Msg: 'a>(state: RunState, size: f32) -> Element<'a, Msg> {
     let glyph = match state {

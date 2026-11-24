@@ -180,6 +180,12 @@ where
 
     let snapshot = match snapshot_result {
         Ok(s) => s,
+        // Stopped by a pause, a removal or the end of the app: nothing failed, and the next pass lists again.
+        Err(err) if is_cancelled() => {
+            eprintln!("sync: listing stopped for {}: {err}", remote.name);
+            emit_status(tr::tr!("Sync cancelled."));
+            return Outcome::Aborted;
+        }
         Err(err) if crate::infrastructure::translators::is_offline(&err) => {
             eprintln!("sync: offline, list failed for {}: {err}", remote.name);
             emit_status(tr::tr!(

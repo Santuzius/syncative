@@ -33,7 +33,7 @@ use crate::{
     util::{fmt_home, fmt_size},
     widgets::{
         bullet,
-        icon::{applying_icon, icon, muted_icon, on_fill_icon, status_icon},
+        icon::{applying_icon, icon, muted_icon, on_fill_icon, pending_icon, status_icon},
         segmented::segmented,
         text,
     },
@@ -885,8 +885,17 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
     };
     let undecided = folder.nested.iter().filter(|(_, f)| f.is_none()).count();
     let applying = folder.applying;
+    // Changes waiting for a pass show as being applied while one comes. Paused or held by the user's choice, they wait; a problem that stops the passes shows first, as the user has to act on it.
+    let pending = applying && matches!(folder.state, RunState::Paused | RunState::Held);
+    let blocked = applying
+        && matches!(
+            folder.state,
+            RunState::Offline | RunState::AuthNeeded | RunState::Error | RunState::Warning
+        );
     let detail: String = match folder.state {
-        _ if applying => "Applying changes…".to_owned(),
+        RunState::Held if pending => "Pending changes — held on a metered network".to_owned(),
+        _ if pending => "Pending changes".to_owned(),
+        _ if applying && !blocked => "Applying changes…".to_owned(),
         RunState::Syncing(_) => folder
             .latest_line
             .unwrap_or(status_label(folder.state))
@@ -908,6 +917,11 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
             .to_owned(),
         state => status_label(state).to_owned(),
     };
+    let detail = if blocked {
+        format!("{detail} · changes pending")
+    } else {
+        detail
+    };
     let detail_text = text(detail).size(CAPTION).wrapping(Wrapping::WordOrGlyph);
     let detail_text = if matches!(folder.state, RunState::Error) {
         detail_text.style(theme::danger_text)
@@ -917,7 +931,9 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
 
     let excluded = folder.nested.len() + folder.custom_excluded.len();
     let top = row![
-        if applying {
+        if pending {
+            pending_icon(folder.state, 20.0)
+        } else if applying && !blocked {
             applying_icon(20.0)
         } else {
             status_icon(folder.state, 20.0)

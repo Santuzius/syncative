@@ -30,8 +30,8 @@ use crate::{
 
 use super::{
     CONFLICT_LINE_PREFIXES, Cadence, Command, Input, LINK_LINE_PREFIX, LogLine, Logs,
-    MAX_LOG_LINES, NESTED_LINE_PREFIX, PassVerdict, Snapshot, UploadStatus, is_auth_failure,
-    pass::Pass,
+    MAX_LOG_LINES, NESTED_LINE_PREFIX, PassEnd, PassVerdict, Snapshot, UploadStatus,
+    is_auth_failure, pass::Pass,
 };
 
 /// Tries per shared file before it is given up, not counting those that failed for want of a connection or a sign-in.
@@ -165,7 +165,7 @@ impl Core {
         match input {
             Input::Command(command) => self.handle_command(command).await,
             Input::Event(event) => self.handle_event(event),
-            Input::PassFinished(id, verdict) => self.finish_pass(id, verdict),
+            Input::PassFinished(id, end) => self.finish_pass(id, end),
             Input::Usage(id, usage) => self.record_usage(id, usage),
             Input::Uploaded { dir, file, result } => self.uploaded(&dir, file, result),
         }
@@ -556,28 +556,28 @@ impl Core {
         };
         let done = self.tx.clone();
         tokio::spawn(async move {
-            let verdict = pass.run().await;
-            let _ = done.send(Input::PassFinished(id, verdict));
+            let end = pass.run().await;
+            let _ = done.send(Input::PassFinished(id, end));
         });
     }
 
     /// Record the verdict, update the backoff and start a queued pass.
-    fn finish_pass(&mut self, id: RemoteId, verdict: PassVerdict) {
+    fn finish_pass(&mut self, id: RemoteId, PassEnd { verdict, synced }: PassEnd) {
         self.syncing.remove(&id);
         self.passes_finished += 1;
         if !self.remotes.iter().any(|r| r.id == id) {
             return;
         }
         self.state.finish_pass(id);
-        // A pass that started after the choices applied them; a cancelled one leaves them to the next.
-        let applied = !matches!(verdict, PassVerdict::Aborted);
-        for (remote, started) in self.applying.values_mut() {
-            if *remote == id && !applied {
-                *started = false;
+        // A pass that started after the choices and synced the folder to the end applied them; one stopped before (paused, cancelled, the listing failed) leaves them to the next.
+        self.applying.retain(|dir, (remote, started)| {
+            if *remote != id {
+                return true;
             }
-        }
-        self.applying
-            .retain(|_, (remote, started)| !(applied && *remote == id && *started));
+            let applied = *started && synced.contains(dir);
+            *started = false;
+            !applied
+        });
         // A pass cut off by the network leaves its folders Offline, not Waiting, also those it didn't get to.
         if self.unreachable.remove(&id) {
             self.state.remote_went_offline(id);

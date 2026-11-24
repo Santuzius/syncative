@@ -27,7 +27,7 @@ mod pass;
 mod tests;
 
 use self::core::Core;
-pub use self::pass::PassVerdict;
+pub use self::pass::{PassEnd, PassVerdict};
 
 /// Maximum log lines retained per folder before the oldest are dropped to keep memory bounded across long-running sessions.
 pub const MAX_LOG_LINES: usize = 200;
@@ -114,7 +114,7 @@ impl Cadence {
 pub(crate) enum Input {
     Command(Command),
     Event(SyncEvent),
-    PassFinished(RemoteId, PassVerdict),
+    PassFinished(RemoteId, PassEnd),
     /// The provider's space numbers asked for after a pass; `Ok(None)` when the backend has no quota to report.
     Usage(RemoteId, Result<Option<RemoteUsage>, String>),
     /// A shared file of the upload in `dir` went up under the given name, or not.

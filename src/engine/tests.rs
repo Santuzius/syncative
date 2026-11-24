@@ -8,7 +8,7 @@ use std::{
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 
-use super::{Cadence, Command, Input, Logs, PassVerdict, Snapshot, core::Core};
+use super::{Cadence, Command, Input, Logs, PassEnd, PassVerdict, Snapshot, core::Core};
 use crate::{
     domain::{
         events::SyncEvent,
@@ -463,7 +463,10 @@ async fn degraded_passes_skip_turns() {
     rig.set_enabled(R2, false);
     rig.send(Command::Reload).await;
     rig.core
-        .handle(Input::PassFinished(R1, PassVerdict::Degraded))
+        .handle(Input::PassFinished(
+            R1,
+            PassEnd::without_folders(PassVerdict::Degraded),
+        ))
         .await;
     assert!(rig.snap().state.in_backoff(R1));
     let later = Instant::now() + Duration::from_secs(16);
@@ -568,6 +571,27 @@ async fn new_choices_for_folders_inside_apply_with_the_next_pass() {
     assert_eq!(snap.passes_finished, 2, "the choices queue a second pass");
     assert!(snap.applying.is_empty());
     assert_eq!(snap.state.dir_state(R1, D1), RunState::Synced);
+}
+
+// A pass stopped before it synced the folder (paused while listing it, or before it got there) hasn't applied the choices, even if it synced other folders of the remote.
+#[tokio::test]
+async fn choices_wait_for_a_pass_that_synced_the_folder() {
+    let mut rig = rig().await;
+    rig.set_enabled(R2, false);
+    rig.send(Command::Reload).await;
+    rig.send(Command::Apply {
+        remote_id: R1,
+        sync_dir_id: D1,
+    })
+    .await;
+    assert!(rig.snap().syncing.contains(&R1));
+
+    let other_folder = PassEnd {
+        verdict: PassVerdict::Clean,
+        synced: [D2].into(),
+    };
+    rig.core.handle(Input::PassFinished(R1, other_folder)).await;
+    assert_eq!(rig.snap().applying, [D1].into());
 }
 
 #[tokio::test]
