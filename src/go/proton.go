@@ -30,8 +30,7 @@ import (
 //
 // Error handling: any result that's not an outright success returns
 // a JSON object with an `error` field describing what went wrong.
-// Crashes in Go are converted to error strings — the FFI boundary
-// never panics.
+// A panic becomes such an error too (recoverEnvelope, guard.go).
 
 // result is the envelope every ProtonDrive_* export returns as JSON.
 type result struct {
@@ -81,7 +80,8 @@ func errResult(err error) *C.char {
 // the result with RcloneFreeString (same allocator).
 //
 //export ProtonDrive_Version
-func ProtonDrive_Version() *C.char {
+func ProtonDrive_Version() (out *C.char) {
+	defer recoverEnvelope(&out)
 	// Build a fresh Manager just to exercise the symbol path; we throw
 	// it away immediately. No network traffic.
 	_ = proton.New(proton.WithAppVersion(drive.AppVersion))
@@ -91,7 +91,8 @@ func ProtonDrive_Version() *C.char {
 // ProtonDrive_SetAppVersion sets the `x-pm-appversion` header sent by every later session. Input `{"version":"..."}`; call once at startup, before any login or resume.
 //
 //export ProtonDrive_SetAppVersion
-func ProtonDrive_SetAppVersion(paramsJSON *C.char) *C.char {
+func ProtonDrive_SetAppVersion(paramsJSON *C.char) (out *C.char) {
+	defer recoverEnvelope(&out)
 	var p struct {
 		Version string `json:"version"`
 	}
@@ -106,6 +107,7 @@ func ProtonDrive_SetAppVersion(paramsJSON *C.char) *C.char {
 //
 //export ProtonDrive_ResetConnections
 func ProtonDrive_ResetConnections() {
+	defer recoverLogged()
 	drive.ResetConnections()
 }
 
@@ -117,7 +119,8 @@ func ProtonDrive_ResetConnections() {
 // it by UID.
 //
 //export ProtonDrive_Login
-func ProtonDrive_Login(paramsJSON *C.char) *C.char {
+func ProtonDrive_Login(paramsJSON *C.char) (out *C.char) {
+	defer recoverEnvelope(&out)
 	var p drive.LoginParams
 	if err := json.Unmarshal([]byte(C.GoString(paramsJSON)), &p); err != nil {
 		return errResult(err)
@@ -133,7 +136,8 @@ func ProtonDrive_Login(paramsJSON *C.char) *C.char {
 // ProtonDrive_BindRemote makes the rclone remote `remote` reach Proton through the registered session `uid` (backend rclonefs). Input `{"uid":"...","remote":"..."}`. The remote is defined through the environment (RCLONE_CONFIG_<NAME>_TYPE), so it never enters the rclone config file, which holds no Proton credentials either.
 //
 //export ProtonDrive_BindRemote
-func ProtonDrive_BindRemote(paramsJSON *C.char) *C.char {
+func ProtonDrive_BindRemote(paramsJSON *C.char) (out *C.char) {
+	defer recoverEnvelope(&out)
 	var p struct {
 		UID    string `json:"uid"`
 		Remote string `json:"remote"`
@@ -159,7 +163,8 @@ func ProtonDrive_BindRemote(paramsJSON *C.char) *C.char {
 // ProtonDrive_UnbindRemote undoes ProtonDrive_BindRemote, e.g. when the remote is removed. Input `{"remote":"..."}`.
 //
 //export ProtonDrive_UnbindRemote
-func ProtonDrive_UnbindRemote(paramsJSON *C.char) *C.char {
+func ProtonDrive_UnbindRemote(paramsJSON *C.char) (out *C.char) {
+	defer recoverEnvelope(&out)
 	var p struct {
 		Remote string `json:"remote"`
 	}
@@ -203,7 +208,8 @@ func dropBackend(remote string) {
 // down the local state. Input JSON is `{"uid": "..."}`.
 //
 //export ProtonDrive_Logout
-func ProtonDrive_Logout(paramsJSON *C.char) *C.char {
+func ProtonDrive_Logout(paramsJSON *C.char) (out *C.char) {
+	defer recoverEnvelope(&out)
 	var p struct {
 		UID string `json:"uid"`
 	}
@@ -220,7 +226,8 @@ func ProtonDrive_Logout(paramsJSON *C.char) *C.char {
 // credential to `path`. Input JSON is `{"uid":"...","path":"..."}`.
 //
 //export ProtonDrive_SaveSession
-func ProtonDrive_SaveSession(paramsJSON *C.char) *C.char {
+func ProtonDrive_SaveSession(paramsJSON *C.char) (out *C.char) {
+	defer recoverEnvelope(&out)
 	var p struct {
 		UID  string `json:"uid"`
 		Path string `json:"path"`
@@ -245,7 +252,8 @@ func ProtonDrive_SaveSession(paramsJSON *C.char) *C.char {
 // `{"uid":"...","path":"..."}`; result data is `{"saved": bool}`.
 //
 //export ProtonDrive_SaveSessionIfRotated
-func ProtonDrive_SaveSessionIfRotated(paramsJSON *C.char) *C.char {
+func ProtonDrive_SaveSessionIfRotated(paramsJSON *C.char) (out *C.char) {
+	defer recoverEnvelope(&out)
 	var p struct {
 		UID  string `json:"uid"`
 		Path string `json:"path"`
@@ -269,7 +277,8 @@ func ProtonDrive_SaveSessionIfRotated(paramsJSON *C.char) *C.char {
 // ProtonDrive_NextRotation blocks until the tokens of a session were renewed and returns `{"uid":"...","remotes":[...]}` (drive.NextRotation). Syncative calls it in a loop from a thread of its own and stores the session each time. Input `{}`.
 //
 //export ProtonDrive_NextRotation
-func ProtonDrive_NextRotation(paramsJSON *C.char) *C.char {
+func ProtonDrive_NextRotation(paramsJSON *C.char) (out *C.char) {
+	defer recoverEnvelope(&out)
 	return okResult(drive.NextRotation())
 }
 
@@ -279,7 +288,8 @@ func ProtonDrive_NextRotation(paramsJSON *C.char) *C.char {
 // the caller can pick up the UID.
 //
 //export ProtonDrive_ResumeSession
-func ProtonDrive_ResumeSession(paramsJSON *C.char) *C.char {
+func ProtonDrive_ResumeSession(paramsJSON *C.char) (out *C.char) {
+	defer recoverEnvelope(&out)
 	var p struct {
 		Path string `json:"path"`
 	}

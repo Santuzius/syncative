@@ -41,7 +41,8 @@ func init() {
 // SyncativeAuthorize runs rclone's OAuth flow for the backend `typ` ("drive", "dropbox", "onedrive"), with the given client ID and secret unless empty, and returns `{"token": "…", "params": {…}}` or `{"error": "…"}`. params holds what else the remote's config needs, see driveParams. Blocks until the browser returns to rclone's local web server, or SyncativeAuthorizeCancel. Free the result with RcloneFreeString.
 //
 //export SyncativeAuthorize
-func SyncativeAuthorize(typ, clientID, clientSecret *C.char) *C.char {
+func SyncativeAuthorize(typ, clientID, clientSecret *C.char) (out *C.char) {
+	defer recoverJSON(&out)
 	// Cleared on the way out as well, so the next run never sees this run's link.
 	clearURL := func() {
 		authorizeURLMutex.Lock()
@@ -61,14 +62,15 @@ func SyncativeAuthorize(typ, clientID, clientSecret *C.char) *C.char {
 		reply["token"] = token
 		reply["params"] = params
 	}
-	out, _ := json.Marshal(reply)
-	return C.CString(string(out))
+	body, _ := json.Marshal(reply)
+	return C.CString(string(body))
 }
 
 // SyncativeAuthorizeURL returns the authorization link of the running SyncativeAuthorize, or NULL before rclone has made it. Free it with RcloneFreeString.
 //
 //export SyncativeAuthorizeURL
-func SyncativeAuthorizeURL() *C.char {
+func SyncativeAuthorizeURL() (out *C.char) {
+	defer recoverJSON(&out)
 	authorizeURLMutex.Lock()
 	defer authorizeURLMutex.Unlock()
 	if authorizeURL == "" {
@@ -81,6 +83,7 @@ func SyncativeAuthorizeURL() *C.char {
 //
 //export SyncativeAuthorizeCancel
 func SyncativeAuthorizeCancel() {
+	defer recoverLogged()
 	client := http.Client{Timeout: 2 * time.Second}
 	if resp, err := client.Get(oauthutil.RedirectURL); err == nil {
 		resp.Body.Close()

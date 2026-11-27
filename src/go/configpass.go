@@ -18,7 +18,8 @@ import (
 // SyncativeSetConfigPassword makes rclone decrypt the config file with `password` and encrypt it on every save. Call it before anything reads the config. Returns NULL or an error message; free that with RcloneFreeString.
 //
 //export SyncativeSetConfigPassword
-func SyncativeSetConfigPassword(password *C.char) *C.char {
+func SyncativeSetConfigPassword(password *C.char) (out *C.char) {
+	defer recoverMessage(&out)
 	// A wrong password must not make rclone ask on the terminal.
 	fs.GetConfig(context.Background()).AskPassword = false
 	if err := config.SetConfigPassword(C.GoString(password)); err != nil {
@@ -30,7 +31,8 @@ func SyncativeSetConfigPassword(password *C.char) *C.char {
 // SyncativeSaveConfig loads the config file and writes it back, encrypted once a password is set. Leaves a file it cannot read untouched. Returns NULL or an error message; free that with RcloneFreeString.
 //
 //export SyncativeSaveConfig
-func SyncativeSaveConfig() *C.char {
+func SyncativeSaveConfig() (out *C.char) {
+	defer recoverMessage(&out)
 	data := config.Data()
 	if err := data.Load(); err != nil && !errors.Is(err, config.ErrorConfigFileNotFound) {
 		return C.CString(err.Error())

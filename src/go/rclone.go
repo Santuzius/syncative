@@ -77,43 +77,46 @@ func RcloneRPCCancellable(method *C.char, input *C.char, cancelled *C.uchar) (re
 // RcloneChanges asks the change log of the rclone remote `remote` (name without colon) what changed after `cursor` ("" for none) for the sync folder at `dir`; see changes.ChangesSince. Returns JSON, `{"supported":…,"known":…,"cursor":…,"changes":[{"path":…,"is_dir":…}]}` (with `by_id`, `root_id` and `items` for Proton) or `{"error":…}`. Free the result with RcloneFreeString.
 //
 //export RcloneChanges
-func RcloneChanges(remote *C.char, dir *C.char, cursor *C.char, cancelled *C.uchar) *C.char {
+func RcloneChanges(remote *C.char, dir *C.char, cursor *C.char, cancelled *C.uchar) (out *C.char) {
+	defer recoverJSON(&out)
 	ctx, stop := rclone.CancelledBy((*uint8)(unsafe.Pointer(cancelled)))
 	defer stop()
 	changes, err := changes.ChangesSince(ctx, C.GoString(remote), C.GoString(dir), C.GoString(cursor))
-	var out []byte
+	var body []byte
 	if err != nil {
-		out, _ = json.Marshal(map[string]string{"error": err.Error()})
+		body, _ = json.Marshal(map[string]string{"error": err.Error()})
 	} else {
-		out, _ = json.Marshal(changes)
+		body, _ = json.Marshal(changes)
 	}
-	return C.CString(string(out))
+	return C.CString(string(body))
 }
 
 // RcloneFolderTags reads the change tags (ETags) of folder `path` and, with `depth` 1, of its subfolders on the WebDAV remote `remote`; see nextcloud.FolderTags. Returns JSON, `{"tag":…,"children":{path:tag}}` or `{"error":…}`. Free the result with RcloneFreeString.
 //
 //export RcloneFolderTags
-func RcloneFolderTags(remote *C.char, path *C.char, depth C.int, cancelled *C.uchar) *C.char {
+func RcloneFolderTags(remote *C.char, path *C.char, depth C.int, cancelled *C.uchar) (out *C.char) {
+	defer recoverJSON(&out)
 	ctx, stop := rclone.CancelledBy((*uint8)(unsafe.Pointer(cancelled)))
 	defer stop()
 	tag, children, err := nextcloud.FolderTags(ctx, C.GoString(remote), C.GoString(path), int(depth))
-	var out []byte
+	var body []byte
 	if err != nil {
-		out, _ = json.Marshal(map[string]string{"error": err.Error()})
+		body, _ = json.Marshal(map[string]string{"error": err.Error()})
 	} else {
 		if children == nil {
 			// A nil map would be null, which the Rust side doesn't take for an empty map.
 			children = map[string]string{}
 		}
-		out, _ = json.Marshal(map[string]any{"tag": tag, "children": children})
+		body, _ = json.Marshal(map[string]any{"tag": tag, "children": children})
 	}
-	return C.CString(string(out))
+	return C.CString(string(body))
 }
 
 // RcloneForgetRemote drops the backend kept for `remote`'s change log; see changes.Forget.
 //
 //export RcloneForgetRemote
 func RcloneForgetRemote(remote *C.char) {
+	defer recoverLogged()
 	changes.Forget(C.GoString(remote))
 }
 
