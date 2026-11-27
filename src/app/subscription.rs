@@ -56,9 +56,11 @@ impl SyncativeApp {
         // portal via `mundy` and emits a `Mode` whenever it changes. Forward
         // those into the tray so the rasterised glyphs follow the panel.
         let system_theme = iced::system::theme_changes().map(Message::SystemThemeChanged);
-        // A second launch of the binary asks us (over the single-instance socket) to surface the window.
-        let show_requests =
-            single_instance::show_requests().map(|()| Message::TrayClick(TrayAction::Open));
+        // A second launch of the binary asks us (over the single-instance socket) to surface the window, or to save files.
+        let show_requests = single_instance::requests().map(|request| match request {
+            single_instance::Request::Show => Message::TrayClick(TrayAction::Open),
+            single_instance::Request::Save(paths) => Message::SaveFiles(paths),
+        });
         let escape = iced::keyboard::listen().filter_map(|event| match event {
             iced::keyboard::Event::KeyPressed {
                 key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),

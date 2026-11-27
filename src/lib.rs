@@ -3,6 +3,7 @@ pub mod branding;
 pub mod domain;
 pub mod engine;
 pub mod icons;
+pub mod inbound;
 pub mod infrastructure;
 pub mod screens;
 pub mod services;
@@ -217,7 +218,10 @@ fn set_up() -> Option<Services> {
     let default_client: Arc<dyn BackendClient> = Arc::new(LibrcloneClient::new(rclone_config));
     let router = Arc::new(ClientRouter::new(default_client));
     #[cfg(not(target_os = "android"))]
-    infrastructure::network_monitor::start();
+    infrastructure::network_monitor::start(infrastructure::network_monitor::Report {
+        online: services::network::set_online,
+        metered: services::network::set_metered,
+    });
     resume_native_sessions(&*repo, &router);
     let engine = engine::start(repo.clone(), router.clone(), stderr).clone();
     services::preferences::power::apply();

@@ -165,12 +165,30 @@ impl PowerSettings {
     }
 }
 
+/// The screen, the charger and the battery saver, as Android's `SyncService` last reported them; whether the network is metered is kept in [`crate::services::network`].
+static DEVICE: std::sync::Mutex<Conditions> = std::sync::Mutex::new(Conditions {
+    screen_off: false,
+    charging: false,
+    battery_saver: false,
+    metered: false,
+});
+
+/// Record what Android reports about the screen, the charger and the battery saver, and apply it to the engine's cadence.
+pub fn set_device(screen_off: bool, charging: bool, battery_saver: bool) {
+    if let Ok(mut device) = DEVICE.lock() {
+        *device = Conditions {
+            screen_off,
+            charging,
+            battery_saver,
+            ..*device
+        };
+    }
+    apply();
+}
+
 /// What the cadence goes by right now: on Android the screen, the charger and the battery saver, everywhere whether the network is metered.
 pub fn conditions() -> Conditions {
-    #[cfg(target_os = "android")]
-    let now = crate::infrastructure::android::conditions();
-    #[cfg(not(target_os = "android"))]
-    let now = Conditions::default();
+    let now = DEVICE.lock().map(|c| *c).unwrap_or_default();
     Conditions {
         metered: crate::services::network::metered(),
         ..now

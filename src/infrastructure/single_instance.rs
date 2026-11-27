@@ -84,41 +84,49 @@ pub fn acquire(data_dir: &Path, save: &[PathBuf]) -> Instance {
     Instance::Primary
 }
 
-/// Emits `()` whenever another launch asks this instance to show its window, also after it handed over files to save (see [`crate::services::share::receive_files`]).
-pub fn show_requests() -> Subscription<()> {
+/// What another launch asks of this instance.
+#[derive(Debug, Clone)]
+pub enum Request {
+    /// Show the window.
+    Show,
+    /// Save these files in the cloud (`syncative --save`), which also shows the window.
+    Save(Vec<PathBuf>),
+}
+
+/// Emits a [`Request`] whenever another launch asks this instance for something.
+pub fn requests() -> Subscription<Request> {
     Subscription::run(|| {
         stream::channel(4, async move |mut output| {
             use iced::futures::SinkExt;
             let listener = LISTENER.get().and_then(|m| m.lock().ok()?.take());
             if let Some(listener) = listener {
-                let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(4);
+                let (tx, mut rx) = tokio::sync::mpsc::channel::<Request>(4);
                 std::thread::spawn(move || {
                     for mut stream in listener.incoming().flatten() {
                         let mut request = Vec::new();
                         if stream.read_to_end(&mut request).is_err() {
                             continue;
                         }
-                        if let Some(paths) = request.strip_prefix(b"save\n") {
-                            #[cfg(not(target_os = "android"))]
-                            crate::services::share::receive_files(
+                        let request = if let Some(paths) = request.strip_prefix(b"save\n") {
+                            Request::Save(
                                 paths
                                     .split(|b| *b == 0)
                                     .filter(|p| !p.is_empty())
                                     .map(|p| PathBuf::from(std::ffi::OsStr::from_bytes(p)))
                                     .collect(),
-                            );
-                            #[cfg(target_os = "android")]
-                            let _ = paths;
-                        } else if request.trim_ascii() != b"show" {
+                            )
+                        } else if request.trim_ascii() == b"show" {
+                            Request::Show
+                        } else {
                             continue;
-                        }
-                        if tx.blocking_send(()).is_err() {
+                        };
+                        if tx.blocking_send(request).is_err() {
                             break;
                         }
                     }
                 });
-                while rx.recv().await.is_some() {
-                    let _ = output.send(()).await;
+                while let Some(request) = rx.recv().await {
+                    let _ = output.send(request).await;
                 }
             }
             std::future::pending::<()>().await;

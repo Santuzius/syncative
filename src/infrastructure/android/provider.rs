@@ -27,9 +27,10 @@ pub struct Root {
 
 static ROOTS: Mutex<Vec<Root>> = Mutex::new(Vec::new());
 
-/// The network drives the document provider offers, as the engine last set them.
-fn roots() -> Vec<Root> {
-    ROOTS.lock().map(|r| r.clone()).unwrap_or_default()
+/// The network drives the document provider offers, as the engine last set them, in JSON `[{id, title, summary}]`.
+pub fn roots_json() -> String {
+    let roots = ROOTS.lock().map(|r| r.clone()).unwrap_or_default();
+    serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned())
 }
 
 /// `remote:path` of the network drive folder `id`, for the document provider.
@@ -77,19 +78,6 @@ fn new_string(env: &mut JNIEnv, text: &str) -> jstring {
 
 fn error_json(text: &str) -> String {
     serde_json::json!({ "error": text }).to_string()
-}
-
-/// The network drives as JSON, `[{id, title, summary}]`. A process that the provider started has no engine yet; it starts here and announces the drives through [`roots_changed`] once it has read them.
-#[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_NetworkDriveProvider_nativeRootsNow(
-    mut env: JNIEnv,
-    _: JClass,
-) -> jstring {
-    if crate::engine::get().is_none() {
-        std::thread::spawn(crate::start_engine);
-    }
-    let json = serde_json::to_string(&roots()).unwrap_or_else(|_| "[]".to_owned());
-    new_string(&mut env, &json)
 }
 
 /// Runs the RPC call `method` (`syncative/doc-…`) with `input` (a JSON object) on network drive `root`, whose `fs` it adds. Returns the reply, or `{"error":…}`.

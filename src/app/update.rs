@@ -202,6 +202,13 @@ impl SyncativeApp {
             // Tray --------------------------------------------------
             Message::TrayReady(tx) => self.handle_tray_ready(tx),
             Message::TrayClick(action) => self.handle_tray_click(action),
+            Message::SaveFiles(paths) => {
+                #[cfg(not(target_os = "android"))]
+                crate::services::share::receive_files(paths);
+                #[cfg(target_os = "android")]
+                let _ = paths;
+                self.handle_tray_click(TrayAction::Open)
+            }
             Message::SystemThemeChanged(mode) => self.handle_system_theme_changed(mode),
             Message::SystemThemeConfirmed(mode) => {
                 if let Some(mode) = mode {

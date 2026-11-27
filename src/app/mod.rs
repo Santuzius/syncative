@@ -109,6 +109,8 @@ pub enum Message {
     /// A tray action from the user (menu click or left-click on the
     /// icon).
     TrayClick(TrayAction),
+    /// Files a second launch handed over to save in the cloud (`syncative --save`).
+    SaveFiles(Vec<std::path::PathBuf>),
     /// The iced runtime detected (or was just told about) a system
     /// colour-scheme change. Forwarded to the tray so its rasterised
     /// glyphs flip tone with the panel.

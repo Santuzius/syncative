@@ -1,6 +1,9 @@
 //! Whether the computer has a network and whether it is metered, from the XDG desktop portal's network monitor (`org.freedesktop.portal.NetworkMonitor`). It asks NetworkManager where there is one and otherwise looks for a default route, so it works whatever manages the network. Without a portal Syncative counts as online and unmetered, and failed connections show as Offline anyway.
 
-use std::{sync::Mutex, time::Duration};
+use std::{
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
 
 use dbus::{Message, blocking::Connection, channel::MatchingReceiver, message::MatchRule};
 
@@ -11,14 +14,25 @@ const INTERFACE: &str = "org.freedesktop.portal.NetworkMonitor";
 /// A connection of its own for [`recheck`], so it doesn't wait for the thread that follows the signal; set once the portal answered.
 static RECHECK: Mutex<Option<Connection>> = Mutex::new(None);
 
-/// Ask once, so the first pass and the resuming of sessions already know, then follow the portal's changes on a thread of its own.
-pub fn start() {
+/// Where the answers go: whether there is a network, and whether it is metered. Set by [`start`].
+static REPORT: OnceLock<Report> = OnceLock::new();
+
+/// The functions that take the portal's answers: whether there is a network, and whether it is metered.
+#[derive(Clone, Copy)]
+pub struct Report {
+    pub online: fn(bool),
+    pub metered: fn(bool),
+}
+
+/// Ask once, so the first pass and the resuming of sessions already know, then follow the portal's changes on a thread of its own. Every answer goes to `report`.
+pub fn start(report: Report) {
+    let _ = REPORT.set(report);
     let Ok(conn) = Connection::new_session() else {
         return;
     };
     match available(&conn) {
         Ok(online) => {
-            crate::services::network::set_online(online);
+            report_online(online);
             report_metered(&conn);
             *RECHECK.lock().unwrap_or_else(|e| e.into_inner()) = Connection::new_session().ok();
         }
@@ -38,7 +52,7 @@ pub fn start() {
                     rule,
                     Box::new(|_: Message, conn: &Connection| {
                         if let Ok(online) = available(conn) {
-                            crate::services::network::set_online(online);
+                            report_online(online);
                         }
                         report_metered(conn);
                         true
@@ -63,7 +77,7 @@ pub fn recheck() {
     if let Ok(online) = available(conn) {
         report_metered(conn);
         drop(guard);
-        crate::services::network::set_online(online);
+        report_online(online);
     }
 }
 
@@ -73,7 +87,15 @@ fn report_metered(conn: &Connection) {
     let metered = proxy
         .method_call(INTERFACE, "GetMetered", ())
         .is_ok_and(|(metered,): (bool,)| metered);
-    crate::services::network::set_metered(metered);
+    if let Some(report) = REPORT.get() {
+        (report.metered)(metered);
+    }
+}
+
+fn report_online(online: bool) {
+    if let Some(report) = REPORT.get() {
+        (report.online)(online);
+    }
 }
 
 /// Whether there is a network; GLib's `network-available`, the portal's answer since its first version.

@@ -8,15 +8,12 @@ pub mod provider;
 pub mod secrets;
 pub mod share;
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 use jni::{
     JNIEnv, JavaVM,
     objects::{GlobalRef, JClass, JObject, JValue},
-    sys::{JNI_TRUE, jboolean},
 };
-
-use crate::services::preferences::power::Conditions;
 
 /// The Java class with Syncative's static helpers.
 const BRIDGE: &str = "io.github.santuzius.syncative.Bridge";
@@ -48,80 +45,6 @@ extern "system" fn Java_io_github_santuzius_syncative_SyncativeApplication_nativ
         }
         _ => log::error!("no Java VM or Application"),
     }
-}
-
-/// Called by `SyncService.onCreate`: starts the sync engine without a GUI, unless it already runs.
-#[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeStartEngine(
-    _: JNIEnv,
-    _: JClass,
-) {
-    // Setting up opens the database and resumes sessions over the network; keep that off the service's main thread.
-    std::thread::spawn(crate::start_engine);
-}
-
-/// Called by `SyncService` when "Sync all now" in its notification is tapped.
-#[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeSyncAll(
-    _: JNIEnv,
-    _: JClass,
-) {
-    if let Some(engine) = crate::engine::get() {
-        engine.send(crate::engine::Command::SyncAll);
-    }
-}
-
-/// The screen, the charger and the battery saver, as `SyncService` last reported them; whether the network is metered is kept in [`crate::services::network`].
-static CONDITIONS: Mutex<Conditions> = Mutex::new(Conditions {
-    screen_off: false,
-    charging: false,
-    battery_saver: false,
-    metered: false,
-});
-
-/// What the power mode currently goes by, apart from a metered network ([`crate::services::preferences::power::conditions`] adds that).
-pub fn conditions() -> Conditions {
-    CONDITIONS.lock().map(|c| *c).unwrap_or_default()
-}
-
-/// Called by `SyncService` when the screen goes off or on, the charger is plugged in or out, or Android's battery saver toggles: the power mode decides how often to sync (see [`crate::services::preferences::power`]).
-#[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeConditions(
-    _: JNIEnv,
-    _: JClass,
-    screen_off: jboolean,
-    charging: jboolean,
-    battery_saver: jboolean,
-) {
-    if let Ok(mut conditions) = CONDITIONS.lock() {
-        *conditions = Conditions {
-            screen_off: screen_off == JNI_TRUE,
-            charging: charging == JNI_TRUE,
-            battery_saver: battery_saver == JNI_TRUE,
-            ..*conditions
-        };
-    }
-    crate::services::preferences::power::apply();
-}
-
-/// Called by `Bridge.watchNetwork` in every process when the default network changes and whether it is metered: Preferences may hold syncing on metered networks.
-#[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeMetered(
-    _: JNIEnv,
-    _: JClass,
-    metered: jboolean,
-) {
-    crate::services::network::set_metered(metered == JNI_TRUE);
-}
-
-/// Called by `Bridge.watchNetwork` in every process when the device gets or loses a network below any VPN.
-#[unsafe(no_mangle)]
-extern "system" fn Java_io_github_santuzius_syncative_Bridge_nativeOnline(
-    _: JNIEnv,
-    _: JClass,
-    online: jboolean,
-) {
-    crate::services::network::set_online(online == JNI_TRUE);
 }
 
 /// Called by `Bridge.watchNetwork` in every process when the default network switches: connections opened over the old one may hang without ever failing.
