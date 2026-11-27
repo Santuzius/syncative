@@ -12,6 +12,26 @@ pub struct RcloneError {
     pub error: String,
 }
 
+impl RcloneError {
+    /// The error in an error reply from rclone's rc. The reply also repeats the request as `input`, with any password or token in it, so only the message is kept.
+    pub fn from_reply(reply: &str) -> Self {
+        serde_json::from_str(reply)
+            .unwrap_or_else(|_| Self::new("rclone gave an answer that can't be read."))
+    }
+
+    fn new(error: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+        }
+    }
+}
+
+/// `reply`, a successful answer from rclone's rc, read as a `T`.
+fn parse<T: serde::de::DeserializeOwned>(reply: &str) -> Result<T, RcloneError> {
+    serde_json::from_str(reply)
+        .map_err(|err| RcloneError::new(format!("rclone gave an answer that can't be read: {err}")))
+}
+
 /// The output of an `operations/stat` command.
 #[derive(Clone, Deserialize, Debug)]
 pub struct BackendStat {
@@ -85,12 +105,14 @@ pub mod sync {
     use serde::Deserialize;
     use serde_json::json;
 
-    /// Get a remote name.
-    fn get_remote_name(remote: &str) -> String {
-        if remote.ends_with(':') {
-            panic!("Remote '{remote}' is not allowed to end with a ':'. Please omit it.",);
+    /// The rclone `fs` of the remote named `remote`: its name with a colon.
+    fn fs(remote: &str) -> Result<String, RcloneError> {
+        if remote.is_empty() || remote.contains(':') {
+            return Err(RcloneError::new(format!(
+                "{remote:?} isn't a valid remote name."
+            )));
         }
-        format!("{remote}:")
+        Ok(format!("{remote}:"))
     }
 
     fn run<T: ToString>(method: T, input: T) -> Result<String, String> {
@@ -112,7 +134,7 @@ pub mod sync {
         let resp = run_cancellable(
             command,
             &json!({
-                "fs": get_remote_name(remote_name),
+                "fs": fs(remote_name)?,
                 "remote": util::strip_slashes(path),
             })
             .to_string(),
@@ -121,7 +143,7 @@ pub mod sync {
 
         match resp {
             Ok(_) => Ok(()),
-            Err(json_str) => Err(serde_json::from_str(&json_str).unwrap()),
+            Err(reply) => Err(RcloneError::from_reply(&reply)),
         }
     }
 
@@ -131,7 +153,7 @@ pub mod sync {
 
         match resp {
             Ok(_) => Ok(()),
-            Err(json_str) => Err(serde_json::from_str(&json_str).unwrap()),
+            Err(reply) => Err(RcloneError::from_reply(&reply)),
         }
     }
 
@@ -144,7 +166,7 @@ pub mod sync {
         let resp = run_cancellable(
             "operations/stat",
             &json!({
-                "fs": get_remote_name(remote_name),
+                "fs": fs(remote_name)?,
                 "remote": util::strip_slashes(path)
             })
             .to_string(),
@@ -152,8 +174,8 @@ pub mod sync {
         );
 
         match resp {
-            Ok(json_str) => Ok(serde_json::from_str::<BackendStat>(&json_str).unwrap().item),
-            Err(json_str) => Err(serde_json::from_str(&json_str).unwrap()),
+            Ok(reply) => Ok(super::parse::<BackendStat>(&reply)?.item),
+            Err(reply) => Err(RcloneError::from_reply(&reply)),
         }
     }
 
@@ -166,13 +188,13 @@ pub mod sync {
         }
         match run_cancellable(
             "operations/fsinfo",
-            &json!({ "fs": get_remote_name(remote_name) }).to_string(),
+            &json!({ "fs": fs(remote_name)? }).to_string(),
             cancel,
         ) {
             Ok(json_str) => Ok(serde_json::from_str::<Info>(&json_str)
                 .map(|info| info.hashes)
                 .unwrap_or_default()),
-            Err(json_str) => Err(serde_json::from_str(&json_str).unwrap()),
+            Err(reply) => Err(RcloneError::from_reply(&reply)),
         }
     }
 
@@ -186,7 +208,7 @@ pub mod sync {
         let resp = run_cancellable(
             "operations/stat",
             &json!({
-                "fs": get_remote_name(remote_name),
+                "fs": fs(remote_name)?,
                 "remote": util::strip_slashes(path),
                 "opt": {
                     "showHash": kind.is_some(),
@@ -198,8 +220,8 @@ pub mod sync {
             cancel,
         );
         match resp {
-            Ok(json_str) => Ok(serde_json::from_str::<BackendStat>(&json_str).unwrap().item),
-            Err(json_str) => Err(serde_json::from_str(&json_str).unwrap()),
+            Ok(reply) => Ok(super::parse::<BackendStat>(&reply)?.item),
+            Err(reply) => Err(RcloneError::from_reply(&reply)),
         }
     }
 
@@ -207,11 +229,11 @@ pub mod sync {
     pub fn about(remote_name: &str, cancel: &Cancel) -> Result<(), RcloneError> {
         match run_cancellable(
             "operations/about",
-            &json!({ "fs": get_remote_name(remote_name) }).to_string(),
+            &json!({ "fs": fs(remote_name)? }).to_string(),
             cancel,
         ) {
             Ok(_) => Ok(()),
-            Err(json_str) => Err(serde_json::from_str(&json_str).unwrap()),
+            Err(reply) => Err(RcloneError::from_reply(&reply)),
         }
     }
 
@@ -219,11 +241,11 @@ pub mod sync {
     pub fn about_usage(remote_name: &str, cancel: &Cancel) -> Result<BackendAbout, RcloneError> {
         match run_cancellable(
             "operations/about",
-            &json!({ "fs": get_remote_name(remote_name) }).to_string(),
+            &json!({ "fs": fs(remote_name)? }).to_string(),
             cancel,
         ) {
             Ok(json_str) => Ok(serde_json::from_str(&json_str).unwrap_or_default()),
-            Err(json_str) => Err(serde_json::from_str(&json_str).unwrap()),
+            Err(reply) => Err(RcloneError::from_reply(&reply)),
         }
     }
 
@@ -244,7 +266,7 @@ pub mod sync {
         let resp = run_cancellable(
             "operations/list",
             &json!({
-                "fs": get_remote_name(remote_name),
+                "fs": fs(remote_name)?,
                 "remote": util::strip_slashes(path),
                 "opt": opts
             })
@@ -253,8 +275,8 @@ pub mod sync {
         );
 
         match resp {
-            Ok(json_str) => Ok(serde_json::from_str::<BackendList>(&json_str).unwrap().list),
-            Err(json_str) => Err(serde_json::from_str(&json_str).unwrap()),
+            Ok(reply) => Ok(super::parse::<BackendList>(&reply)?.list),
+            Err(reply) => Err(RcloneError::from_reply(&reply)),
         }
     }
 
@@ -301,7 +323,7 @@ pub mod sync {
 
         match resp {
             Ok(_) => Ok(()),
-            Err(json_str) => Err(serde_json::from_str(&json_str).unwrap()),
+            Err(reply) => Err(RcloneError::from_reply(&reply)),
         }
     }
 
@@ -317,7 +339,7 @@ pub mod sync {
         copy(
             "/",
             local_file,
-            &get_remote_name(remote_name),
+            &fs(remote_name)?,
             remote_destination,
             Some(json!({ "IgnoreChecksum": true, "IgnoreSize": true })),
             cancel,
@@ -335,12 +357,27 @@ pub mod sync {
         cancel: &Cancel,
     ) -> Result<(), RcloneError> {
         copy(
-            &get_remote_name(remote_name),
+            &fs(remote_name)?,
             remote_file,
             "/",
             local_destination,
             metadata.then(|| json!({ "Metadata": true })),
             cancel,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_malformed_name_or_reply_is_an_error_not_a_panic() {
+        let cancel = crate::domain::ports::Cancel::default();
+        for name in ["", "remote:", "a:b"] {
+            assert!(sync::stat(name, "x", &cancel).is_err(), "{name:?}");
+        }
+        assert!(parse::<BackendStat>("{").is_err());
+        assert!(parse::<BackendList>(r#"{"other":1}"#).is_err());
     }
 }
