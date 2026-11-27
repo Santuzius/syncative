@@ -118,10 +118,6 @@ impl Repository for SeaOrmRepository {
         remotes::insert_native_proton_remote(&self.db, name, session_path)
     }
 
-    fn delete_remote(&self, id: RemoteId) -> BoxFuture<'_, Result<(), RepositoryError>> {
-        remotes::delete_remote(&self.db, id)
-    }
-
     fn cascade_delete_remote(&self, id: RemoteId) -> BoxFuture<'_, Result<(), RepositoryError>> {
         remotes::cascade_delete_remote(&self.db, id)
     }
@@ -210,14 +206,6 @@ impl Repository for SeaOrmRepository {
         sync_dirs::set_dates_checked(&self.db, sync_dir)
     }
 
-    fn sync_dir_exists(
-        &self,
-        local_path: &str,
-        remote_path: &str,
-    ) -> BoxFuture<'_, Result<bool, RepositoryError>> {
-        sync_dirs::sync_dir_exists(&self.db, local_path.to_owned(), remote_path.to_owned())
-    }
-
     fn list_sync_items(
         &self,
         sync_dir: SyncDirId,
@@ -237,26 +225,6 @@ impl Repository for SeaOrmRepository {
             local_path.to_owned(),
             remote_path.to_owned(),
         )
-    }
-
-    fn find_sync_item_by_local(
-        &self,
-        sync_dir: SyncDirId,
-        local_path: &str,
-    ) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>> {
-        sync_items::find_sync_item_by_local(&self.db, sync_dir, local_path.to_owned())
-    }
-
-    fn find_sync_item_by_remote(
-        &self,
-        sync_dir: SyncDirId,
-        remote_path: &str,
-    ) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>> {
-        sync_items::find_sync_item_by_remote(&self.db, sync_dir, remote_path.to_owned())
-    }
-
-    fn delete_sync_item(&self, id: SyncItemId) -> BoxFuture<'_, Result<(), RepositoryError>> {
-        sync_items::delete_sync_item(&self.db, id)
     }
 
     fn insert_sync_item(

@@ -221,22 +221,6 @@ pub(super) fn insert_sync_dir(
     })
 }
 
-pub(super) fn sync_dir_exists(
-    db: &DatabaseConnection,
-    local_path: String,
-    remote_path: String,
-) -> BoxFuture<'_, Result<bool, RepositoryError>> {
-    Box::pin(async move {
-        let row = SyncDirsEntity::find()
-            .filter(SyncDirsColumn::LocalPath.eq(local_path))
-            .filter(SyncDirsColumn::RemotePath.eq(remote_path))
-            .one(db)
-            .await
-            .map_err(map_err)?;
-        Ok(row.is_some())
-    })
-}
-
 pub(super) fn cascade_delete_sync_dir(
     db: &DatabaseConnection,
     local_path: String,

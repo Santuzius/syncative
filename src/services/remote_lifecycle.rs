@@ -1,6 +1,4 @@
-//! Remove-a-remote / remove-a-sync-dir workflows. UI removal is the caller's
-//! problem; these functions handle the DB cascade and rclone-side cleanup
-//! via the Repository and BackendClient ports.
+//! Removing a remote: the DB cascade and the cleanup of its rclone config or Proton session, through the Repository and BackendClient ports. UI removal is the caller's problem.
 
 use crate::{
     domain::{
@@ -10,17 +8,6 @@ use crate::{
     services::auth,
     util,
 };
-
-/// Cascade-delete one sync_dir (by local + remote path) and all of its
-/// sync_items from the DB.
-pub fn delete_sync_dir(
-    local_path: &str,
-    remote_path: &str,
-    repo: &dyn Repository,
-) -> Result<(), String> {
-    util::await_future(repo.cascade_delete_sync_dir(local_path, remote_path))
-        .map_err(|e| e.to_string())
-}
 
 /// Cascade-delete a remote (by name), its sync_dirs and sync_items, and
 /// drop its rclone config.

@@ -19,7 +19,6 @@ use crate::domain::{
 pub struct FakeRepo {
     pub items: Mutex<Vec<SyncItem>>,
     pub next_id: Mutex<i32>,
-    pub sync_dir_exists: Mutex<bool>,
     pub remotes: Mutex<Vec<Remote>>,
     pub sync_dirs: Mutex<Vec<SyncDir>>,
     /// Hidden folders, the same for every sync_dir.
@@ -36,7 +35,6 @@ impl FakeRepo {
         Self {
             items: Mutex::new(vec![]),
             next_id: Mutex::new(0),
-            sync_dir_exists: Mutex::new(true),
             remotes: Mutex::new(vec![]),
             sync_dirs: Mutex::new(vec![]),
             hidden: Mutex::new(vec![]),
@@ -127,9 +125,6 @@ impl Repository for FakeRepo {
     ) -> BoxFuture<'_, Result<RemoteId, RepositoryError>> {
         Box::pin(async { Ok(RemoteId(1)) })
     }
-    fn delete_remote(&self, _id: RemoteId) -> BoxFuture<'_, Result<(), RepositoryError>> {
-        Box::pin(async { Ok(()) })
-    }
     fn cascade_delete_remote(&self, _id: RemoteId) -> BoxFuture<'_, Result<(), RepositoryError>> {
         Box::pin(async { Ok(()) })
     }
@@ -164,10 +159,6 @@ impl Repository for FakeRepo {
     fn list_all_sync_dirs(&self) -> BoxFuture<'_, Result<Vec<SyncDir>, RepositoryError>> {
         let dirs = self.sync_dirs.lock().unwrap().clone();
         Box::pin(async move { Ok(dirs) })
-    }
-    fn sync_dir_exists(&self, _l: &str, _r: &str) -> BoxFuture<'_, Result<bool, RepositoryError>> {
-        let exists = *self.sync_dir_exists.lock().unwrap();
-        Box::pin(async move { Ok(exists) })
     }
     fn insert_sync_dir(
         &self,
@@ -281,34 +272,6 @@ impl Repository for FakeRepo {
             .cloned();
         Box::pin(async move { Ok(found) })
     }
-    fn find_sync_item_by_local(
-        &self,
-        sd: SyncDirId,
-        local: &str,
-    ) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>> {
-        let found = self
-            .items
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|it| it.sync_dir_id == sd && it.local_path == local)
-            .cloned();
-        Box::pin(async move { Ok(found) })
-    }
-    fn find_sync_item_by_remote(
-        &self,
-        sd: SyncDirId,
-        remote: &str,
-    ) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>> {
-        let found = self
-            .items
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|it| it.sync_dir_id == sd && it.remote_path == remote)
-            .cloned();
-        Box::pin(async move { Ok(found) })
-    }
     fn insert_sync_item(
         &self,
         sd: SyncDirId,
@@ -372,10 +335,6 @@ impl Repository for FakeRepo {
             Some(c) => cursors.insert(sd, c),
             None => cursors.remove(&sd),
         };
-        Box::pin(async { Ok(()) })
-    }
-    fn delete_sync_item(&self, id: SyncItemId) -> BoxFuture<'_, Result<(), RepositoryError>> {
-        self.items.lock().unwrap().retain(|it| it.id != id);
         Box::pin(async { Ok(()) })
     }
     fn delete_sync_item_by_paths(

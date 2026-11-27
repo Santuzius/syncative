@@ -86,19 +86,6 @@ pub(super) fn insert_native_proton_remote(
     })
 }
 
-pub(super) fn delete_remote(
-    db: &DatabaseConnection,
-    id: RemoteId,
-) -> BoxFuture<'_, Result<(), RepositoryError>> {
-    Box::pin(async move {
-        RemotesEntity::delete_by_id(id.0)
-            .exec(db)
-            .await
-            .map_err(map_err)?;
-        Ok(())
-    })
-}
-
 pub(super) fn cascade_delete_remote(
     db: &DatabaseConnection,
     id: RemoteId,

@@ -136,9 +136,6 @@ mod tests {
             let id = RemoteId(*next);
             Box::pin(async move { Ok(id) })
         }
-        fn delete_remote(&self, _id: RemoteId) -> BoxFuture<'_, Result<(), RepositoryError>> {
-            Box::pin(async { Ok(()) })
-        }
         fn cascade_delete_remote(
             &self,
             _id: RemoteId,
@@ -164,13 +161,6 @@ mod tests {
             _r: RemoteId,
         ) -> BoxFuture<'_, Result<Vec<SyncDir>, RepositoryError>> {
             Box::pin(async { Ok(vec![]) })
-        }
-        fn sync_dir_exists(
-            &self,
-            _l: &str,
-            _r: &str,
-        ) -> BoxFuture<'_, Result<bool, RepositoryError>> {
-            Box::pin(async { Ok(false) })
         }
         fn insert_sync_dir(
             &self,
@@ -236,20 +226,6 @@ mod tests {
         ) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>> {
             Box::pin(async { Ok(None) })
         }
-        fn find_sync_item_by_local(
-            &self,
-            _sd: SyncDirId,
-            _l: &str,
-        ) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>> {
-            Box::pin(async { Ok(None) })
-        }
-        fn find_sync_item_by_remote(
-            &self,
-            _sd: SyncDirId,
-            _r: &str,
-        ) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>> {
-            Box::pin(async { Ok(None) })
-        }
         fn insert_sync_item(
             &self,
             _sd: SyncDirId,
@@ -290,9 +266,6 @@ mod tests {
             _sd: SyncDirId,
             _cursor: Option<crate::domain::sync::RemoteCursor>,
         ) -> BoxFuture<'_, Result<(), RepositoryError>> {
-            Box::pin(async { Ok(()) })
-        }
-        fn delete_sync_item(&self, _id: SyncItemId) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
         fn delete_sync_item_by_paths(

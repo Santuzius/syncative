@@ -45,38 +45,6 @@ pub(super) fn find_sync_item_by_paths(
     })
 }
 
-pub(super) fn find_sync_item_by_local(
-    db: &DatabaseConnection,
-    sync_dir: SyncDirId,
-    local_path: String,
-) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>> {
-    Box::pin(async move {
-        let row = SyncItemsEntity::find()
-            .filter(SyncItemsColumn::SyncDirId.eq(sync_dir.0))
-            .filter(SyncItemsColumn::LocalPath.eq(local_path))
-            .one(db)
-            .await
-            .map_err(map_err)?;
-        Ok(row.map(map_sync_item))
-    })
-}
-
-pub(super) fn find_sync_item_by_remote(
-    db: &DatabaseConnection,
-    sync_dir: SyncDirId,
-    remote_path: String,
-) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>> {
-    Box::pin(async move {
-        let row = SyncItemsEntity::find()
-            .filter(SyncItemsColumn::SyncDirId.eq(sync_dir.0))
-            .filter(SyncItemsColumn::RemotePath.eq(remote_path))
-            .one(db)
-            .await
-            .map_err(map_err)?;
-        Ok(row.map(map_sync_item))
-    })
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(super) fn insert_sync_item(
     db: &DatabaseConnection,
@@ -160,19 +128,6 @@ pub(super) fn set_remote_meta(
                 .map_err(map_err)?;
         }
         txn.commit().await.map_err(map_err)
-    })
-}
-
-pub(super) fn delete_sync_item(
-    db: &DatabaseConnection,
-    id: SyncItemId,
-) -> BoxFuture<'_, Result<(), RepositoryError>> {
-    Box::pin(async move {
-        SyncItemsEntity::delete_by_id(id.0)
-            .exec(db)
-            .await
-            .map_err(map_err)?;
-        Ok(())
     })
 }
 

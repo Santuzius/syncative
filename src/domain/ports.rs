@@ -85,7 +85,6 @@ pub trait Repository: Send + Sync {
         name: String,
         session_path: String,
     ) -> BoxFuture<'_, Result<RemoteId, RepositoryError>>;
-    fn delete_remote(&self, id: RemoteId) -> BoxFuture<'_, Result<(), RepositoryError>>;
     /// Delete a remote, all of its sync_dirs, and all of their sync_items.
     fn cascade_delete_remote(&self, id: RemoteId) -> BoxFuture<'_, Result<(), RepositoryError>>;
     /// Delete a sync_dir (by `(local_path, remote_path)`) and all of its
@@ -106,11 +105,6 @@ pub trait Repository: Send + Sync {
         remote: RemoteId,
     ) -> BoxFuture<'_, Result<Vec<SyncDir>, RepositoryError>>;
     fn list_all_sync_dirs(&self) -> BoxFuture<'_, Result<Vec<SyncDir>, RepositoryError>>;
-    fn sync_dir_exists(
-        &self,
-        local_path: &str,
-        remote_path: &str,
-    ) -> BoxFuture<'_, Result<bool, RepositoryError>>;
     fn insert_sync_dir(
         &self,
         remote: RemoteId,
@@ -163,17 +157,6 @@ pub trait Repository: Send + Sync {
         local_path: &str,
         remote_path: &str,
     ) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>>;
-    fn find_sync_item_by_local(
-        &self,
-        sync_dir: SyncDirId,
-        local_path: &str,
-    ) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>>;
-    fn find_sync_item_by_remote(
-        &self,
-        sync_dir: SyncDirId,
-        remote_path: &str,
-    ) -> BoxFuture<'_, Result<Option<SyncItem>, RepositoryError>>;
-    fn delete_sync_item(&self, id: SyncItemId) -> BoxFuture<'_, Result<(), RepositoryError>>;
     /// Record a synced item. `is_dir` and `remote_id` describe the remote item as it is now; its change tag stays empty ([`RemoteMeta::tag`]).
     #[allow(clippy::too_many_arguments)]
     fn insert_sync_item(
