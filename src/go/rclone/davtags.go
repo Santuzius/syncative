@@ -20,6 +20,7 @@ import (
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config/configstruct"
 	"github.com/rclone/rclone/fs/config/obscure"
+	"github.com/rclone/rclone/fs/fserrors"
 	"github.com/rclone/rclone/fs/fshttp"
 	"github.com/rclone/rclone/lib/encoder"
 	"github.com/rclone/rclone/lib/rest"
@@ -153,6 +154,9 @@ func davOptions(remote string, vendors ...string) (*webdav.Options, error) {
 	return opt, nil
 }
 
+// propfindAttempts is how often an ETag request is sent when the connection drops.
+const propfindAttempts = 3
+
 // davHTTP is the HTTP client of every ETag request. One for all keeps its connections open between passes: a client of its own per request would dial and shake hands anew each time, and leave the old connection idle until the server closes it.
 var davHTTP = sync.OnceValue(func() *http.Client { return fshttp.NewClient(context.Background()) })
 
@@ -186,11 +190,19 @@ func folderTags(ctx context.Context, opt *webdav.Options, dir string, depth int)
 		Method:       "PROPFIND",
 		Path:         dirPath,
 		ExtraHeaders: map[string]string{"Depth": fmt.Sprint(depth)},
-		Body:         bytes.NewReader(etagProps),
 		NoRedirect:   true,
 	}
 	var result davMultistatus
-	resp, err := srv.CallXML(ctx, &opts, nil, &result)
+	var resp *http.Response
+	// Go's transport sends a PROPFIND only once: when the server closed the kept-open connection just as the request went out, the answer is an EOF. Ask again, as the backend's pacer does for its own requests.
+	for attempt := 1; ; attempt++ {
+		opts.Body = bytes.NewReader(etagProps)
+		result = davMultistatus{}
+		resp, err = srv.CallXML(ctx, &opts, nil, &result)
+		if err == nil || attempt == propfindAttempts || ctx.Err() != nil || !fserrors.ShouldRetry(err) {
+			break
+		}
+	}
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusNotFound {
 			return "", nil, fs.ErrorDirNotFound

@@ -99,6 +99,10 @@ func RcloneFolderTags(remote *C.char, path *C.char, depth C.int, cancelled *C.uc
 	if err != nil {
 		out, _ = json.Marshal(map[string]string{"error": err.Error()})
 	} else {
+		if children == nil {
+			// A nil map would be null, which the Rust side doesn't take for an empty map.
+			children = map[string]string{}
+		}
 		out, _ = json.Marshal(map[string]any{"tag": tag, "children": children})
 	}
 	return C.CString(string(out))
