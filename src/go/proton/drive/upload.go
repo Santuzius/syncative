@@ -419,37 +419,17 @@ func (s *Session) createFreshFileDraft(
 // ghost-slot conflict surfaces when CreateFile 422s and the caller
 // falls back to `findAnyChildFileByName`.
 //
-// Deterministic among active duplicates: lowest LinkID wins so
-// consecutive sync passes don't oscillate between copies.
+// Among active duplicates the lowest link ID wins (ChildNamed).
 func (s *Session) findActiveChildFileByName(ctx context.Context, parentLinkID, name string) (*proton.Link, error) {
-	allEntries, err := s.ListAllChildren(ctx, parentLinkID)
+	items, err := s.Children(ctx, parentLinkID)
 	if err != nil {
 		return nil, err
 	}
-	var matches []*DumpEntry
-	for _, e := range allEntries {
-		if e.Name == name && !e.IsDir && e.State == int(proton.LinkStateActive) {
-			matches = append(matches, e)
-		}
-	}
-	if len(matches) == 0 {
+	it := ChildNamed(items, name, false)
+	if it == nil {
 		return nil, nil
 	}
-	sort.SliceStable(matches, func(i, j int) bool {
-		return matches[i].LinkID < matches[j].LinkID
-	})
-	if len(matches) > 1 {
-		log.Printf("[proton-native] found %d active duplicate links named %q under %s — picking %s", len(matches), name, parentLinkID, matches[0].LinkID)
-	}
-	for _, m := range matches {
-		link, err := s.getLink(ctx, m.LinkID)
-		if err != nil {
-			log.Printf("[proton-native] getLink(%s) failed: %v — skipping", m.LinkID, err)
-			continue
-		}
-		return &link, nil
-	}
-	return nil, nil
+	return &it.Link, nil
 }
 
 // warnGhostBlocker logs a one-liner the first time a trashed/deleted

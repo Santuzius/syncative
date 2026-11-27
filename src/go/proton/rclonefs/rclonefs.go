@@ -173,19 +173,13 @@ func (f *Fs) children(ctx context.Context, sess *drive.Session, dirID string, fr
 	return items, nil
 }
 
-// child returns the item `name` of the given kind in folder `dirID`; nil when there is none. Among several of the same name the lowest link ID wins, as in the upload's lookup.
+// child returns the item `name` of the given kind in folder `dirID`; nil when there is none (see drive.ChildNamed).
 func (f *Fs) child(ctx context.Context, sess *drive.Session, dirID, name string, isDir bool) (*drive.Item, error) {
 	items, err := f.children(ctx, sess, dirID, false)
 	if err != nil {
 		return nil, err
 	}
-	var found *drive.Item
-	for i := range items {
-		it := &items[i]
-		if it.Name == name && it.IsDir() == isDir && (found == nil || it.Link.LinkID < found.Link.LinkID) {
-			found = it
-		}
-	}
+	found := drive.ChildNamed(items, name, isDir)
 	if found == nil {
 		return nil, nil
 	}

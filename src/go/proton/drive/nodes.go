@@ -37,8 +37,18 @@ type FileAttrs struct {
 	BlockSizes []int64
 }
 
-// Children lists the active children of folder `folderID` ("" for the root) with their names. Folders' links are cached for their keyrings.
+// Children lists the active children of folder `folderID` ("" for the root) with their names; none when the folder isn't active.
 func (s *Session) Children(ctx context.Context, folderID string) ([]Item, error) {
+	return s.childrenIn(ctx, folderID, proton.LinkStateActive)
+}
+
+// TrashedChildren lists the trashed children of folder `folderID` with their names, for restoring them.
+func (s *Session) TrashedChildren(ctx context.Context, folderID string) ([]Item, error) {
+	return s.childrenIn(ctx, folderID, proton.LinkStateTrashed)
+}
+
+// childrenIn lists the children of folder `folderID` ("" for the root) in state `state`, with their names. Folders' links are cached for their keyrings; files' are fetched when a file is worked on, so a large folder doesn't stay in memory.
+func (s *Session) childrenIn(ctx context.Context, folderID string, state proton.LinkState) ([]Item, error) {
 	if folderID == "" {
 		folderID = s.RootLinkID()
 	}
@@ -46,9 +56,10 @@ func (s *Session) Children(ctx context.Context, folderID string) ([]Item, error)
 	if err != nil {
 		return nil, err
 	}
-	if folder.State != proton.LinkStateActive {
+	if state == proton.LinkStateActive && folder.State != proton.LinkStateActive {
 		return nil, nil
 	}
+	// The children's names are encrypted to the folder's node keyring.
 	folderKR, err := s.linkKR(ctx, &folder)
 	if err != nil {
 		return nil, err
@@ -57,13 +68,13 @@ func (s *Session) Children(ctx context.Context, folderID string) ([]Item, error)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Item, 0, len(children))
+	var out []Item
 	for i := range children {
 		child := &children[i]
 		if child.Link.Type == proton.LinkTypeFolder {
 			s.cacheLink(child.Link)
 		}
-		if child.Link.State != proton.LinkStateActive {
+		if child.Link.State != state {
 			continue
 		}
 		name, err := child.Link.GetName(folderKR, s.defaultAddrKR)
@@ -73,6 +84,18 @@ func (s *Session) Children(ctx context.Context, folderID string) ([]Item, error)
 		out = append(out, Item{Link: child.Link, Name: name, xattr: child.XAttr})
 	}
 	return out, nil
+}
+
+// ChildNamed returns the item `name` of the given kind among `items`; nil when there is none. Among several of the same name the lowest link ID wins, so lookups agree and passes don't alternate between copies.
+func ChildNamed(items []Item, name string, isDir bool) *Item {
+	var found *Item
+	for i := range items {
+		it := &items[i]
+		if it.Name == name && it.IsDir() == isDir && (found == nil || it.Link.LinkID < found.Link.LinkID) {
+			found = it
+		}
+	}
+	return found
 }
 
 // ItemByID returns link `linkID` fresh from the API with its name; nil when it isn't active.
@@ -238,34 +261,6 @@ func (s *Session) Restore(ctx context.Context, linkIDs ...string) error {
 		s.forgetLink(id)
 	}
 	return err
-}
-
-// TrashedChildren lists the trashed children of folder `folderID` with their names, for restoring them.
-func (s *Session) TrashedChildren(ctx context.Context, folderID string) ([]Item, error) {
-	folder, err := s.getLink(ctx, folderID)
-	if err != nil {
-		return nil, err
-	}
-	folderKR, err := s.linkKR(ctx, &folder)
-	if err != nil {
-		return nil, err
-	}
-	children, err := extras.ListChildren(ctx, s.protonextAuth(), s.mainShare.ShareID, folderID)
-	if err != nil {
-		return nil, err
-	}
-	var out []Item
-	for i := range children {
-		if children[i].Link.State != proton.LinkStateTrashed {
-			continue
-		}
-		name, err := children[i].Link.GetName(folderKR, s.defaultAddrKR)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, Item{Link: children[i].Link, Name: name})
-	}
-	return out, nil
 }
 
 // Open reads the active revision of file `item` from byte `offset` on, decrypting one block at a time.

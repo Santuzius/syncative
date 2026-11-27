@@ -106,19 +106,14 @@ func (s *Session) CreateFolder(ctx context.Context, parentLinkID, name string) (
 	return res.ID, nil
 }
 
-// findChildByName lists the active children of parentLinkID and returns
-// the link ID of the first child matching `name` with the given type
-// (isDir=true for folders, false for files). Returns ("", nil) when no
-// match is found.
+// findChildByName returns the link ID of the active child `name` of parentLinkID with the given kind (see ChildNamed); "" when there is none.
 func (s *Session) findChildByName(ctx context.Context, parentLinkID, name string, isDir bool) (string, error) {
-	entries, err := s.ListDirectory(ctx, parentLinkID)
+	items, err := s.Children(ctx, parentLinkID)
 	if err != nil {
 		return "", err
 	}
-	for _, e := range entries {
-		if e.Name == name && e.IsDir == isDir {
-			return e.LinkID, nil
-		}
+	if it := ChildNamed(items, name, isDir); it != nil {
+		return it.Link.LinkID, nil
 	}
 	return "", nil
 }

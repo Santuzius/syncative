@@ -105,41 +105,13 @@ func (s *Session) ListDirectory(ctx context.Context, folderLinkID string) ([]*En
 }
 
 func (s *Session) listDirectory(ctx context.Context, folderLinkID string) ([]*Entry, error) {
-	folderLink, err := s.getLink(ctx, folderLinkID)
+	items, err := s.Children(ctx, folderLinkID)
 	if err != nil {
 		return nil, err
 	}
-	if folderLink.State != proton.LinkStateActive {
-		return nil, nil
-	}
-
-	childrenLinks, err := s.c.ListChildren(ctx, s.mainShare.ShareID, folderLink.LinkID, true)
-	if err != nil {
-		return nil, err
-	}
-
-	// The children's names are encrypted to the *folder's* node
-	// keyring, so we unlock that once and reuse.
-	folderKR, err := s.linkKR(ctx, &folderLink)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make([]*Entry, 0, len(childrenLinks))
-	for i := range childrenLinks {
-		child := &childrenLinks[i]
-		// Folders' links are needed again for their keyrings; files' are fetched when a file is worked on, so a large folder doesn't stay in memory.
-		if child.Type == proton.LinkTypeFolder {
-			s.cacheLink(*child)
-		}
-		if child.State != proton.LinkStateActive {
-			continue
-		}
-		name, err := child.GetName(folderKR, s.defaultAddrKR)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, entryFromLink(child, name))
+	out := make([]*Entry, 0, len(items))
+	for i := range items {
+		out = append(out, entryFromLink(&items[i].Link, items[i].Name))
 	}
 	return out, nil
 }
