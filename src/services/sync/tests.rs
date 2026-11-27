@@ -450,6 +450,218 @@ fn a_deleted_folder_is_purged_once() {
     assert!(client.delete_file_calls.lock().unwrap().is_empty());
 }
 
+/// A folder deleted on the remote takes only what is synced and unchanged here: a file edited here and a new one are uploaded, and the folder stays for them.
+#[test]
+fn a_remote_folder_delete_keeps_edits_and_new_files() {
+    let tmp = TempDir::new("sync_del_folder_keeps_local");
+    let repo = FakeRepo::new();
+    let keep = tmp.write_file("keep.txt", b"k");
+    touch_mtime(&keep, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        keep.to_str().unwrap(),
+        "keep.txt",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    repo.insert_item(
+        SyncDirId(1),
+        &format!("{}/old", tmp.as_str()),
+        "old",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    let synced = tmp.write_file("old/synced.txt", b"s");
+    touch_mtime(&synced, 1_700_000_000);
+    let edited = tmp.write_file("old/edited.txt", b"e2");
+    touch_mtime(&edited, 1_700_000_500);
+    let new = tmp.write_file("old/new.txt", b"n");
+    for (file, name) in [(&synced, "old/synced.txt"), (&edited, "old/edited.txt")] {
+        repo.insert_item(
+            SyncDirId(1),
+            file.to_str().unwrap(),
+            name,
+            1_700_000_000,
+            1_700_000_000,
+        );
+    }
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![remote_item("keep.txt", false, 1_700_000_000)]));
+
+    let (_outcome, events) = run_full(&tmp, &repo, &client);
+    assert!(errors(&events).is_empty());
+    assert!(!synced.exists());
+    assert!(edited.exists() && new.exists());
+    let mut uploaded: Vec<String> = client
+        .copy_to_remote_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, r)| r.clone())
+        .collect();
+    uploaded.sort();
+    assert_eq!(
+        uploaded,
+        vec!["old/edited.txt".to_owned(), "old/new.txt".to_owned()]
+    );
+    assert!(!repo.has_item(synced.to_str().unwrap(), "old/synced.txt"));
+}
+
+/// A folder deleted here takes only what is synced and unchanged on the remote: a file edited there and a new one are downloaded instead of purged with the folder.
+#[test]
+fn a_local_folder_delete_keeps_remote_edits_and_new_files() {
+    let tmp = TempDir::new("sync_del_folder_keeps_remote");
+    let repo = FakeRepo::new();
+    let keep = tmp.write_file("keep.txt", b"k");
+    touch_mtime(&keep, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        keep.to_str().unwrap(),
+        "keep.txt",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    repo.insert_item(
+        SyncDirId(1),
+        &format!("{}/old", tmp.as_str()),
+        "old",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    for name in ["old/synced.txt", "old/edited.txt"] {
+        repo.insert_item(
+            SyncDirId(1),
+            &format!("{}/{name}", tmp.as_str()),
+            name,
+            1_700_000_000,
+            1_700_000_000,
+        );
+    }
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("keep.txt", false, 1_700_000_000),
+            remote_item("old", true, 1_700_000_000),
+            remote_item("old/synced.txt", false, 1_700_000_000),
+            remote_item("old/edited.txt", false, 1_700_000_500),
+            remote_item("old/new.txt", false, 1_700_000_500),
+        ]),
+    );
+
+    let (_outcome, events) = run_full(&tmp, &repo, &client);
+    assert!(errors(&events).is_empty());
+    assert!(client.purge_calls.lock().unwrap().is_empty());
+    assert_eq!(
+        *client.delete_file_calls.lock().unwrap(),
+        vec!["old/synced.txt".to_owned()]
+    );
+    let mut downloaded: Vec<String> = client
+        .copy_to_local_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, r)| r.clone())
+        .collect();
+    downloaded.sort();
+    assert_eq!(
+        downloaded,
+        vec!["old/edited.txt".to_owned(), "old/new.txt".to_owned()]
+    );
+}
+
+/// A file that turns up in a remote folder after the pass planned to purge it stays, and so does the folder; the synced files go one by one.
+#[test]
+fn a_file_new_since_planning_keeps_its_remote_folder() {
+    let tmp = TempDir::new("sync_del_folder_race");
+    let repo = FakeRepo::new();
+    let keep = tmp.write_file("keep.txt", b"k");
+    touch_mtime(&keep, 1_700_000_000);
+    repo.insert_item(
+        SyncDirId(1),
+        keep.to_str().unwrap(),
+        "keep.txt",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    repo.insert_item(
+        SyncDirId(1),
+        &format!("{}/old", tmp.as_str()),
+        "old",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    repo.insert_item(
+        SyncDirId(1),
+        &format!("{}/old/a.txt", tmp.as_str()),
+        "old/a.txt",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("keep.txt", false, 1_700_000_000),
+            remote_item("old", true, 1_700_000_000),
+            remote_item("old/a.txt", false, 1_700_000_000),
+        ]),
+    );
+    client.set_list(
+        "old",
+        Ok(vec![
+            remote_item("old/a.txt", false, 1_700_000_000),
+            remote_item("old/late.txt", false, 1_700_000_900),
+        ]),
+    );
+
+    let (_outcome, events) = run_full(&tmp, &repo, &client);
+    assert!(errors(&events).is_empty());
+    assert!(client.purge_calls.lock().unwrap().is_empty());
+    assert_eq!(
+        *client.delete_file_calls.lock().unwrap(),
+        vec!["old/a.txt".to_owned()]
+    );
+    assert!(!repo.has_item(&format!("{}/old/a.txt", tmp.as_str()), "old/a.txt"));
+    assert!(repo.has_item(&format!("{}/old", tmp.as_str()), "old"));
+}
+
+/// A local folder whose remote copy is gone loses only its synced, unchanged files: one the sync never saw (left out, or written after planning) stays with its folder.
+#[test]
+fn a_file_the_sync_never_saw_keeps_its_local_folder() {
+    use super::applier::{Removed, remove_synced_local};
+    let tmp = TempDir::new("sync_del_folder_unseen");
+    let synced = tmp.write_file("old/sub/a.txt", b"a");
+    touch_mtime(&synced, 1_700_000_000);
+    let unseen = tmp.write_file("old/other/b.txt", b"b");
+    let row = |local: String, remote: &str| crate::domain::sync::SyncItem {
+        id: crate::domain::sync::SyncItemId(0),
+        sync_dir_id: SyncDirId(1),
+        local_path: local,
+        remote_path: remote.to_owned(),
+        last_local_timestamp: 1_700_000_000,
+        last_remote_timestamp: 1_700_000_000,
+        remote: Default::default(),
+    };
+    let db: std::collections::HashMap<String, _> = [
+        row(format!("{}/old", tmp.as_str()), "old"),
+        row(format!("{}/old/sub", tmp.as_str()), "old/sub"),
+        row(synced.to_str().unwrap().to_owned(), "old/sub/a.txt"),
+    ]
+    .into_iter()
+    .map(|r| (r.remote_path.clone(), r))
+    .collect();
+
+    let Ok(Removed::Some(mut removed)) = remove_synced_local(&tmp.path.join("old"), &db) else {
+        panic!("the folder must stay");
+    };
+    removed.sort();
+    assert!(!tmp.path.join("old/sub").exists());
+    assert!(unseen.exists());
+    let remote_paths: Vec<&str> = removed.iter().map(|(_, r, _)| r.as_str()).collect();
+    assert_eq!(remote_paths, vec!["old/sub", "old/sub/a.txt"]);
+}
+
 /// A downloaded file carries the remote's modification time, not the time of the download, so a later first pass doesn't take it for newer.
 #[test]
 fn a_download_keeps_the_remote_modification_time() {

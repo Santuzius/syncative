@@ -87,8 +87,64 @@ pub(super) fn plan(snapshot: &Snapshot, sync_dir: &SyncDir) -> Vec<Action> {
     // Order: directory creations first (uploads/downloads for dirs before
     // their children), file transfers next, deletes last. Within each
     // group, shorter paths first so parents precede children.
+    let mut out = fold_folder_deletes(out);
     out.sort_by(|a, b| order(a).cmp(&order(b)));
     out
+}
+
+/// A folder deleted on one side goes on the other as a whole only when everything below it goes too; its own deletes are then dropped, as the folder's takes them along. Anything else below it (an edit or a new file to bring over, a conflict) keeps the folder: the deletes below it run one by one, and the rest is synced into it.
+fn fold_folder_deletes(actions: Vec<Action>) -> Vec<Action> {
+    // Each folder delete's path, and whether it deletes here.
+    let folder_deletes: Vec<(String, bool)> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::DeleteLocal {
+                remote_path,
+                is_dir: true,
+                ..
+            } => Some((remote_path.clone(), true)),
+            Action::DeleteRemote {
+                remote_path,
+                is_dir: true,
+                ..
+            } => Some((remote_path.clone(), false)),
+            _ => None,
+        })
+        .collect();
+    let below = |a: &Action, folder: &str| {
+        let path = a_path(a);
+        path != folder && crate::util::is_under(path, folder)
+    };
+    let same_delete = |a: &Action, local: bool| match a {
+        Action::DeleteLocal { .. } => local,
+        Action::DeleteRemote { .. } => !local,
+        _ => false,
+    };
+    let (whole, kept): (Vec<_>, Vec<_>) =
+        folder_deletes.into_iter().partition(|(folder, local)| {
+            actions
+                .iter()
+                .filter(|a| below(a, folder))
+                .all(|a| same_delete(a, *local) || matches!(a, Action::ClearDbRow { .. }))
+        });
+    if !kept.is_empty() {
+        let paths: Vec<&str> = kept.iter().map(|(f, _)| f.as_str()).collect();
+        eprintln!(
+            "sync: KEEP folders {paths:?} — something below them is still to be synced; deleting only what is synced and unchanged."
+        );
+    }
+    actions
+        .into_iter()
+        .filter(|a| {
+            let kept_folder = kept
+                .iter()
+                .any(|(folder, local)| a_path(a) == folder && same_delete(a, *local));
+            let taken_along = whole
+                .iter()
+                .any(|(folder, local)| below(a, folder) && same_delete(a, *local));
+            !kept_folder && !taken_along
+        })
+        .collect()
 }
 
 fn group_db_keys_by_parent(db: &HashMap<String, SyncItem>) -> HashMap<&str, Vec<&str>> {
@@ -562,14 +618,18 @@ fn plan_one_way(
     }
 }
 
-/// Whether a file the database knows is really gone from the remote: reported gone by the change source, which is certain, or missing from a full listing that still holds a synced sibling. A listing cut short (rate limit, cache flush) would otherwise read as a deletion.
+/// Whether a file the database knows is really gone from the remote: reported gone by the change source, which is certain, missing from a full listing that still holds a synced sibling, or gone with its folder. A listing cut short (rate limit, cache flush) would otherwise read as a deletion.
 fn remote_absence_trusted(
     remote_path: &str,
     snapshot: &Snapshot,
     db_by_parent: &HashMap<&str, Vec<&str>>,
 ) -> bool {
-    if snapshot.reported_gone.contains(remote_path)
-        || parent_is_verified(remote_path, &snapshot.remote, db_by_parent)
+    let trusted = |path: &str| {
+        snapshot.reported_gone.contains(path)
+            || parent_is_verified(path, &snapshot.remote, db_by_parent)
+    };
+    if trusted(remote_path)
+        || gone_ancestor(remote_path, &snapshot.remote, &snapshot.db).is_some_and(trusted)
     {
         return true;
     }
@@ -597,11 +657,7 @@ fn delete_remote(
         return None;
     }
     // A sub-folder the walk read without error and found empty was emptied on purpose, so its files go remotely too. The sync folder itself is never in the walk and keeps the stricter check: an empty root more likely means an unmounted disk.
-    let parent_walked = snapshot
-        .local
-        .get(parent_of(&r.path))
-        .is_some_and(|p| p.is_dir);
-    if !parent_walked && !parent_is_verified(&r.path, &snapshot.local, db_by_parent) {
+    if !local_absence_trusted(&r.path, snapshot, db_by_parent) {
         eprintln!(
             "sync: SKIP DeleteRemote for '{}' — walk found no entries under '{}' (likely concurrent-write race); preserving remote copy.",
             r.path,
@@ -614,6 +670,41 @@ fn delete_remote(
         remote_path: r.path.clone(),
         is_dir: r.is_dir,
     })
+}
+
+/// Whether an item the database knows is really gone here: the walk read its folder, found a synced sibling, or the item went with a folder of which one of these holds. An empty walk of a folder more likely means an unmounted disk or a concurrent writer.
+fn local_absence_trusted(
+    remote_path: &str,
+    snapshot: &Snapshot,
+    db_by_parent: &HashMap<&str, Vec<&str>>,
+) -> bool {
+    let trusted = |path: &str| {
+        snapshot
+            .local
+            .get(parent_of(path))
+            .is_some_and(|p| p.is_dir)
+            || parent_is_verified(path, &snapshot.local, db_by_parent)
+    };
+    trusted(remote_path)
+        || gone_ancestor(remote_path, &snapshot.local, &snapshot.db).is_some_and(trusted)
+}
+
+/// The topmost folder above `path` that the database knows and `items` lacks, of the unbroken chain of such folders right above it: deleting that folder took `path` with it. `None` when `path`'s folder is in `items` or isn't synced.
+fn gone_ancestor<'a, T>(
+    path: &'a str,
+    items: &HashMap<String, T>,
+    db: &HashMap<String, SyncItem>,
+) -> Option<&'a str> {
+    let mut gone = None;
+    let mut p = parent_of(path);
+    while db.contains_key(p) && !items.contains_key(p) {
+        gone = Some(p);
+        if p.is_empty() {
+            break;
+        }
+        p = parent_of(p);
+    }
+    gone
 }
 
 /// Download a file or folder missing here that the database knows, unless the walk can't be trusted to have seen it: a walk error on the way, or a parent that came back empty (an unmounted disk).
@@ -630,11 +721,7 @@ fn restore_local(
         );
         return None;
     }
-    let parent_walked = snapshot
-        .local
-        .get(parent_of(&r.path))
-        .is_some_and(|p| p.is_dir);
-    if !parent_walked && !parent_is_verified(&r.path, &snapshot.local, db_by_parent) {
+    if !local_absence_trusted(&r.path, snapshot, db_by_parent) {
         eprintln!(
             "sync: SKIP restoring '{}' — walk found no entries under '{}'.",
             r.path,
