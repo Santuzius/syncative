@@ -1337,6 +1337,65 @@ fn remote_edit_beats_local_delete() {
     assert_eq!(client.copy_to_local_calls.lock().unwrap().len(), 1);
 }
 
+/// A new local file whose name turned up on the remote after the listing is a conflict, not an upload over the remote copy.
+#[test]
+fn a_new_file_rechecks_the_remote_before_uploading() {
+    let tmp = TempDir::new("sync_new_upload_recheck");
+    let local = tmp.write_file("a.txt", b"here");
+    touch_mtime(&local, 1_700_000_500);
+    let repo = FakeRepo::new();
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![]));
+    client.set_stat(
+        "a.txt",
+        Ok(Some(remote_item("a.txt", false, 1_700_000_700))),
+    );
+    client.set_sha1("a.txt", "0000000000000000000000000000000000000000");
+
+    let (_outcome, events) = run_full(&tmp, &repo, &client);
+    assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
+    assert_eq!(conflicts(&events).len(), 1);
+}
+
+/// A new remote file whose name turned up here after the walk is a conflict, not a download over the local copy.
+#[test]
+fn a_new_file_rechecks_here_before_downloading() {
+    let tmp = TempDir::new("sync_new_download_recheck");
+    let repo = FakeRepo::new();
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("0.txt", false, 1_700_000_700),
+            remote_item("a.txt", false, 1_700_000_700),
+        ]),
+    );
+    client.set_sha1("a.txt", "0000000000000000000000000000000000000000");
+    client.set_stat(
+        "a.txt",
+        Ok(Some(remote_item("a.txt", false, 1_700_000_700))),
+    );
+    // Written here while the pass downloads the file before it.
+    let target = tmp.path.join("a.txt");
+    *client.during_copy_to_local.lock().unwrap() = Some(Box::new(move |_| {
+        if !target.exists() {
+            fs::write(&target, b"here").unwrap();
+        }
+    }));
+
+    let (_outcome, events) = run_full(&tmp, &repo, &client);
+    let downloaded: Vec<String> = client
+        .copy_to_local_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, r)| r.clone())
+        .collect();
+    assert_eq!(downloaded, vec!["0.txt".to_owned()]);
+    assert_eq!(fs::read(tmp.path.join("a.txt")).unwrap(), b"here");
+    assert_eq!(conflicts(&events).len(), 1);
+}
+
 /// The listing still shows the old remote copy (cached), but the remote changed meanwhile: the upload turns into a conflict instead of overwriting it.
 #[test]
 fn upload_rechecks_remote_before_overwriting() {

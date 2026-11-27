@@ -87,7 +87,7 @@ where
             };
         }
         // The listing may be a few seconds old (cached until the provider's change log reports something), so re-check the target right before anything gets overwritten or deleted.
-        let mut action = preflight(action, &snapshot.db, remote, client, cancel);
+        let mut action = preflight(action, &snapshot.db, sync_dir, remote, client, cancel);
         if let Some(activity) = activity_of(&action)
             && current_activity != Some(activity)
         {
@@ -588,14 +588,17 @@ where
 /// - an upload over a remote copy that changed since the last sync into a conflict,
 /// - a download over a local copy that changed since the last sync into a conflict,
 /// - a remote delete of a copy edited remotely into a download (the edit wins),
-/// - a local delete of a copy edited locally into an upload.
+/// - a local delete of a copy edited locally into an upload,
+/// - syncing both ways, an upload or download of a new file whose target turned up since the listing into a conflict.
 fn preflight(
     action: Action,
     db: &HashMap<String, SyncItem>,
+    sync_dir: &SyncDir,
     remote: &Remote,
     client: &dyn BackendClient,
     cancel: &Cancel,
 ) -> Action {
+    let two_way = sync_dir.mode == SyncMode::TwoWay;
     let remote_changed = |remote_path: &str, row: &SyncItem| matches!(client.stat(&remote.name, remote_path, cancel), Ok(Some(item)) if !item.is_dir && item.mod_time.unix_timestamp() != row.last_remote_timestamp);
     let local_changed = |local_path: &str, row: &SyncItem| {
         fs::metadata(local_path).is_ok_and(|m| m.is_file())
@@ -613,6 +616,15 @@ fn preflight(
                 remote_path,
                 kind: ConflictKind::BothChanged,
             },
+            None if two_way
+                && matches!(client.stat(&remote.name, &remote_path, cancel), Ok(Some(item)) if !item.is_dir) =>
+            {
+                Action::Conflict {
+                    local_path,
+                    remote_path,
+                    kind: ConflictKind::BothNew,
+                }
+            }
             _ => Action::Upload {
                 local_path,
                 remote_path,
@@ -629,6 +641,13 @@ fn preflight(
                 remote_path,
                 kind: ConflictKind::BothChanged,
             },
+            None if two_way && fs::metadata(&local_path).is_ok_and(|m| m.is_file()) => {
+                Action::Conflict {
+                    local_path,
+                    remote_path,
+                    kind: ConflictKind::BothNew,
+                }
+            }
             _ => Action::Download {
                 local_path,
                 remote_path,

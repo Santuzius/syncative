@@ -129,6 +129,8 @@ fn a_new_local_file_is_uploaded_while_the_database_stands_in() {
 
     let new = tmp.write_file("b.txt", b"new");
     touch_mtime(&new, T + 5);
+    // Not there before the upload, there after it.
+    client.set_stat_sequence("b.txt", vec![Ok(None)]);
     client.set_stat("b.txt", Ok(Some(remote_item("b.txt", false, T + 6))));
     assert_eq!(pass(&tmp, &repo, &client), Outcome::Synced);
     assert_eq!(client.copy_to_remote_calls.lock().unwrap().len(), 1);

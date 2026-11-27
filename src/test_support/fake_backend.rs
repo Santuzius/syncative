@@ -35,6 +35,8 @@ pub struct FakeBackend {
     pub mkdir_result: Mutex<Result<(), String>>,
     /// Runs inside `copy_to_remote` with the local path, e.g. to change the file during its upload.
     pub during_copy_to_remote: Mutex<Option<DuringCopy>>,
+    /// Runs inside `copy_to_local` with the local path, before the file is written.
+    pub during_copy_to_local: Mutex<Option<DuringCopy>>,
 
     /// Answers of `changes`, one per call; once used up, `Changes::Unknown` without a cursor.
     pub changes_answers: Mutex<Vec<Changes>>,
@@ -71,6 +73,7 @@ impl Default for FakeBackend {
             purge_result: Mutex::new(Ok(())),
             mkdir_result: Mutex::new(Ok(())),
             during_copy_to_remote: Mutex::new(None),
+            during_copy_to_local: Mutex::new(None),
             changes_answers: Mutex::new(Vec::new()),
             changes_calls: Mutex::new(Vec::new()),
             folder_tags: Mutex::new(HashMap::new()),
@@ -235,6 +238,9 @@ impl BackendClient for FakeBackend {
             .lock()
             .unwrap()
             .push((local.to_owned(), path.to_owned()));
+        if let Some(during) = &*self.during_copy_to_local.lock().unwrap() {
+            during(local);
+        }
         let result = self.copy_to_local_result.lock().unwrap().clone();
         // Like a real download: the file appears, with the time of the download.
         if result.is_ok() {
