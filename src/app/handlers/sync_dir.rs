@@ -248,7 +248,7 @@ impl SyncativeApp {
         )
     }
 
-    /// Handle [`Message::NestedFilterSet`] — log a problem, offer the clean-up after an exclusion, and reload the list.
+    /// Handle [`Message::NestedFilterSet`] — log a problem and open the filter panel that shows it, offer the clean-up after an exclusion, and reload the list.
     pub(in crate::app) fn handle_nested_filter_set(
         &mut self,
         sd_id: SyncDirId,
@@ -259,6 +259,8 @@ impl SyncativeApp {
             Err(why) => {
                 self.engine.send(Command::Log(sd_id, format!("⚠ {why}")));
                 self.nested_filter_problem = Some((sd_id, nested_id, why));
+                // The problem shows under the sub-folder's line in the filter panel; the dialog that asked has closed.
+                self.exclusion_panel = Some(sd_id);
             }
             Ok(Some(relative)) => {
                 self.offer_clean_up = Some((sd_id, relative, self.snapshot.passes_finished))
