@@ -4,7 +4,10 @@
 use iced::{Task, theme as iced_theme, window};
 use tokio::sync::mpsc;
 
-use crate::infrastructure::tray::{TrayAction, TrayUpdate};
+use crate::{
+    infrastructure::tray::{self, TrayAction, TrayUpdate},
+    services::appearance::TrayIconChoice,
+};
 
 use super::super::{Message, SyncativeApp, main_window_settings};
 
@@ -148,5 +151,54 @@ impl SyncativeApp {
     pub(in crate::app) fn handle_quit(&mut self) -> Task<Message> {
         crate::services::network_drive::unmount_all();
         std::process::exit(0);
+    }
+
+    /// Push the current tray status to the ksni task, if it's alive.
+    /// Computation lives in the tray module so the mapping rule sits
+    /// next to the icon set it drives. Silently drops on a full channel
+    /// — the tray catches up on the next change (within one tick).
+    pub(in crate::app) fn push_tray_status(&mut self) {
+        if let Some(tx) = self.tray_tx.as_ref() {
+            let status = tray::compute_status(
+                &self.snapshot.state,
+                &self.remotes,
+                &self.snapshot.syncing,
+                &self.snapshot.last_sync_at,
+            );
+            // `update` runs on every tick and engine change; only wake
+            // the tray task when something visible actually changed.
+            if self.last_tray_status.as_ref() != Some(&status)
+                && tx.try_send(TrayUpdate::Status(status.clone())).is_ok()
+            {
+                self.last_tray_status = Some(status);
+            }
+        }
+    }
+
+    pub(in crate::app) fn push_tray_theme(&self) {
+        if let Some(tx) = self.tray_tx.as_ref() {
+            // The tray picks the glyph that contrasts with the given scheme: the white icon for Dark, the black one for Light (and None).
+            let dark = self.system_theme == iced_theme::Mode::Dark;
+            let white = match self.appearance.tray_icon {
+                TrayIconChoice::System => dark,
+                TrayIconChoice::Reversed => !dark,
+                TrayIconChoice::White => true,
+                TrayIconChoice::Black => false,
+            };
+            let mode = if white {
+                iced_theme::Mode::Dark
+            } else {
+                iced_theme::Mode::Light
+            };
+            let _ = tx.try_send(TrayUpdate::Theme(mode));
+        }
+    }
+
+    /// Close the explanation of the tray icon's colour for good.
+    pub(in crate::app) fn close_tray_hint(&mut self) {
+        self.tray_hint_open = false;
+        if let Err(err) = crate::services::appearance::mark_tray_hint_seen() {
+            eprintln!("syncative: could not remember that the tray hint was shown: {err}");
+        }
     }
 }

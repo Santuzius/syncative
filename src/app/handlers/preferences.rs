@@ -1,11 +1,11 @@
 //! The Preferences dialog: each setting is saved or applied right away, and a failure shows under the dialog.
 
-use iced::Task;
+use iced::{Task, theme as iced_theme};
 
 use crate::{
-    screens::preferences,
+    screens::{about, preferences},
     services::{
-        appearance::Appearance,
+        appearance::{Appearance, ThemeChoice},
         autostart,
         power::{self, PowerSettings},
         settings_file,
@@ -278,5 +278,94 @@ impl SyncativeApp {
             .map(|err| format!("Could not save the choice: {err}"));
         self.push_tray_theme();
         self.update_system_bars();
+    }
+
+    /// Show what an import did and take over what it changed: preferences from their files, remotes from the database.
+    pub(in crate::app) fn handle_settings_imported(
+        &mut self,
+        result: Result<Option<settings_file::Imported>, String>,
+    ) -> Task<Message> {
+        let imported = match result {
+            Ok(Some(imported)) => imported,
+            Ok(None) => return Task::none(),
+            Err(err) => {
+                self.preferences_error = Some(err);
+                return Task::none();
+            }
+        };
+        let plural = |n: usize, one: &str, many: &str| {
+            if n == 1 {
+                format!("1 {one}")
+            } else {
+                format!("{n} {many}")
+            }
+        };
+        let mut note = format!(
+            "Imported {} with {}.",
+            plural(imported.remotes, "remote", "remotes"),
+            plural(imported.folders, "folder", "folders")
+        );
+        if imported.remotes > 0 {
+            note.push_str(" Sign in to each to start syncing.");
+        }
+        if !imported.skipped.is_empty() {
+            note.push_str(&format!(
+                " Left out, as the name is taken: {}.",
+                imported.skipped.join(", ")
+            ));
+        }
+        self.preferences_note = Some(note);
+
+        let data_dir = crate::util::get_data_dir();
+        self.set_appearance(Appearance::load(&data_dir));
+        self.power = PowerSettings::load(&data_dir);
+        self.autostart = autostart::enabled();
+        self.start_hidden = autostart::starts_hidden();
+        self.background = power::background_enabled();
+        let repo = self.repo.clone();
+        let engine = self.engine.clone();
+        Task::perform(
+            async move {
+                engine.send(crate::engine::Command::Reload);
+                repo.list_remotes().await.unwrap_or_default()
+            },
+            Message::RemotesLoaded,
+        )
+    }
+
+    /// Switch About to `page`, with the license text it shows. The open source licenses are loaded for the pages that show them and freed on the others.
+    pub(in crate::app) fn show_about(&mut self, page: about::Page) {
+        if page.shows_licenses() {
+            if self.about_licenses.is_empty() {
+                self.about_licenses = about::Licenses::load();
+            }
+        } else if !self.about_licenses.is_empty() {
+            self.about_licenses = about::Licenses::default();
+            crate::util::release_freed_memory();
+        }
+        self.about_page = page;
+        self.about_text = iced::widget::text_editor::Content::with_text(&about::license_text(
+            page,
+            &self.about_licenses,
+        ));
+    }
+
+    /// Push the cached system colour-scheme into the tray. Used both
+    /// on the [`Message::TrayReady`] handshake (to seed the initial
+    /// tone) and on every subsequent `SystemThemeChanged`.
+    /// The colour scheme a theme choice stands for right now.
+    pub(in crate::app) fn resolved_mode(&self, choice: ThemeChoice) -> iced_theme::Mode {
+        match choice {
+            ThemeChoice::System => self.system_theme,
+            ThemeChoice::Light => iced_theme::Mode::Light,
+            ThemeChoice::Dark => iced_theme::Mode::Dark,
+        }
+    }
+
+    /// Android: light icons in the status and navigation bars on the dark theme, dark ones on the light theme.
+    pub(in crate::app) fn update_system_bars(&self) {
+        iced_android::set_system_bars_dark(
+            self.resolved_mode(self.appearance.window) == iced_theme::Mode::Dark,
+        );
     }
 }

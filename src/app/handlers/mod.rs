@@ -1,6 +1,6 @@
 //! Per-domain handler modules. Each defines `pub(super)` methods on
 //! [`super::SyncativeApp`] that the root `update()` dispatch in
-//! [`super`] (`app/mod.rs`) calls into.
+//! `app/update.rs` calls into.
 
 pub(super) mod conflicts;
 pub(super) mod folder_picker;
