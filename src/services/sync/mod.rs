@@ -114,6 +114,8 @@ where
     };
 
     if sync_dir.mode == SyncMode::NetworkDrive {
+        // As a synced folder's pass, this one starts by checking for changes, which clears an error a previous pass left: Error stays over a later Synced.
+        emit_state(RunState::Syncing(SyncActivity::Listing));
         let drive = super::network_drive::ensure_mounted(
             &remote.name,
             &sync_dir.remote_path,

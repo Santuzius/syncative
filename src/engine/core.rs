@@ -642,6 +642,7 @@ impl Core {
                 error,
             } => {
                 let line = match &error {
+                    SyncError::General(path, msg) if path.is_empty() => format!("⚠ {msg}"),
                     SyncError::General(path, msg) => format!("⚠ {path}: {msg}"),
                     SyncError::BothMoreCurrent(local, remote) => {
                         format!("⚠ Conflict: '{local}' vs '{remote}'")
