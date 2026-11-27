@@ -227,9 +227,16 @@ where
                     is_dir,
                 } => {
                     if is_dir {
-                        if !Path::new(&local_path).exists()
-                            && let Err(err) = fs::create_dir_all(&local_path)
-                        {
+                        // A file of that name turned up here since the walk.
+                        if fs::symlink_metadata(&local_path).is_ok_and(|m| !m.is_dir()) {
+                            action = Action::Conflict {
+                                local_path,
+                                remote_path,
+                                kind: ConflictKind::FileAndFolder,
+                            };
+                            continue 'action;
+                        }
+                        if let Err(err) = fs::create_dir_all(&local_path) {
                             emit_error(SyncError::General(local_path.clone(), err.to_string()));
                             break 'action;
                         }
@@ -435,6 +442,18 @@ where
                     remote_path,
                     kind,
                 } => {
+                    if kind == ConflictKind::FileAndFolder {
+                        eprintln!(
+                            "sync: CONFLICT '{remote_path}' is a file on one side and a folder on the other — waiting for the user to rename one."
+                        );
+                        emit_error(SyncError::General(
+                            local_path.clone(),
+                            tr::tr!(
+                                "A file on one side and a folder on the other have this name. Rename one of them, then it syncs."
+                            ),
+                        ));
+                        break 'action;
+                    }
                     let inspected = if kind == ConflictKind::Link {
                         inspect_link(&local_path, &remote_path, remote, client, cancel)
                     } else {

@@ -662,6 +662,53 @@ fn a_file_the_sync_never_saw_keeps_its_local_folder() {
     assert_eq!(remote_paths, vec!["old/sub", "old/sub/a.txt"]);
 }
 
+/// A file here and a folder of the same name on the remote: nothing goes either way and nothing is recorded as synced; the user is told to rename one.
+#[test]
+fn a_file_against_a_folder_is_put_to_the_user() {
+    let tmp = TempDir::new("sync_file_vs_folder");
+    let repo = FakeRepo::new();
+    touch_mtime(&tmp.write_file("x", b"file"), 1_700_000_900);
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("x", true, 1_700_000_000),
+            remote_item("x/a.txt", false, 1_700_000_000),
+        ]),
+    );
+
+    let (_outcome, events) = run_full(&tmp, &repo, &client);
+    assert_eq!(errors(&events).len(), 1);
+    assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
+    assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
+    assert!(client.mkdir_calls.lock().unwrap().is_empty());
+    assert!(!repo.has_item(&format!("{}/x", tmp.as_str()), "x"));
+    assert_eq!(fs::read(tmp.path.join("x")).unwrap(), b"file");
+}
+
+/// A synced file replaced here by a folder: the folder and its files aren't uploaded over the remote file.
+#[test]
+fn a_synced_file_replaced_by_a_folder_is_put_to_the_user() {
+    let tmp = TempDir::new("sync_file_became_folder");
+    let repo = FakeRepo::new();
+    repo.insert_item(
+        SyncDirId(1),
+        &format!("{}/x", tmp.as_str()),
+        "x",
+        1_700_000_000,
+        1_700_000_000,
+    );
+    touch_mtime(&tmp.write_file("x/a.txt", b"a"), 1_700_000_900);
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![remote_item("x", false, 1_700_000_000)]));
+
+    let (_outcome, events) = run_full(&tmp, &repo, &client);
+    assert_eq!(errors(&events).len(), 1);
+    assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
+    assert!(client.mkdir_calls.lock().unwrap().is_empty());
+    assert!(client.delete_file_calls.lock().unwrap().is_empty());
+}
+
 /// A downloaded file carries the remote's modification time, not the time of the download, so a later first pass doesn't take it for newer.
 #[test]
 fn a_download_keeps_the_remote_modification_time() {
@@ -2495,6 +2542,28 @@ fn a_cloud_backup_never_downloads_a_copy_it_was_to_delete() {
     assert!(errors(&events).is_empty());
     assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
     assert_eq!(*client.delete_file_calls.lock().unwrap(), ["gone.txt"]);
+}
+
+/// A local backup with a folder where the remote has a file of that name: the download can't replace the folder, so the user is told instead.
+#[test]
+fn a_local_backup_puts_a_file_against_a_folder_to_the_user() {
+    let tmp = TempDir::new("download_file_vs_folder");
+    let repo = FakeRepo::new();
+    touch_mtime(&tmp.write_file("x/a.txt", b"a"), 1_700_000_000);
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![remote_item("x", false, 1_700_000_900)]));
+
+    let (_outcome, events) = run_backup(
+        &tmp,
+        &repo,
+        &client,
+        SyncMode::Download,
+        SyncMode::Download,
+        false,
+    );
+    assert_eq!(errors(&events).len(), 1);
+    assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
+    assert!(tmp.path.join("x/a.txt").exists());
 }
 
 /// Back to two-way after a cloud backup: what the backup kept for files deleted here comes down instead of being deleted from the remote, and the rows count as two-way only once none of those is left.

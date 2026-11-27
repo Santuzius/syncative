@@ -63,6 +63,8 @@ pub(super) enum ConflictKind {
     BothNew,
     /// The local path is a symbolic link, which can't be synced as it is (see `Snapshot::local_links`).
     Link,
+    /// A file on one side, a folder on the other. Neither can replace the other in one transfer, so the user renames one; nothing below the path is synced until then.
+    FileAndFolder,
 }
 
 pub(super) fn plan(snapshot: &Snapshot, sync_dir: &SyncDir) -> Vec<Action> {
@@ -87,6 +89,19 @@ pub(super) fn plan(snapshot: &Snapshot, sync_dir: &SyncDir) -> Vec<Action> {
     // Order: directory creations first (uploads/downloads for dirs before
     // their children), file transfers next, deletes last. Within each
     // group, shorter paths first so parents precede children.
+    let file_and_folder: HashSet<String> = out
+        .iter()
+        .filter_map(|a| match a {
+            Action::Conflict {
+                remote_path,
+                kind: ConflictKind::FileAndFolder,
+                ..
+            } => Some(remote_path.clone()),
+            _ => None,
+        })
+        .collect();
+    // Nothing below a file-or-folder conflict: a transfer into it would land in, or under, the other kind.
+    out.retain(|a| !ancestor_in_set(parent_of(a_path(a)), &file_and_folder));
     let mut out = fold_folder_deletes(out);
     out.sort_by(|a, b| order(a).cmp(&order(b)));
     out
@@ -326,6 +341,15 @@ fn plan_one(
     if ancestor_in_set(remote_path, &snapshot.local_links) {
         return None;
     }
+    if let (Some(l), Some(r)) = (local, remote)
+        && l.is_dir != r.is_dir
+    {
+        return Some(Action::Conflict {
+            local_path: l.absolute_path.clone(),
+            remote_path: remote_path.to_owned(),
+            kind: ConflictKind::FileAndFolder,
+        });
+    }
     if sync_dir.mode != SyncMode::TwoWay {
         return plan_one_way(
             remote_path,
@@ -367,22 +391,6 @@ fn plan_one(
                     remote_path: remote_path.to_owned(),
                     local_mtime: l.mtime_secs,
                     remote_mtime: r.mod_time.unix_timestamp(),
-                });
-            }
-            if l.is_dir != r.is_dir {
-                // A file on one side, a folder on the other: no content to compare, keep the old newer-wins rule.
-                return Some(if l.mtime_secs > r.mod_time.unix_timestamp() {
-                    Action::Upload {
-                        local_path: l.absolute_path.clone(),
-                        remote_path: remote_path.to_owned(),
-                        is_dir: l.is_dir,
-                    }
-                } else {
-                    Action::Download {
-                        local_path: l.absolute_path.clone(),
-                        remote_path: remote_path.to_owned(),
-                        is_dir: r.is_dir,
-                    }
                 });
             }
             Some(Action::Conflict {
@@ -463,32 +471,11 @@ fn plan_one(
                     is_dir: r.is_dir,
                 }),
                 // Both sides drifted since the last recorded sync: the user decides, unless the content turns out identical. Two dirs against each other still no-op since the contents land via their children.
-                (true, true) => {
-                    if l.is_dir && r.is_dir {
-                        None
-                    } else if l.is_dir != r.is_dir {
-                        // File on one side, folder on the other: nothing to compare, the newer one wins.
-                        Some(if l.mtime_secs >= r.mod_time.unix_timestamp() {
-                            Action::Upload {
-                                local_path: l.absolute_path.clone(),
-                                remote_path: remote_path.to_owned(),
-                                is_dir: l.is_dir,
-                            }
-                        } else {
-                            Action::Download {
-                                local_path: l.absolute_path.clone(),
-                                remote_path: remote_path.to_owned(),
-                                is_dir: r.is_dir,
-                            }
-                        })
-                    } else {
-                        Some(Action::Conflict {
-                            local_path: l.absolute_path.clone(),
-                            remote_path: remote_path.to_owned(),
-                            kind: ConflictKind::BothChanged,
-                        })
-                    }
-                }
+                (true, true) => Some(Action::Conflict {
+                    local_path: l.absolute_path.clone(),
+                    remote_path: remote_path.to_owned(),
+                    kind: ConflictKind::BothChanged,
+                }),
             }
         }
     }
@@ -554,9 +541,6 @@ fn plan_one_way(
                     local_mtime: l.mtime_secs,
                     remote_mtime: r.mod_time.unix_timestamp(),
                 });
-            }
-            if l.is_dir != r.is_dir {
-                return transfer(l, r);
             }
             // The applier records identical copies without a transfer and otherwise lets the source win.
             Some(Action::Conflict {
