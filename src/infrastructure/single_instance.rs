@@ -62,8 +62,11 @@ pub fn acquire(data_dir: &Path, save: &[PathBuf]) -> Instance {
             }
         }
         match UnixStream::connect(&sock_path).and_then(|mut s| s.write_all(&request)) {
-            Ok(()) => eprintln!(
+            Ok(()) if save.is_empty() => eprintln!(
                 "syncative: already running — asked the running instance to show its window."
+            ),
+            Ok(()) => eprintln!(
+                "syncative: already running — handed the files to save to the running instance."
             ),
             Err(err) => eprintln!("syncative: already running, but couldn't reach it ({err})."),
         }
