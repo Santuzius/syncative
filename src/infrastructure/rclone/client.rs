@@ -201,6 +201,10 @@ impl BackendClient for LibrcloneClient {
                 duplicates.differing.join("', '")
             ));
         }
+        // Without removals, the shared paths come from several folders of one name, which stay as they are.
+        if duplicates.removed.is_empty() {
+            return Ok(items);
+        }
         list()
     }
 
