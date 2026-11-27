@@ -10,6 +10,7 @@ use crate::{
     },
     engine::Command,
     screens::{add_remote, remote_page},
+    services::auth,
     util::open_in_browser,
 };
 
@@ -203,140 +204,60 @@ impl SyncativeApp {
                 let repo = self.repo.clone();
                 let rclone = self.rclone.clone();
                 draft.error = None;
-
-                if kind.is_nextcloud() {
+                // Signing in again keeps the DB row and its folders; only the config or session is replaced. Inserting a new row would make the name ambiguous.
+                let existing_id = self.remotes.iter().find(|r| r.name == name).map(|r| r.id);
+                let found = move || existing_id.ok_or_else(|| "Remote not found.".to_owned());
+                type Job = Box<dyn FnOnce() -> Result<RemoteId, String> + Send>;
+                let job: Job = if kind.is_nextcloud() {
                     if draft.url.trim().is_empty() || draft.user.trim().is_empty() {
                         draft.error = Some("URL and username are required.".to_owned());
                         return Task::none();
                     }
-                    let url = draft.url.clone();
-                    let user = draft.user.clone();
-                    let pass = draft.pass.clone();
-                    draft.busy = true;
+                    let (url, user, pass) =
+                        (draft.url.clone(), draft.user.clone(), draft.pass.clone());
                     if draft.reauth {
-                        // Keep the DB row and its folders; only the config is replaced.
-                        let existing_id =
-                            self.remotes.iter().find(|r| r.name == name).map(|r| r.id);
-                        return Task::perform(
-                            async move {
-                                tokio::task::spawn_blocking(move || {
-                                    crate::services::auth::reauth_nextcloud_remote(
-                                        &name, &url, &user, &pass, &*rclone,
-                                    )?;
-                                    existing_id
-                                        .ok_or_else(|| "Remote not found after reauth.".to_owned())
-                                })
-                                .await
-                                .unwrap_or_else(|e| Err(e.to_string()))
-                            },
-                            Message::AddRemoteResult,
-                        );
+                        Box::new(move || {
+                            auth::reauth_nextcloud_remote(&name, &url, &user, &pass, &*rclone)?;
+                            found()
+                        })
+                    } else {
+                        Box::new(move || {
+                            auth::add_nextcloud_remote(&name, &url, &user, &pass, &*repo, &*rclone)
+                        })
                     }
-                    return Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || {
-                                crate::services::auth::add_nextcloud_remote(
-                                    &name, &url, &user, &pass, &*repo, &*rclone,
-                                )
-                            })
-                            .await
-                            .unwrap_or_else(|e| Err(e.to_string()))
-                        },
-                        Message::AddRemoteResult,
-                    );
-                }
-
-                if kind.is_local() {
+                } else if kind.is_local() {
                     let folder = draft.folder.clone();
-                    draft.busy = true;
                     if draft.reauth {
-                        let existing_id =
-                            self.remotes.iter().find(|r| r.name == name).map(|r| r.id);
-                        return Task::perform(
-                            async move {
-                                tokio::task::spawn_blocking(move || {
-                                    crate::services::auth::change_local_folder(
-                                        &name, &folder, &*rclone,
-                                    )?;
-                                    existing_id.ok_or_else(|| "Remote not found.".to_owned())
-                                })
-                                .await
-                                .unwrap_or_else(|e| Err(e.to_string()))
-                            },
-                            Message::AddRemoteResult,
-                        );
+                        Box::new(move || {
+                            auth::change_local_folder(&name, &folder, &*rclone)?;
+                            found()
+                        })
+                    } else {
+                        Box::new(move || auth::add_local_remote(&name, &folder, &*repo, &*rclone))
                     }
-                    return Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || {
-                                crate::services::auth::add_local_remote(
-                                    &name, &folder, &*repo, &*rclone,
-                                )
-                            })
-                            .await
-                            .unwrap_or_else(|e| Err(e.to_string()))
-                        },
-                        Message::AddRemoteResult,
-                    );
-                }
-
-                if kind.is_proton_drive() {
+                } else if kind.is_proton_drive() {
                     if draft.user.trim().is_empty() {
                         draft.error = Some("Username is required.".to_owned());
                         return Task::none();
                     }
-                    let params = crate::services::auth::proton_login_params(
+                    let params = auth::proton_login_params(
                         &draft.user,
                         &draft.pass,
                         &draft.mailbox_pass,
                         &draft.totp,
                         draft.hv.as_ref(),
                     );
-                    let router = self.rclone.clone();
-                    let is_reauth = draft.reauth;
-                    draft.busy = true;
-                    if is_reauth {
-                        // Reauth: keep the existing DB row, just give the router a client with the new session. Look up the existing id so AddRemoteResult can reuse the normal refresh path.
-                        let existing_id =
-                            self.remotes.iter().find(|r| r.name == name).map(|r| r.id);
-                        return Task::perform(
-                            async move {
-                                let router_inner = router.clone();
-                                let res = tokio::task::spawn_blocking(move || {
-                                    crate::services::auth::reauth_proton_drive_remote(
-                                        &name,
-                                        &params,
-                                        &router_inner,
-                                    )
-                                })
-                                .await
-                                .unwrap_or_else(|e| Err(e.to_string()));
-                                match (res, existing_id) {
-                                    (Ok(()), Some(id)) => Ok(id),
-                                    (Ok(()), None) => {
-                                        Err("Remote not found after reauth.".to_owned())
-                                    }
-                                    (Err(e), _) => Err(e),
-                                }
-                            },
-                            Message::AddRemoteResult,
-                        );
+                    if draft.reauth {
+                        Box::new(move || {
+                            auth::reauth_proton_drive_remote(&name, &params, &rclone)?;
+                            found()
+                        })
+                    } else {
+                        Box::new(move || {
+                            auth::add_proton_drive_remote(&name, &params, &*repo, &rclone)
+                        })
                     }
-                    return Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || {
-                                crate::services::auth::add_proton_drive_remote(
-                                    &name, &params, &*repo, &router,
-                                )
-                            })
-                            .await
-                            .unwrap_or_else(|e| Err(e.to_string()))
-                        },
-                        Message::AddRemoteResult,
-                    );
-                }
-
-                if let Some(provider) = kind.oauth_provider() {
+                } else if let Some(provider) = kind.oauth_provider() {
                     let client_id = draft.client_id.trim().to_owned();
                     let client_secret = draft.client_secret.trim().to_owned();
                     if kind.needs_own_client_id()
@@ -347,73 +268,46 @@ impl SyncativeApp {
                         );
                         return Task::none();
                     }
-                    let is_reauth = draft.reauth;
-                    let handle =
-                        std::sync::Arc::new(crate::services::auth::AuthorizeHandle::default());
+                    let handle = std::sync::Arc::new(auth::AuthorizeHandle::default());
                     draft.oauth = Some(handle.clone());
-                    draft.busy = true;
-                    if is_reauth {
-                        // Reauth: keep the existing DB row, just
-                        // refresh the rclone config under the same
-                        // name so the live token gets replaced.
-                        // Inserting a new row would create a
-                        // duplicate-name entry and make subsequent
-                        // delete-by-name flows ambiguous.
-                        let existing_id =
-                            self.remotes.iter().find(|r| r.name == name).map(|r| r.id);
-                        let rclone_inner = rclone.clone();
-                        return Task::perform(
-                            async move {
-                                let res = tokio::task::spawn_blocking(move || {
-                                    let client_id =
-                                        (!client_id.is_empty()).then_some(client_id.as_str());
-                                    let client_secret = (!client_secret.is_empty())
-                                        .then_some(client_secret.as_str());
-                                    crate::services::auth::reauth_oauth_remote(
-                                        &name,
-                                        provider,
-                                        client_id,
-                                        client_secret,
-                                        &handle,
-                                        &*rclone_inner,
-                                    )
-                                })
-                                .await
-                                .unwrap_or_else(|e| Err(e.to_string()));
-                                match (res, existing_id) {
-                                    (Ok(()), Some(id)) => Ok(id),
-                                    (Ok(()), None) => {
-                                        Err("Remote not found after reauth.".to_owned())
-                                    }
-                                    (Err(e), _) => Err(e),
-                                }
-                            },
-                            Message::AddRemoteResult,
-                        );
-                    }
-                    return Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || {
-                                let client_id =
-                                    (!client_id.is_empty()).then_some(client_id.as_str());
-                                let client_secret =
-                                    (!client_secret.is_empty()).then_some(client_secret.as_str());
-                                crate::services::auth::add_oauth_remote(
-                                    &name,
-                                    provider,
-                                    client_id,
-                                    client_secret,
-                                    &handle,
-                                    &*repo,
-                                    &*rclone,
-                                )
-                            })
+                    let reauth = draft.reauth;
+                    Box::new(move || {
+                        let client_id = (!client_id.is_empty()).then_some(client_id.as_str());
+                        let client_secret =
+                            (!client_secret.is_empty()).then_some(client_secret.as_str());
+                        if reauth {
+                            auth::reauth_oauth_remote(
+                                &name,
+                                provider,
+                                client_id,
+                                client_secret,
+                                &handle,
+                                &*rclone,
+                            )?;
+                            return found();
+                        }
+                        auth::add_oauth_remote(
+                            &name,
+                            provider,
+                            client_id,
+                            client_secret,
+                            &handle,
+                            &*repo,
+                            &*rclone,
+                        )
+                    })
+                } else {
+                    return Task::none();
+                };
+                draft.busy = true;
+                return Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(job)
                             .await
                             .unwrap_or_else(|e| Err(e.to_string()))
-                        },
-                        Message::AddRemoteResult,
-                    );
-                }
+                    },
+                    Message::AddRemoteResult,
+                );
             }
         }
         Task::none()
