@@ -188,7 +188,7 @@ pub mod sync {
         pub differing: Vec<String>,
     }
 
-    /// On the Google Drive remote `remote_name`, delete for good the identical copies of files that share a path in folder `path` (and below it with `recursive`), keeping the oldest; see `src/go/rclone/duplicates`.
+    /// On the Google Drive remote `remote_name`, move to the trash the identical copies of files that share a path in folder `path` (and below it with `recursive`), keeping the oldest; see `src/go/rclone/duplicates`.
     pub fn remove_duplicates(
         remote_name: &str,
         path: &str,

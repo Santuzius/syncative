@@ -1,4 +1,4 @@
-// Package duplicates removes extra copies of a file on Google Drive, which keeps several files under one name. An upload that rclone starts again after a broken connection can leave a second file of the same content; the sync sees one name and one file, so deleting it there brings the other one to light.
+// Package duplicates moves extra copies of a file on Google Drive, which keeps several files under one name, to the trash. An upload that rclone starts again after a broken connection can leave a second file of the same content; the sync sees one name and one file, so deleting it there brings the other one to light.
 package duplicates
 
 import (
@@ -19,10 +19,10 @@ func init() {
 	rc.Add(rc.Call{
 		Path:  "syncative/duplicates",
 		Fn:    rcDuplicates,
-		Title: "Remove identical copies of files that share a name.",
+		Title: "Move identical copies of files that share a name to the trash.",
 		Help: `Parameters: fs (a Google Drive remote, "name:"), remote (the folder), recurse (whether to look in its subfolders too).
 
-Among files that share a name in one folder, copies with the size and MD5 of the oldest one are deleted for good, past the trash, so they free their space at once. Returns removed, the paths that had copies removed, and differing, the paths whose files differ and stay as they are.`,
+Among files that share a name in one folder, copies with the size and MD5 of the oldest one go to the Drive trash, where they can be restored until Drive empties it. Returns removed, the paths that had copies removed, and differing, the paths whose files differ and stay as they are.`,
 	})
 }
 
@@ -51,11 +51,11 @@ func rcDuplicates(ctx context.Context, in rc.Params) (rc.Params, error) {
 	return rc.Params{"removed": result.Removed, "differing": result.Differing}, nil
 }
 
-// Remove deletes identical copies below `dir` of the Drive remote `name` ("GoogleDrive:"), in `dir` alone unless `recurse`.
+// Remove moves identical copies below `dir` of the Drive remote `name` ("GoogleDrive:"), in `dir` alone unless `recurse`, to the trash.
 func Remove(ctx context.Context, name, dir string, recurse bool) (Result, error) {
 	result := Result{Removed: []string{}, Differing: []string{}}
-	// Deleting past the trash needs the backend option on the Fs itself.
-	f, err := cache.Get(ctx, strings.TrimSuffix(name, ":")+",use_trash=false:")
+	// Removing goes to the trash unless the remote turned it off, so it is set on the Fs itself.
+	f, err := cache.Get(ctx, strings.TrimSuffix(name, ":")+",use_trash=true:")
 	if err != nil {
 		return result, err
 	}
@@ -83,7 +83,7 @@ func Remove(ctx context.Context, name, dir string, recurse bool) (Result, error)
 				return result, fmt.Errorf("removing a copy of %s: %w", remote, err)
 			}
 		}
-		fs.Infof(nil, "%s: deleted identical copies of %s (%d)", strings.TrimSuffix(name, ":"), remote, len(copies)-1)
+		fs.Infof(nil, "%s: moved identical copies of %s to the trash (%d)", strings.TrimSuffix(name, ":"), remote, len(copies)-1)
 		result.Removed = append(result.Removed, remote)
 	}
 	return result, nil

@@ -192,7 +192,7 @@ impl BackendClient for LibrcloneClient {
             .map_err(|err| err.error)?;
         for removed in &duplicates.removed {
             eprintln!(
-                "sync: deleted the identical copies of '{removed}' on {remote}, which kept several files under that name."
+                "sync: moved the identical copies of '{removed}' on {remote}, which kept several files under that name, to the trash."
             );
         }
         if !duplicates.differing.is_empty() {
