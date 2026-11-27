@@ -203,7 +203,8 @@ pub(super) fn delete_sync_items_with_local_prefix(
     local_prefix: String,
 ) -> BoxFuture<'_, Result<(), RepositoryError>> {
     Box::pin(async move {
-        SyncItemsEntity::delete_many()
+        // LIKE ignores case and reads `_` and `%` in the path as wildcards, so it only narrows the rows down; the exact test is `is_under`.
+        let candidates = SyncItemsEntity::find()
             .filter(SyncItemsColumn::SyncDirId.eq(sync_dir.0))
             .filter(
                 Condition::any()
@@ -212,6 +213,19 @@ pub(super) fn delete_sync_items_with_local_prefix(
                         SyncItemsColumn::LocalPath.starts_with(format!("{local_prefix}/").as_str()),
                     ),
             )
+            .all(db)
+            .await
+            .map_err(map_err)?;
+        let ids: Vec<i32> = candidates
+            .into_iter()
+            .filter(|row| crate::util::is_under(&row.local_path, &local_prefix))
+            .map(|row| row.id)
+            .collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        SyncItemsEntity::delete_many()
+            .filter(SyncItemsColumn::Id.is_in(ids))
             .exec(db)
             .await
             .map_err(map_err)?;

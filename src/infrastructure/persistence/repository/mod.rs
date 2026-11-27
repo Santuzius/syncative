@@ -414,6 +414,51 @@ mod tests {
         util::await_future,
     };
 
+    /// Forgetting a folder's rows takes exactly the rows below it: not those of a folder whose name differs only in case, or matches with `_` read as any character.
+    #[test]
+    fn a_folders_rows_are_forgotten_by_their_exact_path() {
+        let db = await_future(Database::connect("sqlite::memory:")).unwrap();
+        await_future(Migrator::up(&db, None)).unwrap();
+        let repo = SeaOrmRepository::new(db);
+        let id = await_future(repo.insert_remote("R".to_owned())).unwrap();
+        await_future(repo.insert_sync_dir(
+            id,
+            "/s".to_owned(),
+            String::new(),
+            SyncMode::TwoWay.into(),
+        ))
+        .unwrap();
+        let dir = await_future(repo.list_sync_dirs(id)).unwrap()[0].id;
+        let paths = [
+            "/s/a_b",
+            "/s/a_b/x.txt",
+            "/s/aXb/y.txt",
+            "/s/A_B/z.txt",
+            "/s/a_bc/w.txt",
+        ];
+        for path in paths {
+            await_future(repo.insert_sync_item(
+                dir,
+                path.to_owned(),
+                path[3..].to_owned(),
+                1,
+                1,
+                false,
+                None,
+            ))
+            .unwrap();
+        }
+
+        await_future(repo.delete_sync_items_with_local_prefix(dir, "/s/a_b")).unwrap();
+        let mut left: Vec<String> = await_future(repo.list_sync_items(dir))
+            .unwrap()
+            .into_iter()
+            .map(|i| i.local_path)
+            .collect();
+        left.sort();
+        assert_eq!(left, ["/s/A_B/z.txt", "/s/aXb/y.txt", "/s/a_bc/w.txt"]);
+    }
+
     #[test]
     fn folders_and_remotes_with_exclusions_hidden_folders_and_nested_filters_can_be_removed() {
         let db = await_future(Database::connect("sqlite::memory:")).unwrap();
