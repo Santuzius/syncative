@@ -207,7 +207,10 @@ pub fn transfers(drives: &[String]) -> HashMap<String, DriveTransfers> {
             let transfers = DriveTransfers {
                 downloading: count(&v, "downloading").unwrap_or(0),
                 uploading: count(&v, "uploading").unwrap_or(0),
-                moving: v.get("moving").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                moving: v
+                    .get("moving")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
             };
             (fs, transfers)
         })
