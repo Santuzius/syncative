@@ -314,31 +314,15 @@ impl BackendClient for LibrcloneClient {
         cursor: Option<&str>,
         cancel: &Cancel,
     ) -> Result<Changes, String> {
-        // Nextcloud: the folder's ETag changes with everything below it, and those of its subfolders show which branch changed.
-        match syncative_go::folder_tags(remote, path, 0, cancel) {
-            Ok(Some(tags)) => {
-                return Ok(match cursor {
-                    Some(before) if before == tags.tag => Changes::None,
-                    Some(_) => Changes::Some {
-                        cursor: tags.tag,
-                        root_id: None,
-                        changes: vec![RemoteChange::Folder(path.to_owned())],
-                    },
-                    None => Changes::Unknown {
-                        cursor: Some(tags.tag),
-                    },
-                });
-            }
-            Ok(None) => {}
-            // A missing folder: the listing tells what that means.
+        // One request for what changed since the last pass; a backend that can't answer makes the pass list the folder, unless the network is gone.
+        let found = match syncative_go::changes_since(remote, path, cursor.unwrap_or(""), cancel) {
+            Ok(found) => found,
             Err(err) if crate::infrastructure::translators::is_offline(&err) => return Err(err),
             Err(err) => {
-                eprintln!("sync: no change tag for '{path}' on {remote}: {err}");
+                eprintln!("sync: no changes for '{path}' on {remote}: {err}");
                 return Ok(Changes::Unknown { cursor: None });
             }
-        }
-        // Backends with a change log (Google Drive, Dropbox, OneDrive, Proton): one request for what changed since the last pass.
-        let found = syncative_go::changes_since(remote, path, cursor.unwrap_or(""), cancel)?;
+        };
         if !found.supported {
             return Ok(Changes::Unknown { cursor: None });
         }
@@ -352,8 +336,9 @@ impl BackendClient for LibrcloneClient {
             return Ok(changes_by_id(found, cursor));
         }
         let changed = found.changes.unwrap_or_default();
+        let folders = found.folders.unwrap_or_default();
         // An empty answer with a new cursor: the log moved on outside the synced folders. Store where it stands, or every later pass would fetch those entries again.
-        if changed.is_empty() && cursor == Some(found.cursor.as_str()) {
+        if changed.is_empty() && folders.is_empty() && cursor == Some(found.cursor.as_str()) {
             return Ok(Changes::None);
         }
         // The folder holding each changed item shows what became of it; a changed folder's own content may have changed too.
@@ -364,6 +349,7 @@ impl BackendClient for LibrcloneClient {
                 let own = c.is_dir.then(|| RemoteChange::Folder(c.path.clone()));
                 std::iter::once(RemoteChange::Folder(parent)).chain(own)
             })
+            .chain(folders.into_iter().map(RemoteChange::Folder))
             .collect();
         Ok(Changes::Some {
             cursor: found.cursor,

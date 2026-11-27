@@ -76,16 +76,18 @@ func rcMountPoll(ctx context.Context, in rc.Params) (rc.Params, error) {
 		_, err := forget.Fn(ctx, rc.Params{"fs": fsString, "dir": trash.prefix})
 		return err
 	}
-	log, ok := f.(changeLog)
-	if !ok {
-		remote, root, _ := strings.Cut(fsString, ":")
-		if trash != nil {
-			remote, root = trash.remote, trash.root
-		}
-		n, dirs, err := pollFolderTags(ctx, forget, fsString, remote, strings.Trim(root, "/"), state)
-		if errors.Is(err, ErrNoFolderTags) {
+	remote, root, _ := strings.Cut(fsString, ":")
+	if trash != nil {
+		remote, root = trash.remote, trash.root
+	}
+	// The VFS names what it forgets by path, so a mount follows a log by path even where the sync follows one by ID.
+	src := sourceOf(f, remote)
+	log := src.paths
+	if log == nil {
+		if !src.tags {
 			return rc.Params{"supported": false, "changes": 0}, nil
 		}
+		n, dirs, err := pollFolderTags(ctx, forget, fsString, remote, strings.Trim(root, "/"), state)
 		if err != nil {
 			return nil, err
 		}

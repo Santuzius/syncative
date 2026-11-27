@@ -197,13 +197,16 @@ pub struct Changed {
 /// What [`changes_since`] found.
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct Changes {
-    /// The backend has a change log (Google Drive, Dropbox, OneDrive, Proton); without one the rest is empty.
+    /// The backend reports changes (the change logs of Google Drive, Dropbox, OneDrive and Proton, Nextcloud's folder ETags); without that the rest is empty.
     pub supported: bool,
     /// `changes` holds everything after the cursor given. False for no cursor or one of an earlier run; `cursor` then starts from now.
     pub known: bool,
     pub cursor: String,
     #[serde(default)]
     pub changes: Option<Vec<Changed>>,
+    /// List these folders again, and each subfolder whose change tag changed (Nextcloud).
+    #[serde(default)]
+    pub folders: Option<Vec<String>>,
     /// The log names items by ID (Proton, OneDrive): `items` replaces `changes`, and `root_id` is the ID of the folder asked about.
     #[serde(default)]
     pub by_id: bool,

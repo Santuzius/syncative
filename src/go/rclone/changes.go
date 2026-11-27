@@ -1,7 +1,7 @@
-// Package rclone holds Syncative's additions to rclone: RPC calls with a cancel flag (call.go), the change tags of WebDAV folders (davtags.go) and the change logs of Google Drive, Dropbox and OneDrive (changes.go, onedrive.go).
+// Package rclone holds Syncative's additions to rclone: RPC calls with a cancel flag (call.go), what changed on a remote (changes.go, with onedrive.go and davtags.go), the network drive (networkdrive.go, documents.go, drivetransfers.go, modtime.go) and its trash (trashfs.go, trashbin.go, nextcloudtrash.go).
 package rclone
 
-// changes.go asks the change logs of Google Drive, Dropbox, OneDrive and Proton once per sync pass what changed since the previous one, so a pass can skip listing the remote; the sync folders of a remote share the answer. The calls come from Syncative's rclone fork (github.com/Santuzius/rclone, branch syncative), which exports the one-off query rclone's ChangeNotify otherwise runs on a timer.
+// changes.go asks a remote once per sync pass what changed since the previous one, so a pass can skip listing it; the sync folders of a remote share the answer. sourceOf tells how a backend reports changes, for the sync and for mounts (networkdrive.go) alike: the change logs of Google Drive and Dropbox name paths, those of OneDrive and Proton items by ID, and Nextcloud renews a folder's ETag with every change below it (davtags.go). The change-log calls come from Syncative's rclone fork (github.com/Santuzius/rclone, branch syncative), which exports the one-off query rclone's ChangeNotify otherwise runs on a timer.
 
 import (
 	"context"
@@ -57,14 +57,38 @@ type itemChangeLog interface {
 	ItemChangesSince(ctx context.Context, event string) (ItemChanges, error)
 }
 
+// source is how a backend reports what changed; at most one of items and tags is set.
+type source struct {
+	// items: a log by ID, kept across restarts (OneDrive, Proton); the sync prefers it.
+	items itemChangeLog
+	// paths: a log by path (Google Drive, Dropbox; OneDrive and Proton too, which mounts use).
+	paths changeLog
+	// tags: folder ETags (Nextcloud).
+	tags bool
+}
+
+// sourceOf tells how backend `f` of remote `remote` reports changes; the zero source when it can't.
+func sourceOf(f fs.Fs, remote string) source {
+	var s source
+	s.items, _ = itemLogOf(f)
+	s.paths, _ = f.(changeLog)
+	if s.items == nil && s.paths == nil {
+		_, err := nextcloudOptions(remote)
+		s.tags = err == nil
+	}
+	return s
+}
+
 // Changes is what one query found.
 type Changes struct {
-	// Supported: the backend has a change log; without one the rest is empty.
+	// Supported: the backend reports changes; without that the rest is empty.
 	Supported bool `json:"supported"`
 	// Known: Changes holds everything after the given cursor. False for a cursor of an earlier run or none; Cursor then starts from now ("" when the folder is missing).
 	Known   bool      `json:"known"`
 	Cursor  string    `json:"cursor"`
 	Changes []Changed `json:"changes"`
+	// Folders: list these folders again, and each subfolder whose ETag changed (Nextcloud).
+	Folders []string `json:"folders,omitempty"`
 	// ByID: the log names items by ID; Items replaces Changes, and RootID is the ID of the folder asked about.
 	ByID   bool         `json:"by_id,omitempty"`
 	RootID string       `json:"root_id,omitempty"`
@@ -186,19 +210,41 @@ func backend(ctx context.Context, remote string) (fs.Fs, error) {
 	return f, nil
 }
 
-// ChangesSince asks `remote`'s change log what changed after `cursor` (from an earlier call; "" for none) for the sync folder at `dir`.
+// ChangesSince asks `remote` what changed after `cursor` (from an earlier call; "" for none) for the sync folder at `dir`.
 func ChangesSince(ctx context.Context, remote, dir, cursor string) (Changes, error) {
 	f, err := backend(ctx, remote)
 	if err != nil {
 		return Changes{}, err
 	}
-	if log, ok := itemLogOf(f); ok {
-		return itemChangesSince(ctx, remote, log, dir, cursor)
+	switch s := sourceOf(f, remote); {
+	case s.items != nil:
+		return itemChangesSince(ctx, remote, s.items, dir, cursor)
+	case s.paths != nil:
+		return pathChangesSince(ctx, remote, s.paths, dir, cursor)
+	case s.tags:
+		return tagChangesSince(ctx, remote, dir, cursor)
 	}
-	log, ok := f.(changeLog)
-	if !ok {
-		return Changes{}, nil
+	return Changes{}, nil
+}
+
+// tagChangesSince is ChangesSince for Nextcloud: the cursor is the ETag of the folder at `dir`, which changes with everything below it. A missing folder gives no cursor; the listing tells what that means.
+func tagChangesSince(ctx context.Context, remote, dir, cursor string) (Changes, error) {
+	tag, _, err := FolderTags(ctx, remote, dir, 0)
+	if err != nil && strings.Contains(err.Error(), "directory not found") {
+		return Changes{Supported: true}, nil
 	}
+	if err != nil {
+		return Changes{}, err
+	}
+	out := Changes{Supported: true, Known: cursor != "", Cursor: tag}
+	if out.Known && tag != cursor {
+		out.Folders = []string{dir}
+	}
+	return out, nil
+}
+
+// pathChangesSince is ChangesSince for a log by path (Google Drive, Dropbox). Its cursor holds the log's token behind the prefix of the backend that can follow it (cursorPrefix).
+func pathChangesSince(ctx context.Context, remote string, log changeLog, dir, cursor string) (Changes, error) {
 	prefix := cursorPrefix(remote)
 	token, ours := strings.CutPrefix(cursor, prefix)
 	if !ours || token == "" {
@@ -235,7 +281,7 @@ func ChangesSince(ctx context.Context, remote, dir, cursor string) (Changes, err
 	}
 	if next == "" {
 		// The log gave no position to go on from: start over (without a cursor, which takes no lock).
-		return ChangesSince(ctx, remote, dir, "")
+		return pathChangesSince(ctx, remote, log, dir, "")
 	}
 	if next != token {
 		l.add(cursor, answer{next: prefix + next, changes: fresh})

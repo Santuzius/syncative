@@ -20,6 +20,8 @@ A sync pass needs the remote state of its folder. Listing it costs one request p
 
 ## Change sources
 
+A pass asks `syncative::changes_since`, one call for every backend; `sourceOf` in `src/go/rclone/changes.go` picks the backend's source, and network drives (`src/go/rclone/networkdrive.go`) take theirs from it too. A backend whose source fails is listed, unless the network is gone.
+
 | Backend | Cursor | Changes | After a restart |
 |---|---|---|---|
 | Proton | last event of the volume's event log and the sync folder's link ID, asked through Syncative's Proton backend for rclone (`src/go/proton/rclonefs`) | the changed links with their decrypted names, placed by ID | kept |
