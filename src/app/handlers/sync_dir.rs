@@ -357,12 +357,6 @@ impl SyncativeApp {
             ));
             return Task::none();
         }
-        if mode == SyncMode::NetworkDrive
-            && let Some(reason) = crate::services::network_drive::unusable_folder(&local_norm)
-        {
-            self.add_sync_dir_error = Some(reason);
-            return Task::none();
-        }
         self.add_sync_dir_error = None;
         // A network drive syncs nothing, so it has no exclusions to set.
         self.open_filters_of_added =
@@ -377,6 +371,12 @@ impl SyncativeApp {
                 let local_for_mk = local_norm.clone();
                 let remote_for_mk = remote_norm.clone();
                 let created = tokio::task::spawn_blocking(move || {
+                    if mode == SyncMode::NetworkDrive
+                        && let Some(reason) =
+                            crate::services::network_drive::unusable_folder(&local_for_mk)
+                    {
+                        return Err(reason);
+                    }
                     if !android_drive {
                         std::fs::create_dir_all(&local_for_mk)
                             .map_err(|e| format!("Couldn't create {local_for_mk}: {e}"))?;
@@ -757,25 +757,34 @@ impl SyncativeApp {
                 change(repo.clone()).await;
                 let excls = repo.list_exclusions(sd_id).await.unwrap_or_default();
                 let mut nested = repo.list_nested_filters(sd_id).await.unwrap_or_default();
-                // A symlink that went missing puts the choice to the user again.
-                nested.retain(|id, filter| {
-                    *filter != NestedFilter::Symlink
-                        || link_places
-                            .get(id)
-                            .is_some_and(|(at, target)| nested_link::points_to(at, target))
-                });
-                let mut counts = HashMap::new();
                 // Without exclusions there is nothing to count, and no need to load every row of the folder.
-                if let Some(root) = local_root.filter(|_| !excls.is_empty() || !auto.is_empty()) {
-                    let items = repo.list_sync_items(sd_id).await.unwrap_or_default();
-                    for relative in excls.iter().map(|e| &e.remote_path).chain(&auto) {
-                        let n = leftovers::count(&items, &format!("{root}/{relative}"));
-                        if !n.is_empty() {
-                            counts.insert(relative.clone(), n);
+                let root = local_root.filter(|_| !excls.is_empty() || !auto.is_empty());
+                let items = match root {
+                    Some(_) => repo.list_sync_items(sd_id).await.unwrap_or_default(),
+                    None => Vec::new(),
+                };
+                // Reading the disk runs off the async runtime.
+                tokio::task::spawn_blocking(move || {
+                    // A symlink that went missing puts the choice to the user again.
+                    nested.retain(|id, filter| {
+                        *filter != NestedFilter::Symlink
+                            || link_places
+                                .get(id)
+                                .is_some_and(|(at, target)| nested_link::points_to(at, target))
+                    });
+                    let mut counts = HashMap::new();
+                    if let Some(root) = root {
+                        for relative in excls.iter().map(|e| &e.remote_path).chain(&auto) {
+                            let n = leftovers::count(&items, &format!("{root}/{relative}"));
+                            if !n.is_empty() {
+                                counts.insert(relative.clone(), n);
+                            }
                         }
                     }
-                }
-                (excls, counts, nested)
+                    (excls, counts, nested)
+                })
+                .await
+                .unwrap_or_default()
             },
             move |(excls, counts, nested)| Message::ExclusionsLoaded(sd_id, excls, counts, nested),
         )

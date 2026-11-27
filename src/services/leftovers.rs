@@ -116,9 +116,32 @@ pub async fn clean(
         .list_sync_items(sync_dir)
         .await
         .map_err(|e| e.to_string())?;
+    let root = root.to_owned();
+    // The disk work runs off the async runtime; the rows of what it removed are forgotten even when it stopped on an error.
+    let (forgotten, cleaned) = tokio::task::spawn_blocking(move || {
+        let mut forgotten = Vec::new();
+        let cleaned = remove(&items, &root, &mut forgotten);
+        (forgotten, cleaned)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    for item in forgotten {
+        let _ = repo
+            .delete_sync_item_by_paths(sync_dir, &item.local_path, &item.remote_path)
+            .await;
+    }
+    cleaned
+}
+
+/// The disk side of [`clean`]: deletes and adds the rows to forget to `forgotten`.
+fn remove(
+    items: &[SyncItem],
+    root: &str,
+    forgotten: &mut Vec<SyncItem>,
+) -> Result<Cleaned, String> {
     let mut deleted = Found::default();
     let mut dirs: Vec<&SyncItem> = Vec::new();
-    for item in under(&items, root) {
+    for item in under(items, root) {
         match fs::symlink_metadata(&item.local_path) {
             Ok(meta) if meta.is_dir() => {
                 dirs.push(item);
@@ -135,9 +158,7 @@ pub async fn clean(
             // Already gone; the row is stale either way.
             Err(_) => {}
         }
-        let _ = repo
-            .delete_sync_item_by_paths(sync_dir, &item.local_path, &item.remote_path)
-            .await;
+        forgotten.push(item.clone());
     }
 
     // Deepest first, so parents are empty by the time they come up. `remove_dir` refuses non-empty folders, which keeps whatever is left.
@@ -145,9 +166,7 @@ pub async fn clean(
     for dir in dirs {
         if fs::remove_dir(&dir.local_path).is_ok() {
             deleted.folders += 1;
-            let _ = repo
-                .delete_sync_item_by_paths(sync_dir, &dir.local_path, &dir.remote_path)
-                .await;
+            forgotten.push(dir.clone());
         }
     }
     let _ = fs::remove_dir(root);
