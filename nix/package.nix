@@ -41,7 +41,7 @@ let
       inherit version;
       src = fullSrc;
       modRoot = "src/go";
-      vendorHash = "sha256-7pCCNJCJTIfZRKf2I/FW21WiGwGYKCUpQggWybtecZM=";
+      vendorHash = "sha256-K1rCU4dkis8MRDoEupX53T2WX14n7KUUQwCvpu+l3HM=";
     }).goModules;
 
   desktopItem = makeDesktopItem {
@@ -79,7 +79,8 @@ rustPlatform.buildRustPackage {
     makeWrapper
     copyDesktopItems
   ];
-  buildInputs = shell.buildInputs;
+  # nixpkgs' cargo setup hook sets LIBSQLITE3_SYS_USE_PKG_CONFIG=1, so libsqlite3-sys links the system SQLite instead of its bundled copy.
+  buildInputs = shell.buildInputs ++ [ pkgs.sqlite ];
 
   preBuild = ''
     cp -r --no-preserve=mode ${goModules} src/go/vendor
