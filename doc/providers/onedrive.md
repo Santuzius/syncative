@@ -12,6 +12,12 @@ OneDrive is a beta provider. It goes through rclone's onedrive backend, from Syn
 
 The drive's change log is its delta listing, which names items by ID and gives no paths (Remarks of [driveItem: delta](https://learn.microsoft.com/en-us/graph/api/driveitem-delta)). The fork's `backend/onedrive/syncative.go` asks it once per pass; the sync places the items by ID like Proton's ([remote changes](../development/remote-changes.md)), the network drive by the folders rclone's folder cache knows ([network drive](../development/network-drive.md)).
 
-## Not tested yet
+The delta listing also names every folder above a changed item. A folder rclone's folder cache knows and that stands where the cache has it is left out; one that is gone or stands elsewhere leaves the cache with everything below it, so a sync folder renamed or trashed on OneDrive shows "Remote folder not found" instead of being found under its old path.
 
-Nothing of it has run against a real account: sign-in, the drive lookup, the ID format of listings and of the delta listing (`driveID#itemID`), deleted items in the delta listing, the network drive. Before it leaves the beta, run the [remote checklist](../development/testing.md#checklist-for-a-remote) with a throwaway Microsoft account.
+OneDrive keeps no SHA-1 of files (only its QuickXorHash), so `details` asks it for none.
+
+## Tested
+
+The [remote checklist](../development/testing.md#checklist-for-a-remote) ran on the desktop test instance with a throwaway personal Microsoft account, rclone standing in for the web app and the Graph API's `restore` for the recycle bin: steps 1 to 7 pass. Network loss relies on the system reporting it, which cancels the pass for every provider; a provider that stops answering while the network stays up fails only after rclone's retries, minutes during an upload, as with the other rclone providers.
+
+Not tested yet: removing the remote (step 8), the network drive, and Android.
