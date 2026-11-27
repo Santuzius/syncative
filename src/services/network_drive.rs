@@ -24,7 +24,7 @@ struct Mount {
     folder_id: i32,
 }
 
-/// What rclone mounts for network drive folder `folder_id`, `remote_path` on `remote`. On Linux the remote goes through Syncative's trash wrapper (`src/go/rclone/netdrive/trashfs.go`): a file manager's trash on the mount, `.Trash-<uid>`, stays in [`trash_dir`] on this computer, and trashing there trashes the file on the remote. Android's document provider has no trash folder and shows the remote as it is.
+/// What rclone mounts for network drive folder `folder_id`, `remote_path` on `remote`. On Linux the remote goes through Syncative's trash wrapper (`src/go/rclone/trash/trashfs.go`): a file manager's trash on the mount, `.Trash-<uid>`, stays in [`trash_dir`] on this computer, and trashing there trashes the file on the remote. Android's document provider has no trash folder and shows the remote as it is.
 pub fn mount_fs(remote: &str, remote_path: &str, folder_id: i32) -> String {
     if cfg!(target_os = "android") {
         return format!("{remote}:{remote_path}");

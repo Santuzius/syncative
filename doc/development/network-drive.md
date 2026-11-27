@@ -31,7 +31,7 @@ Apps have no FUSE on Android, so a document provider shows the folder instead: `
 
 ## Trash
 
-File managers trash a file on another device into `$topdir/.Trash-$uid/{files,info}` (the freedesktop trash spec; KIO writes `info/<name>.trashinfo`, then renames the file into `files/`, and copies and deletes when the rename fails across devices). On a mount that folder would land in the cloud, and every trashed file would be downloaded. So on Linux the mount goes through a wrapping backend of Syncative's, `syncativetrash` (`src/go/rclone/netdrive/trashfs.go`, logic in `netdrive/trashbin.go`): `:syncativetrash,remote="NAME",dir="DIR":PATH` (`network_drive::mount_fs`). It passes everything through except `.Trash-<uid>`, which it keeps in the folder's own trash folder, `<data dir>/network-drive-trash/<folder id>/trash`, removed with the folder like its VFS cache. Android is unchanged.
+File managers trash a file on another device into `$topdir/.Trash-$uid/{files,info}` (the freedesktop trash spec; KIO writes `info/<name>.trashinfo`, then renames the file into `files/`, and copies and deletes when the rename fails across devices). On a mount that folder would land in the cloud, and every trashed file would be downloaded. So on Linux the mount goes through a wrapping backend of Syncative's, `syncativetrash` (`src/go/rclone/trash/trashfs.go`, logic in `trash/trashbin.go`): `:syncativetrash,remote="NAME",dir="DIR":PATH` (`network_drive::mount_fs`). It passes everything through except `.Trash-<uid>`, which it keeps in the folder's own trash folder, `<data dir>/network-drive-trash/<folder id>/trash`, removed with the folder like its VFS cache. Android is unchanged.
 
 | Case | File the cache holds in full | File the cache doesn't hold |
 |---|---|---|

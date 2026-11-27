@@ -1,6 +1,6 @@
 package nextcloud
 
-// trash.go takes a file or folder out of Nextcloud's trash bin for the network drive's trash (netdrive/trashbin.go). Nextcloud lists the trash bin at remote.php/dav/trashbin/USER/trash with each entry's original location and deletion time; moving an entry into remote.php/dav/trashbin/USER/restore puts it back where it was (https://docs.nextcloud.com/server/latest/developer_manual/client_apis/WebDAV/trashbin.html). rclone's WebDAV backend doesn't reach the trash bin, so the requests are made here, as in tags.go.
+// trash.go takes a file or folder out of Nextcloud's trash bin for the network drive's trash (trash/trashbin.go). Nextcloud lists the trash bin at remote.php/dav/trashbin/USER/trash with each entry's original location and deletion time; moving an entry into remote.php/dav/trashbin/USER/restore puts it back where it was (https://docs.nextcloud.com/server/latest/developer_manual/client_apis/WebDAV/trashbin.html). rclone's WebDAV backend doesn't reach the trash bin, so the requests are made here, as in tags.go.
 
 import (
 	"bytes"

@@ -1,4 +1,4 @@
-package netdrive
+package trash
 
 // trashbin.go: what the network drive's trash folder (trashfs.go) does with files moved in and out of it.
 //
@@ -97,11 +97,11 @@ func entryName(rel string) (string, bool) {
 	return name, true
 }
 
-func (f *trashFs) entryPath(name string) string {
+func (f *Fs) entryPath(name string) string {
 	return filepath.Join(f.entries, name+".json")
 }
 
-func (f *trashFs) readEntry(name string) (trashEntry, bool) {
+func (f *Fs) readEntry(name string) (trashEntry, bool) {
 	var entry trashEntry
 	raw, err := os.ReadFile(f.entryPath(name))
 	if err != nil || json.Unmarshal(raw, &entry) != nil {
@@ -110,7 +110,7 @@ func (f *trashFs) readEntry(name string) (trashEntry, bool) {
 	return entry, true
 }
 
-func (f *trashFs) writeEntry(name string, entry trashEntry) {
+func (f *Fs) writeEntry(name string, entry trashEntry) {
 	raw, _ := json.Marshal(entry)
 	err := os.MkdirAll(f.entries, 0o700)
 	if err == nil {
@@ -122,14 +122,14 @@ func (f *trashFs) writeEntry(name string, entry trashEntry) {
 }
 
 // removeEntry drops trash entry `name`: its file or folder, .trashinfo and note. After a restore in the file manager only the note is left to drop: the file manager deletes the .trashinfo itself.
-func (f *trashFs) removeEntry(name string) {
+func (f *Fs) removeEntry(name string) {
 	_ = os.RemoveAll(f.localPath("files/" + name))
 	_ = os.Remove(f.localPath("info/" + name + ".trashinfo"))
 	_ = os.Remove(f.entryPath(name))
 }
 
 // cachePaths: where the VFS keeps file `remote`'s data and metadata (vfs/vfscache/cache.go: `<cache>/vfs/<name>/<root>/<path>`).
-func (f *trashFs) cachePaths(remote string) (data, meta string) {
+func (f *Fs) cachePaths(remote string) (data, meta string) {
 	rel := strings.Trim(path.Join(f.name, f.root, remote), "/")
 	osRel := filepath.FromSlash(encoder.OS.FromStandardPath(rel))
 	base := config.GetCacheDir()
@@ -137,19 +137,19 @@ func (f *trashFs) cachePaths(remote string) (data, meta string) {
 }
 
 // cachedCopy: the VFS cache's copy of file `remote` when it holds all of it.
-func (f *trashFs) cachedCopy(remote string) (string, bool) {
+func (f *Fs) cachedCopy(remote string) (string, bool) {
 	data, _, ok := f.cachedFile(remote)
 	return data, ok
 }
 
 // uploadedCopy: as cachedCopy, but only when the remote has the copy's content: a copy the VFS hasn't uploaded yet isn't missing from the remote because it left it.
-func (f *trashFs) uploadedCopy(remote string) (string, bool) {
+func (f *Fs) uploadedCopy(remote string) (string, bool) {
 	data, dirty, ok := f.cachedFile(remote)
 	return data, ok && !dirty
 }
 
 // cachedFile: where the VFS cache holds all of file `remote`, and whether it waits for upload.
-func (f *trashFs) cachedFile(remote string) (data string, dirty, ok bool) {
+func (f *Fs) cachedFile(remote string) (data string, dirty, ok bool) {
 	data, meta := f.cachePaths(remote)
 	raw, err := os.ReadFile(meta)
 	if err != nil {
@@ -175,7 +175,7 @@ func (f *trashFs) cachedFile(remote string) (data string, dirty, ok bool) {
 }
 
 // keepCached links (or copies) the files of folder `remote` the cache holds in full into the local trash at `dst`; with `uploaded`, only those the remote has (uploadedCopy). Returns how many.
-func (f *trashFs) keepCached(remote, dst string, uploaded bool) int {
+func (f *Fs) keepCached(remote, dst string, uploaded bool) int {
 	copyOf := f.cachedCopy
 	if uploaded {
 		copyOf = f.uploadedCopy
@@ -230,7 +230,7 @@ func discarded(ctx context.Context, src rfs.ObjectInfo) rfs.Object {
 }
 
 // drop: trash entry `name` keeps nothing here, so its .trashinfo goes too, now or once the VFS uploads it.
-func (f *trashFs) drop(name string) {
+func (f *Fs) drop(name string) {
 	f.mu.Lock()
 	for n, at := range f.dropped {
 		if time.Since(at) > 10*time.Minute {
@@ -244,7 +244,7 @@ func (f *trashFs) drop(name string) {
 }
 
 // isDroppedInfo: trash path `rel` is the .trashinfo of a dropped entry; it is dropped as it arrives.
-func (f *trashFs) isDroppedInfo(rel string) bool {
+func (f *Fs) isDroppedInfo(rel string) bool {
 	name, ok := strings.CutPrefix(rel, "info/")
 	if !ok {
 		return false
@@ -261,12 +261,12 @@ func (f *trashFs) isDroppedInfo(rel string) bool {
 }
 
 // forgetTrashSoon has the VFS list the trash folder anew once the move or upload that changed it behind the VFS's back has finished; the VFS still holds its locks meanwhile.
-func (f *trashFs) forgetTrashSoon() {
+func (f *Fs) forgetTrashSoon() {
 	f.forgetSoon(f.prefix, time.Second)
 }
 
 // forgetSoon has the VFS list folder `dir` anew after each of `delays`, counted from now.
-func (f *trashFs) forgetSoon(dir string, delays ...time.Duration) {
+func (f *Fs) forgetSoon(dir string, delays ...time.Duration) {
 	go func() {
 		start := time.Now()
 		for _, delay := range delays {
@@ -279,7 +279,7 @@ func (f *trashFs) forgetSoon(dir string, delays ...time.Duration) {
 }
 
 // trashFile trashes file `src` on the remote, keeping a copy at `rel` in the local trash if the cache holds it in full.
-func (f *trashFs) trashFile(ctx context.Context, src *wrappedObject, rel string) (rfs.Object, error) {
+func (f *Fs) trashFile(ctx context.Context, src *wrappedObject, rel string) (rfs.Object, error) {
 	name, whole := entryName(rel)
 	dst := f.localPath(rel)
 	cached, kept := f.cachedCopy(src.Remote())
@@ -313,7 +313,7 @@ func (f *trashFs) trashFile(ctx context.Context, src *wrappedObject, rel string)
 }
 
 // trashDir trashes folder `remote` on the remote, keeping at `rel` in the local trash the files of it the cache holds in full.
-func (f *trashFs) trashDir(ctx context.Context, remote, rel string) error {
+func (f *Fs) trashDir(ctx context.Context, remote, rel string) error {
 	name, whole := entryName(rel)
 	dst := f.localPath(rel)
 	id := f.dirID(ctx, remote)
@@ -342,7 +342,7 @@ func (f *trashFs) trashDir(ctx context.Context, remote, rel string) error {
 }
 
 // dirID: the remote's ID of folder `remote`, from its parent's listing, or "" if it has none.
-func (f *trashFs) dirID(ctx context.Context, remote string) string {
+func (f *Fs) dirID(ctx context.Context, remote string) string {
 	parent := path.Dir(remote)
 	if parent == "." {
 		parent = ""
@@ -360,7 +360,7 @@ func (f *trashFs) dirID(ctx context.Context, remote string) string {
 }
 
 // untrash takes trash entry `entry` out of the remote's trash; errNotRestorable when the remote can't.
-func (f *trashFs) untrash(ctx context.Context, entry trashEntry) error {
+func (f *Fs) untrash(ctx context.Context, entry trashEntry) error {
 	t := remoteTrashOf(f.inner, f.remote, f.root)
 	if t == nil {
 		return errNotRestorable
@@ -369,7 +369,7 @@ func (f *trashFs) untrash(ctx context.Context, entry trashEntry) error {
 }
 
 // restoreFile restores trashed file `src` (at `rel` in the trash) to `remote`: from the remote's trash if it still has it, else by uploading the local copy.
-func (f *trashFs) restoreFile(ctx context.Context, src *trashObject, rel, remote string) (rfs.Object, error) {
+func (f *Fs) restoreFile(ctx context.Context, src *trashObject, rel, remote string) (rfs.Object, error) {
 	name, whole := entryName(rel)
 	if entry, ok := f.readEntry(name); whole && ok && f.free(ctx, entry.Path, remote) {
 		o, err := f.untrashFile(ctx, entry, remote)
@@ -391,7 +391,7 @@ func (f *trashFs) restoreFile(ctx context.Context, src *trashObject, rel, remote
 	return f.wrap(o), nil
 }
 
-func (f *trashFs) untrashFile(ctx context.Context, entry trashEntry, remote string) (rfs.Object, error) {
+func (f *Fs) untrashFile(ctx context.Context, entry trashEntry, remote string) (rfs.Object, error) {
 	if err := f.untrash(ctx, entry); err != nil {
 		return nil, err
 	}
@@ -409,7 +409,7 @@ func (f *trashFs) untrashFile(ctx context.Context, entry trashEntry, remote stri
 }
 
 // restoreDir restores trashed folder `rel` of the trash to `remote`, as restoreFile does a file.
-func (f *trashFs) restoreDir(ctx context.Context, rel, remote string) error {
+func (f *Fs) restoreDir(ctx context.Context, rel, remote string) error {
 	name, whole := entryName(rel)
 	if entry, ok := f.readEntry(name); whole && ok && f.free(ctx, entry.Path, remote) {
 		err := f.untrashDir(ctx, entry, remote)
@@ -430,7 +430,7 @@ func (f *trashFs) restoreDir(ctx context.Context, rel, remote string) error {
 	return nil
 }
 
-func (f *trashFs) untrashDir(ctx context.Context, entry trashEntry, remote string) error {
+func (f *Fs) untrashDir(ctx context.Context, entry trashEntry, remote string) error {
 	if err := f.untrash(ctx, entry); err != nil {
 		return err
 	}
@@ -444,7 +444,7 @@ func (f *trashFs) untrashDir(ctx context.Context, entry trashEntry, remote strin
 }
 
 // upload copies folder `rel` of the local trash to `remote`.
-func (f *trashFs) upload(ctx context.Context, rel, remote string) error {
+func (f *Fs) upload(ctx context.Context, rel, remote string) error {
 	if err := f.inner.Mkdir(ctx, remote); err != nil {
 		return err
 	}
@@ -471,7 +471,7 @@ func (f *trashFs) upload(ctx context.Context, rel, remote string) error {
 }
 
 // free: restoring what was at `original` to `remote` won't clash: the file manager restores to where it was, or to a place it chose that is free; the original place must then be free too, as the remote's trash restores there first.
-func (f *trashFs) free(ctx context.Context, original, remote string) bool {
+func (f *Fs) free(ctx context.Context, original, remote string) bool {
 	if original == remote {
 		return true
 	}
@@ -482,8 +482,8 @@ func (f *trashFs) free(ctx context.Context, original, remote string) bool {
 	return errors.Is(err, rfs.ErrorDirNotFound)
 }
 
-// followRemote keeps in the local trash the files the cache holds in full that left the remote, and drops trash entries whose file came back there. `files` are files the remote reported changed, `dirs` folders; both from the mount's top. Returns whether the trash changed, so the VFS lists it anew.
-func (f *trashFs) followRemote(ctx context.Context, files, dirs []string) bool {
+// FollowRemote keeps in the local trash the files the cache holds in full that left the remote, and drops trash entries whose file came back there. `files` are files the remote reported changed, `dirs` folders; both from the mount's top. Returns whether the trash changed, so the VFS lists it anew.
+func (f *Fs) FollowRemote(ctx context.Context, files, dirs []string) bool {
 	changed := false
 	for _, p := range files {
 		if f.hidden(p) {
@@ -503,7 +503,7 @@ func (f *trashFs) followRemote(ctx context.Context, files, dirs []string) bool {
 }
 
 // followDir checks folder `dir` and what of it the cache holds against the remote.
-func (f *trashFs) followDir(ctx context.Context, dir string) bool {
+func (f *Fs) followDir(ctx context.Context, dir string) bool {
 	data, _ := f.cachePaths(dir)
 	cachedEntries, err := os.ReadDir(data)
 	if err != nil {
@@ -544,7 +544,7 @@ func gone(_ rfs.Object, err error) bool {
 }
 
 // keepGone puts the cache's full copy of `remote`, which left the remote, into the local trash, with a .trashinfo as the file manager writes one. Returns whether it kept anything.
-func (f *trashFs) keepGone(ctx context.Context, remote string, isDir bool) bool {
+func (f *Fs) keepGone(ctx context.Context, remote string, isDir bool) bool {
 	if f.knownEntry(remote) {
 		return false
 	}
@@ -573,7 +573,7 @@ func (f *trashFs) keepGone(ctx context.Context, remote string, isDir bool) bool 
 }
 
 // knownEntry: the trash already holds `remote`, trashed in the file manager or kept earlier.
-func (f *trashFs) knownEntry(remote string) bool {
+func (f *Fs) knownEntry(remote string) bool {
 	known := false
 	f.eachEntry(func(_ string, entry trashEntry) {
 		known = known || entry.Path == remote
@@ -582,7 +582,7 @@ func (f *trashFs) knownEntry(remote string) bool {
 }
 
 // eachEntry calls `fn` for each noted trash entry whose file is still in the trash; notes of entries the file manager emptied are deleted.
-func (f *trashFs) eachEntry(fn func(name string, entry trashEntry)) {
+func (f *Fs) eachEntry(fn func(name string, entry trashEntry)) {
 	notes, err := os.ReadDir(f.entries)
 	if err != nil {
 		return
@@ -603,7 +603,7 @@ func (f *trashFs) eachEntry(fn func(name string, entry trashEntry)) {
 }
 
 // dropReturned drops trash entries that are back on the remote among the reported `files` and `dirs`, e.g. restored in the web app.
-func (f *trashFs) dropReturned(ctx context.Context, files, dirs []string) bool {
+func (f *Fs) dropReturned(ctx context.Context, files, dirs []string) bool {
 	reported := func(p string) bool {
 		for _, file := range files {
 			if file == p {
@@ -639,7 +639,7 @@ func (f *trashFs) dropReturned(ctx context.Context, files, dirs []string) bool {
 }
 
 // freeName: `name`, or "name (2).ext" and on, whichever is free in the trash.
-func (f *trashFs) freeName(name string) string {
+func (f *Fs) freeName(name string) string {
 	ext := path.Ext(name)
 	stem := strings.TrimSuffix(name, ext)
 	if stem == "" {

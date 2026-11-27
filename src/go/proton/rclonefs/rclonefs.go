@@ -526,7 +526,7 @@ func (o *Object) Metadata(ctx context.Context) (fs.Metadata, error) {
 	return fs.Metadata{"mtime": attrs.ModTime.UTC().Format(time.RFC3339Nano)}, nil
 }
 
-// ModifiedTime is the time the file was last modified before its upload, which a network drive shows (src/go/rclone/netdrive/modtime.go); the revision's time when the attributes couldn't be fetched.
+// ModifiedTime is the time the file was last modified before its upload, which a network drive shows (src/go/rclone/modtime/modtime.go); the revision's time when the attributes couldn't be fetched.
 func (o *Object) ModifiedTime(ctx context.Context) time.Time {
 	if attrs, err := o.fileAttrs(ctx); err == nil {
 		return attrs.ModTime
@@ -654,7 +654,7 @@ func (o *Object) Remove(ctx context.Context) error {
 	return err
 }
 
-// Untrash takes link `id` out of Proton's trash, back where it was, for the network drive's trash (src/go/rclone/netdrive/trashbin.go).
+// Untrash takes link `id` out of Proton's trash, back where it was, for the network drive's trash (src/go/rclone/trash/trashbin.go).
 func (f *Fs) Untrash(ctx context.Context, id string) error {
 	sess, err := f.session()
 	if err != nil {

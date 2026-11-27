@@ -1,4 +1,4 @@
-package netdrive
+package trash
 
 import (
 	"context"
@@ -22,7 +22,7 @@ type trashTest struct {
 	ctx    context.Context
 	remote string
 	base   string
-	f      *trashFs
+	f      *Fs
 	vfs    *vfs.VFS
 	prefix string
 }
@@ -48,7 +48,7 @@ func newTrashTestOn(t *testing.T, name, root string) *trashTest {
 	}
 	t.Cleanup(func() { _ = config.SetCacheDir(oldCache) })
 	ctx := context.Background()
-	fsString := fmt.Sprintf(`:%s,remote=%s,dir="%s":%s`, TrashBackend, name, base, root)
+	fsString := fmt.Sprintf(`:%s,remote=%s,dir="%s":%s`, Backend, name, base, root)
 	f, err := cache.Get(ctx, fsString)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func newTrashTestOn(t *testing.T, name, root string) *trashTest {
 		_ = v.CleanUp()
 		cache.Clear()
 	})
-	return &trashTest{t: t, ctx: ctx, remote: root, base: base, f: f.(*trashFs), vfs: v, prefix: fmt.Sprintf(".Trash-%d", os.Getuid())}
+	return &trashTest{t: t, ctx: ctx, remote: root, base: base, f: f.(*Fs), vfs: v, prefix: fmt.Sprintf(".Trash-%d", os.Getuid())}
 }
 
 func (tt *trashTest) write(rel, content string) {
@@ -226,7 +226,7 @@ func TestTrashFollowsRemote(t *testing.T) {
 	if err := os.Remove(filepath.Join(tt.remote, "notes.txt")); err != nil {
 		t.Fatal(err)
 	}
-	if !tt.f.followRemote(tt.ctx, []string{"notes.txt"}, nil) {
+	if !tt.f.FollowRemote(tt.ctx, []string{"notes.txt"}, nil) {
 		t.Fatal("nothing kept")
 	}
 	if got, _ := os.ReadFile(tt.local("files/notes.txt")); string(got) != "draft" {
@@ -236,13 +236,13 @@ func TestTrashFollowsRemote(t *testing.T) {
 	if !strings.Contains(string(info), "Path=notes.txt\n") {
 		t.Fatalf(".trashinfo = %q", info)
 	}
-	if tt.f.followRemote(tt.ctx, []string{"notes.txt"}, nil) {
+	if tt.f.FollowRemote(tt.ctx, []string{"notes.txt"}, nil) {
 		t.Fatal("kept twice")
 	}
 
 	// Restored in the web app.
 	tt.write("notes.txt", "draft")
-	if !tt.f.followRemote(tt.ctx, []string{"notes.txt"}, nil) {
+	if !tt.f.FollowRemote(tt.ctx, []string{"notes.txt"}, nil) {
 		t.Fatal("the entry wasn't dropped")
 	}
 	if exists(tt.local("files/notes.txt")) || exists(tt.local("info/notes.txt.trashinfo")) {
@@ -259,7 +259,7 @@ func TestTrashFollowsRemoteFolderTags(t *testing.T) {
 	if err := os.Remove(filepath.Join(tt.remote, "Docs/letter.txt")); err != nil {
 		t.Fatal(err)
 	}
-	if !tt.f.followRemote(tt.ctx, nil, []string{"Docs"}) {
+	if !tt.f.FollowRemote(tt.ctx, nil, []string{"Docs"}) {
 		t.Fatal("nothing kept")
 	}
 	if !exists(tt.local("files/letter.txt")) {
@@ -284,7 +284,7 @@ func TestTrashFollowsRemoteSkipsPendingUploads(t *testing.T) {
 	}
 	tt.write("Drafts/other.txt", "x")
 
-	if tt.f.followRemote(tt.ctx, []string{"Drafts/new.txt"}, []string{"Drafts"}) {
+	if tt.f.FollowRemote(tt.ctx, []string{"Drafts/new.txt"}, []string{"Drafts"}) {
 		t.Fatal("a pending upload was taken for a file that left the remote")
 	}
 	if exists(tt.local("files/new.txt")) {
@@ -295,7 +295,7 @@ func TestTrashFollowsRemoteSkipsPendingUploads(t *testing.T) {
 // TestForgetBackendsWrapsTheRemoteAnew: after ForgetBackends, a mount gets a wrapper around the remote's current backend, not the one cached before.
 func TestForgetBackendsWrapsTheRemoteAnew(t *testing.T) {
 	tt := newTrashTest(t)
-	fsString := fmt.Sprintf(`:%s,remote=%s,dir="%s":%s`, TrashBackend, "trashtestremote", tt.base, tt.remote)
+	fsString := fmt.Sprintf(`:%s,remote=%s,dir="%s":%s`, Backend, "trashtestremote", tt.base, tt.remote)
 	again, err := cache.Get(tt.ctx, fsString)
 	if err != nil || again != fs.Fs(tt.f) {
 		t.Fatalf("the cache should hand out the same wrapper: %v", err)
@@ -306,7 +306,7 @@ func TestForgetBackendsWrapsTheRemoteAnew(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fresh == fs.Fs(tt.f) || fresh.(*trashFs).inner == tt.f.inner {
+	if fresh == fs.Fs(tt.f) || fresh.(*Fs).inner == tt.f.inner {
 		t.Fatal("the wrapper made before still answers, with the backend it was made with")
 	}
 }

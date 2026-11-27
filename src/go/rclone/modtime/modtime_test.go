@@ -1,4 +1,4 @@
-package netdrive
+package modtime
 
 import (
 	"context"
@@ -63,8 +63,8 @@ func TestDriveShowsTheTimeLastModified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := (&wrappedObject{Object: o}).ModTime(ctx); !got.Equal(f.modified) {
-		t.Errorf("Linux mount shows %v, want %v", got, f.modified)
+	if got := Shown(ctx, o); !got.Equal(f.modified) {
+		t.Errorf("Linux mount (trash wrapper) shows %v, want %v", got, f.modified)
 	}
 
 	opt := vfscommon.Opt
@@ -75,7 +75,7 @@ func TestDriveShowsTheTimeLastModified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := nodeModTime(node); !got.Equal(f.modified) {
+	if got := OfNode(node); !got.Equal(f.modified) {
 		t.Errorf("Android drive shows %v, want %v", got, f.modified)
 	}
 }

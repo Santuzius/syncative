@@ -15,7 +15,7 @@ import (
 	"syncative/go/proton/drive"
 	"syncative/go/proton/rclonefs"
 	"syncative/go/rclone/changes"
-	"syncative/go/rclone/netdrive"
+	"syncative/go/rclone/trash"
 
 	"github.com/ProtonMail/go-proton-api"
 	"github.com/rclone/rclone/fs"
@@ -201,7 +201,7 @@ func logout(uid string) error {
 func dropBackend(remote string) {
 	changes.Forget(remote)
 	cache.ClearConfig(remote)
-	netdrive.ForgetBackends(remote)
+	trash.ForgetBackends(remote)
 }
 
 // ProtonDrive_Logout revokes the session on Proton's side and tears

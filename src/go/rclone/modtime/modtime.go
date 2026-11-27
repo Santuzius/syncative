@@ -1,4 +1,4 @@
-package netdrive
+package modtime
 
 import (
 	"context"
@@ -14,16 +14,16 @@ type modifiedTimer interface {
 	ModifiedTime(ctx context.Context) time.Time
 }
 
-// shownModTime is the time a network drive shows for file `o`.
-func shownModTime(ctx context.Context, o fs.Object) time.Time {
+// Shown is the time a network drive shows for file `o`.
+func Shown(ctx context.Context, o fs.Object) time.Time {
 	if m, ok := o.(modifiedTimer); ok {
 		return m.ModifiedTime(ctx)
 	}
 	return o.ModTime(ctx)
 }
 
-// nodeModTime is the time a network drive shows for `info`, a node of its VFS: a file as the remote has it shows the time it was last modified, a file written here the time the VFS gives it.
-func nodeModTime(info os.FileInfo) time.Time {
+// OfNode is the time a network drive shows for `info`, a node of its VFS: a file as the remote has it shows the time it was last modified, a file written here the time the VFS gives it.
+func OfNode(info os.FileInfo) time.Time {
 	t := info.ModTime()
 	file, ok := info.(*vfs.File)
 	if !ok {
@@ -37,5 +37,5 @@ func nodeModTime(info os.FileInfo) time.Time {
 	if !t.Equal(o.ModTime(ctx)) {
 		return t
 	}
-	return shownModTime(ctx, o)
+	return Shown(ctx, o)
 }

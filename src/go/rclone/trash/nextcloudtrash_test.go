@@ -1,4 +1,4 @@
-package netdrive
+package trash
 
 import (
 	"fmt"

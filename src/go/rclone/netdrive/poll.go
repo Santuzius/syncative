@@ -12,6 +12,7 @@ import (
 
 	"syncative/go/rclone/changes"
 	"syncative/go/rclone/nextcloud"
+	"syncative/go/rclone/trash"
 
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/cache"
@@ -53,10 +54,10 @@ func rcMountPoll(ctx context.Context, in rc.Params) (rc.Params, error) {
 	if err != nil && !errors.Is(err, fs.ErrorIsFile) {
 		return nil, err
 	}
-	// A Linux mount goes through the trash wrapper (trashfs.go); the change log is the remote's.
-	trash, _ := f.(*trashFs)
-	if trash != nil {
-		f = trash.inner
+	// A Linux mount goes through the trash wrapper; the change log is the remote's.
+	wrapper, _ := f.(*trash.Fs)
+	if wrapper != nil {
+		f = wrapper.UnWrap()
 	}
 	forget := rc.Calls.Get("vfs/forget")
 	if forget == nil {
@@ -73,15 +74,15 @@ func rcMountPoll(ctx context.Context, in rc.Params) (rc.Params, error) {
 	defer state.mu.Unlock()
 	// After the VFS forgot what changed: files the cache holds that left the remote go into the local trash.
 	followTrash := func(files, dirs []string) error {
-		if trash == nil || !trash.followRemote(ctx, files, dirs) {
+		if wrapper == nil || !wrapper.FollowRemote(ctx, files, dirs) {
 			return nil
 		}
-		_, err := forget.Fn(ctx, rc.Params{"fs": fsString, "dir": trash.prefix})
+		_, err := forget.Fn(ctx, rc.Params{"fs": fsString, "dir": wrapper.Folder()})
 		return err
 	}
 	remote, root, _ := strings.Cut(fsString, ":")
-	if trash != nil {
-		remote, root = trash.remote, trash.root
+	if wrapper != nil {
+		remote, root = wrapper.Remote(), wrapper.Root()
 	}
 	// The VFS names what it forgets by path, so a mount follows a log by path even where the sync follows one by ID.
 	src := changes.SourceOf(f, remote)

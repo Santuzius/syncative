@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"syncative/go/rclone/modtime"
+
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/cache"
 	"github.com/rclone/rclone/fs/rc"
@@ -141,7 +143,7 @@ func entry(name string, info os.FileInfo) rc.Params {
 		"name":     name,
 		"dir":      info.IsDir(),
 		"size":     info.Size(),
-		"modified": nodeModTime(info).UnixMilli(),
+		"modified": modtime.OfNode(info).UnixMilli(),
 	}
 }
 
