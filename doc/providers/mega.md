@@ -10,7 +10,7 @@ Checked against rclone master (`backend/mega/mega.go`, July 2026), which builds 
 - **Attributes get lost:** go-mega's `Rename` and `Upload.Finish` write attributes containing only the name, which wipes `c` and every other attribute.
 - Newer rclone versions added a `2fa` option and session reuse.
 
-Without fingerprints, Syncative's `same_content` (`src/services/sync/applier.rs`) can't tell whether two files are equal, and the planner falls back to "newer wins" for files that are new on both sides.
+Without fingerprints, Syncative's `same_content` (`src/services/sync/applier/conflicts.rs`) can't tell whether two files are equal, and the planner falls back to "newer wins" for files that are new on both sides.
 
 ## Planned approach (not started)
 - **Go:** an own package `src/go/mega/` on top of go-mega, next to `src/go/proton/drive/` for Proton:
