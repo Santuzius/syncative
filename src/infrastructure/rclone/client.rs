@@ -21,7 +21,7 @@ use crate::domain::{
 };
 use crate::services::secrets;
 
-use super::rpc::{self, BackendListFilter, BackendRemoteItem};
+use super::rpc::{self, BackendListFilter, BackendRemoteItem, RcloneError};
 
 #[derive(Clone)]
 pub struct LibrcloneClient {
@@ -239,7 +239,9 @@ impl BackendClient for LibrcloneClient {
         if let Some(name) = &name {
             syncative_go::forget_remote(name);
         }
-        let result = syncative_go::rpc("config/create", payload_json).map(|_| ());
+        let result = syncative_go::rpc("config/create", payload_json)
+            .map(|_| ())
+            .map_err(|reply| rc_error_message(&reply));
         if result.is_ok() {
             // Once more, for a pass that opened the remote with the old config in between.
             if let Some(name) = &name {
@@ -380,12 +382,29 @@ impl BackendClient for LibrcloneClient {
     }
 }
 
+/// The message of an error reply from rclone's rc. The reply also repeats the request as `input`, with any password or token in it, so only the message is kept.
+fn rc_error_message(reply: &str) -> String {
+    serde_json::from_str::<RcloneError>(reply)
+        .map(|err| err.error)
+        .unwrap_or_else(|_| "rclone gave an answer that can't be read.".to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn item(json: &str) -> BackendRemoteItem {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn an_rc_error_keeps_the_request_out_of_the_message() {
+        let reply = r#"{"error":"config name contains invalid characters","input":{"name":"-x","parameters":{"pass":"hunter2"}},"path":"config/create","status":500}"#;
+        assert_eq!(
+            rc_error_message(reply),
+            "config name contains invalid characters"
+        );
+        assert!(!rc_error_message("not json hunter2").contains("hunter2"));
     }
 
     #[test]
