@@ -59,6 +59,34 @@ pub fn remove(at: &Path, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Where links of the folders in `gone` can be, with their targets: in the folders around each, which then sync that sub-folder themselves, and in each to the folders inside it. For [`remove_all`] when those folders stop being synced; [`remove`] leaves alone what isn't such a link.
+pub fn links_of(gone: &[&SyncDir], all: &[SyncDir]) -> Vec<(PathBuf, PathBuf)> {
+    let mut links = Vec::new();
+    for g in gone {
+        for d in all {
+            if d.contains(g) {
+                links.push((location(d, g), PathBuf::from(&g.local_path)));
+            }
+            if g.contains(d) {
+                links.push((location(g, d), PathBuf::from(&d.local_path)));
+            }
+        }
+    }
+    links
+}
+
+/// Remove each link of [`links_of`] that is there; a failure is logged and the rest go on.
+pub fn remove_all(links: &[(PathBuf, PathBuf)]) {
+    for (at, target) in links {
+        if let Err(err) = remove(at, target) {
+            eprintln!(
+                "syncative: could not remove the link {}: {err}",
+                at.display()
+            );
+        }
+    }
+}
+
 /// Whether the link at `at` is there and points to `target`.
 pub fn points_to(at: &Path, target: &Path) -> bool {
     fs::symlink_metadata(at).is_ok_and(|m| m.file_type().is_symlink())

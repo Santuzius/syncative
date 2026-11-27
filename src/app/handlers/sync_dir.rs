@@ -612,46 +612,20 @@ impl SyncativeApp {
         let Some(id) = self.selected else {
             return Task::none();
         };
-        // Links made for the folder go with it: those in the folders around it, which then sync that sub-folder themselves, and its own to the folders inside it.
-        let all = &self.all_known_sync_dirs;
-        let filter = |parent: SyncDirId, nested: SyncDirId| {
-            self.nested_filters
-                .get(&parent)
-                .and_then(|f| f.get(&nested))
-                .copied()
-        };
-        let mut links: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
-        if let Some(gone) = all
+        // Links made for the folder go with it.
+        let gone: Vec<&SyncDir> = self
+            .all_known_sync_dirs
             .iter()
-            .find(|d| d.local_path == local && d.remote_path == remote)
-        {
-            for d in all.iter().filter(|d| d.id != gone.id) {
-                if filter(d.id, gone.id) == Some(NestedFilter::Symlink) {
-                    links.push((
-                        nested_link::location(d, gone),
-                        std::path::PathBuf::from(&gone.local_path),
-                    ));
-                }
-                if filter(gone.id, d.id) == Some(NestedFilter::Symlink) {
-                    links.push((
-                        nested_link::location(gone, d),
-                        std::path::PathBuf::from(&d.local_path),
-                    ));
-                }
-            }
-        }
+            .filter(|d| d.local_path == local && d.remote_path == remote)
+            .collect();
+        let links = nested_link::links_of(&gone, &self.all_known_sync_dirs);
         let repo = self.repo.clone();
         let engine = self.engine.clone();
         Task::perform(
             async move {
-                for (at, target) in links {
-                    if let Err(err) = nested_link::remove(&at, &target) {
-                        eprintln!(
-                            "syncative: could not remove the link {}: {err}",
-                            at.display()
-                        );
-                    }
-                }
+                tokio::task::spawn_blocking(move || nested_link::remove_all(&links))
+                    .await
+                    .ok();
                 if let Err(err) = repo.cascade_delete_sync_dir(&local, &remote).await {
                     eprintln!("syncative: could not remove the folder {local}: {err}");
                 }

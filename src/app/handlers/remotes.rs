@@ -444,6 +444,13 @@ impl SyncativeApp {
         name: String,
     ) -> Task<Message> {
         self.selected = None;
+        // Links between its folders go with them.
+        let gone: Vec<&crate::domain::sync::SyncDir> = self
+            .all_known_sync_dirs
+            .iter()
+            .filter(|d| d.remote_id == id)
+            .collect();
+        let links = crate::services::nested_link::links_of(&gone, &self.all_known_sync_dirs);
         self.sync_dirs.remove(&id);
         self.sync_dir_drafts.remove(&id);
         self.remotes.retain(|r| r.id != id);
@@ -457,6 +464,7 @@ impl SyncativeApp {
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
+                    crate::services::nested_link::remove_all(&links);
                     if let Err(err) = crate::services::remote_lifecycle::delete_remote(
                         &name,
                         &*repo_blocking,

@@ -9,8 +9,7 @@ use crate::{
     util,
 };
 
-/// Cascade-delete a remote (by name), its sync_dirs and sync_items, and
-/// drop its rclone config.
+/// Delete a remote by name: first its credentials (rclone config section or Proton session), then its row with its folders and their items. In this order a failure leaves a remote that asks for a sign-in, never credentials nobody sees.
 pub fn delete_remote(
     remote_name: &str,
     repo: &dyn Repository,
@@ -19,16 +18,12 @@ pub fn delete_remote(
     let remote = util::await_future(repo.find_remote_by_name(remote_name))
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("remote '{remote_name}' not found"))?;
-    let backend = remote.backend;
-    util::await_future(repo.cascade_delete_remote(remote.id)).map_err(|e| e.to_string())?;
-    if backend == Backend::NativeProton {
-        // Native-Proton remotes own a keyring entry rather than an
-        // rclone config row; drop the entry and skip the rclone side
-        // (calling delete_config for a non-rclone remote would just
-        // surface a "remote not found" error from librclone).
+    if remote.backend == Backend::NativeProton {
+        // A keyring entry, no rclone config section.
         syncative_go::proton::unbind_remote(remote_name);
         auth::forget_proton_session(remote_name)?;
-        return Ok(());
+    } else {
+        client.delete_config(remote_name)?;
     }
-    client.delete_config(remote_name)
+    util::await_future(repo.cascade_delete_remote(remote.id)).map_err(|e| e.to_string())
 }
