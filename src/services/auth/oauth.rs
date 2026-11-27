@@ -1,4 +1,4 @@
-//! OAuth2 remote provisioning via rclone's `authorize` flow, run in-process (Dropbox, Google Drive, pCloud).
+//! OAuth2 remote provisioning via rclone's `authorize` flow, run in-process (Dropbox, Google Drive, OneDrive, pCloud).
 
 use std::{
     sync::{
@@ -21,6 +21,7 @@ use crate::util;
 pub enum OAuthProvider {
     Dropbox,
     GDrive,
+    OneDrive,
     PCloud,
 }
 
@@ -29,6 +30,7 @@ impl OAuthProvider {
         match self {
             OAuthProvider::Dropbox => "dropbox",
             OAuthProvider::GDrive => "drive",
+            OAuthProvider::OneDrive => "onedrive",
             OAuthProvider::PCloud => "pcloud",
         }
     }
@@ -68,26 +70,15 @@ pub fn add_oauth_remote(
     repo: &dyn Repository,
     client: &dyn BackendClient,
 ) -> Result<RemoteId, String> {
-    let token = run_rclone_authorize(provider, client_id, client_secret, handle)?;
-
-    let payload = json!({
-        "name": name,
-        "parameters": {
-            "client_id": client_id.unwrap_or_default(),
-            "client_secret": client_secret.unwrap_or_default(),
-            "token": token,
-            "config_refresh_token": false,
-        },
-        "type": provider.rclone_type(),
-    })
-    .to_string();
+    let authorized = run_rclone_authorize(provider, client_id, client_secret, handle)?;
+    let payload = config_payload(name, provider, client_id, client_secret, authorized);
 
     client.create_config(payload)?;
     util::await_future(repo.insert_remote(name.to_owned())).map_err(|e| e.to_string())
 }
 
 /// Reauthenticate an existing OAuth-backed remote (Dropbox / Google
-/// Drive / pCloud). Re-runs the authorization for fresh tokens, then
+/// Drive / OneDrive / pCloud). Re-runs the authorization for fresh tokens, then
 /// replaces the rclone config entry under the same name so the new
 /// token takes effect. Leaves the DB row untouched — same id, same
 /// name, same sync_dirs — so the user's configuration survives the
@@ -100,19 +91,8 @@ pub fn reauth_oauth_remote(
     handle: &AuthorizeHandle,
     client: &dyn BackendClient,
 ) -> Result<(), String> {
-    let token = run_rclone_authorize(provider, client_id, client_secret, handle)?;
-
-    let payload = json!({
-        "name": name,
-        "parameters": {
-            "client_id": client_id.unwrap_or_default(),
-            "client_secret": client_secret.unwrap_or_default(),
-            "token": token,
-            "config_refresh_token": false,
-        },
-        "type": provider.rclone_type(),
-    })
-    .to_string();
+    let authorized = run_rclone_authorize(provider, client_id, client_secret, handle)?;
+    let payload = config_payload(name, provider, client_id, client_secret, authorized);
 
     // rclone's `config/create` rejects a name that already exists, so
     // drop the stale entry first. Failure to delete is non-fatal — the
@@ -121,12 +101,39 @@ pub fn reauth_oauth_remote(
     client.create_config(payload)
 }
 
+/// The `config/create` request for remote `name`: the token and what else the backend's config needs (OneDrive's drive).
+fn config_payload(
+    name: &str,
+    provider: OAuthProvider,
+    client_id: Option<&str>,
+    client_secret: Option<&str>,
+    authorized: syncative_go::Authorized,
+) -> String {
+    let mut parameters = json!({
+        "client_id": client_id.unwrap_or_default(),
+        "client_secret": client_secret.unwrap_or_default(),
+        "token": authorized.token,
+        "config_refresh_token": false,
+    });
+    for (key, value) in authorized.params {
+        parameters[key] = value.into();
+    }
+    json!({
+        "name": name,
+        "parameters": parameters,
+        "type": provider.rclone_type(),
+        // The onedrive backend's config goes on to ask which drive to use, on the terminal; the parameters already name it.
+        "opt": { "nonInteractive": provider == OAuthProvider::OneDrive },
+    })
+    .to_string()
+}
+
 fn run_rclone_authorize(
     provider: OAuthProvider,
     client_id: Option<&str>,
     client_secret: Option<&str>,
     handle: &AuthorizeHandle,
-) -> Result<String, String> {
+) -> Result<syncative_go::Authorized, String> {
     let (client_id, client_secret) = match (client_id, client_secret) {
         (Some(id), Some(secret)) if !id.is_empty() && !secret.is_empty() => (id, secret),
         _ => ("", ""),

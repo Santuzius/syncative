@@ -107,7 +107,7 @@ fn map_filter(filter: ListFilter) -> BackendListFilter {
     }
 }
 
-/// [`Changes`] from a log that names items by ID (Proton): each item as it is now, placed by the IDs the database recorded.
+/// [`Changes`] from a log that names items by ID (Proton, OneDrive): each item as it is now, placed by the IDs the database recorded.
 fn changes_by_id(found: syncative_go::Changes, cursor: Option<&str>) -> Changes {
     let items = found.items.unwrap_or_default();
     if items.is_empty() && cursor == Some(found.cursor.as_str()) {
@@ -277,7 +277,7 @@ impl BackendClient for LibrcloneClient {
                 .is_none_or(str::is_empty)
         };
         match config.get("type").and_then(|v| v.as_str()) {
-            Some("drive" | "dropbox" | "pcloud") => missing("token"),
+            Some("drive" | "dropbox" | "onedrive" | "pcloud") => missing("token"),
             Some("webdav") => missing("pass"),
             _ => false,
         }
@@ -322,7 +322,7 @@ impl BackendClient for LibrcloneClient {
                 return Ok(Changes::Unknown { cursor: None });
             }
         }
-        // Backends with a change log (Google Drive, Dropbox, Proton): one request for what changed since the last pass.
+        // Backends with a change log (Google Drive, Dropbox, OneDrive, Proton): one request for what changed since the last pass.
         let found = syncative_go::changes_since(remote, path, cursor.unwrap_or(""), cancel)?;
         if !found.supported {
             return Ok(Changes::Unknown { cursor: None });

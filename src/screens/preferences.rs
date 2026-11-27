@@ -544,6 +544,7 @@ mod tests {
             super::beta_features(),
             [
                 "Dropbox integration",
+                "OneDrive integration",
                 "Nextcloud integration",
                 "Local folder as a remote",
                 "Network drive",

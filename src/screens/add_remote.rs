@@ -3,7 +3,7 @@
 //! - WebDAV / Nextcloud / Owncloud — raw username + password
 //! - Proton Drive — username + password + optional mailbox password and TOTP
 //! - Local folder (beta) — a folder on this device
-//! - Dropbox / Google Drive / pCloud — OAuth2 via `rclone authorize`
+//! - Dropbox / Google Drive / OneDrive / pCloud — OAuth2 via `rclone authorize`
 //!   (launches the default browser; the user confirms, rclone prints
 //!   the token, we pass it to config/create)
 
@@ -55,7 +55,7 @@ pub const GDRIVE_CLIENT_ID_GUIDE: &str = "https://rclone.org/drive/#making-your-
 /// Syncative's privacy policy, usable as privacy policy link in the Google consent screen's branding.
 pub const PRIVACY_POLICY: &str = "https://github.com/Santuzius/syncative/blob/main/PRIVACY.md";
 
-/// The backends the auth code can set up, the same kinds a remote has. The picker offers Proton and Google, which the sync algorithm has been exercised against, and Dropbox and Nextcloud as beta features (see [`OFFERED`]). WebDAV / Owncloud / pCloud stay out of it: the snapshot algorithm is backend-agnostic so they should work, but none of them have been tested; the auth / RPC code paths for them stay.
+/// The backends the auth code can set up, the same kinds a remote has. The picker offers Proton and Google, which the sync algorithm has been exercised against, and Dropbox, OneDrive and Nextcloud as beta features (see [`OFFERED`]). WebDAV / Owncloud / pCloud stay out of it: the snapshot algorithm is backend-agnostic so they should work, but none of them have been tested; the auth / RPC code paths for them stay.
 pub use crate::domain::remote::ProviderKind;
 
 /// What the add-remote dialog needs to know about a provider.
@@ -73,6 +73,7 @@ impl ProviderKind {
         match self {
             ProviderKind::Dropbox => Some(OAuthProvider::Dropbox),
             ProviderKind::GDrive => Some(OAuthProvider::GDrive),
+            ProviderKind::OneDrive => Some(OAuthProvider::OneDrive),
             ProviderKind::PCloud => Some(OAuthProvider::PCloud),
             _ => None,
         }
@@ -119,10 +120,11 @@ impl std::fmt::Display for ProviderOption {
 }
 
 /// Every provider the picker can offer, in its order; the beta ones only with the beta features on.
-const OFFERED: [ProviderKind; 5] = [
+const OFFERED: [ProviderKind; 6] = [
     ProviderKind::ProtonDrive,
     ProviderKind::GDrive,
     ProviderKind::Dropbox,
+    ProviderKind::OneDrive,
     ProviderKind::Nextcloud,
     ProviderKind::Local,
 ];
@@ -156,6 +158,7 @@ impl std::fmt::Display for ProviderKind {
             ProviderKind::ProtonDrive => "Proton Drive",
             ProviderKind::Dropbox => "Dropbox",
             ProviderKind::GDrive => "Google Drive",
+            ProviderKind::OneDrive => "OneDrive",
             ProviderKind::PCloud => "pCloud",
             ProviderKind::Local => "Local",
         };
@@ -428,6 +431,12 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
             ));
             body = body.push(instruction(
                 "Then click Connect and grant access in your browser.",
+            ));
+        }
+        // rclone's shared app ID only: the sign-in alone, as other OneDrive clients do it.
+        Some(ProviderKind::OneDrive) => {
+            body = body.push(hint(
+                "Click Connect and sign in with your Microsoft account in your browser.",
             ));
         }
         Some(p) if p.is_oauth() => {

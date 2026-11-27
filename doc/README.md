@@ -15,5 +15,6 @@ For users, see the [README](../README.md) and the [privacy policy](../PRIVACY.md
   - [Snap](packaging/snap.md)
 - **Providers**
   - [MEGA](providers/mega.md): research notes and plan
+  - [OneDrive](providers/onedrive.md): sign-in, change log, what is untested
 - [To do](todo.md)
 - [img/](img/): screenshots for the README and store pages

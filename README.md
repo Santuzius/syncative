@@ -33,6 +33,7 @@ Two-way file sync between folders on your Linux computer or Android phone and Go
    - **Google Drive:** needs your own OAuth client ID, which takes a few minutes in the Google Cloud console ([rclone's guide](https://rclone.org/drive/#making-your-own-client-id)). In the consent screen's **Branding** settings, enter [`https://github.com/Santuzius/syncative/blob/main/PRIVACY.md`](./PRIVACY.md) as **Application privacy policy link** and your own website or social media profile as **Application home page**, e.g. `https://t.me/YourTelegramName`. Then paste client ID and secret into Syncative, click *Connect* and grant access in your browser.
    - Some providers are also available as beta features 🧪. Check *Preferences* -> *Beta features* to enable them. Currently available as beta:
      - **Dropbox** 🧪: click *Connect* and grant access in your browser
+     - **OneDrive** 🧪: click *Connect* and sign in with your Microsoft account in your browser
      - **Nextcloud** 🧪
      - **Local** 🧪: a folder on this device in place of the cloud, such as an external disk or a network share the system has mounted
 4. **Add a folder:** click *+*, pick *Sync*, *Cloud backup* or *Local backup*, then a local folder and a remote path. Missing folders get created on both sides. You can change a folder's type later with its ⚙ button.

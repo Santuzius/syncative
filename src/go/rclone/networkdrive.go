@@ -1,6 +1,6 @@
 package rclone
 
-// networkdrive.go: a network drive folder's pass asks what changed on the remote since the previous pass and has the mount's VFS forget those paths, so the mount follows the remote's sync interval and pause like a synced folder. rclone's own poll timer stays off (vfsOpt PollInterval 0). Backends with a change log (Google Drive, Dropbox, Proton) answer from it; on Nextcloud and ownCloud the folder ETags (davtags.go) lead down to the folders that changed.
+// networkdrive.go: a network drive folder's pass asks what changed on the remote since the previous pass and has the mount's VFS forget those paths, so the mount follows the remote's sync interval and pause like a synced folder. rclone's own poll timer stays off (vfsOpt PollInterval 0). Backends with a change log (Google Drive, Dropbox, OneDrive, Proton) answer from it; on Nextcloud and ownCloud the folder ETags (davtags.go) lead down to the folders that changed.
 
 import (
 	"context"

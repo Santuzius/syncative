@@ -100,11 +100,22 @@ pub fn rpc_cancellable(
     }
 }
 
-/// Run rclone's OAuth flow for the backend `kind` (`drive`, `dropbox`, `pcloud`) in-process, like `rclone authorize`, with the given client ID and secret unless empty. Blocks until the browser has come back to rclone's local web server or [`authorize_cancel`] is called; returns the token JSON. Instead of opening a browser, rclone leaves the link to [`authorize_url`].
-pub fn authorize(kind: &str, client_id: &str, client_secret: &str) -> Result<String, String> {
+/// What [`authorize`] got for a new remote's config.
+#[derive(Debug)]
+pub struct Authorized {
+    /// The token JSON.
+    pub token: String,
+    /// The other config parameters the backend needs, such as OneDrive's `drive_id` and `drive_type`.
+    pub params: std::collections::HashMap<String, String>,
+}
+
+/// Run rclone's OAuth flow for the backend `kind` (`drive`, `dropbox`, `onedrive`, `pcloud`) in-process, like `rclone authorize`, with the given client ID and secret unless empty. Blocks until the browser has come back to rclone's local web server or [`authorize_cancel`] is called. Instead of opening a browser, rclone leaves the link to [`authorize_url`].
+pub fn authorize(kind: &str, client_id: &str, client_secret: &str) -> Result<Authorized, String> {
     #[derive(Deserialize)]
     struct Reply {
         token: Option<String>,
+        #[serde(default)]
+        params: std::collections::HashMap<String, String>,
         error: Option<String>,
     }
     let (Ok(kind), Ok(id), Ok(secret)) = (
@@ -123,8 +134,10 @@ pub fn authorize(kind: &str, client_id: &str, client_secret: &str) -> Result<Str
     };
     match serde_json::from_str::<Reply>(&reply) {
         Ok(Reply {
-            token: Some(token), ..
-        }) => Ok(token),
+            token: Some(token),
+            params,
+            ..
+        }) => Ok(Authorized { token, params }),
         Ok(Reply {
             error: Some(error), ..
         }) => Err(error),
@@ -184,14 +197,14 @@ pub struct Changed {
 /// What [`changes_since`] found.
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct Changes {
-    /// The backend has a change log (Google Drive, Dropbox); without one the rest is empty.
+    /// The backend has a change log (Google Drive, Dropbox, OneDrive, Proton); without one the rest is empty.
     pub supported: bool,
     /// `changes` holds everything after the cursor given. False for no cursor or one of an earlier run; `cursor` then starts from now.
     pub known: bool,
     pub cursor: String,
     #[serde(default)]
     pub changes: Option<Vec<Changed>>,
-    /// The log names items by ID (Proton): `items` replaces `changes`, and `root_id` is the ID of the folder asked about.
+    /// The log names items by ID (Proton, OneDrive): `items` replaces `changes`, and `root_id` is the ID of the folder asked about.
     #[serde(default)]
     pub by_id: bool,
     #[serde(default)]

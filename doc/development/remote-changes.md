@@ -16,7 +16,7 @@ A sync pass needs the remote state of its folder. Listing it costs one request p
 
 - A pass that doesn't end level keeps the older cursor, so the next one fetches the same changes again. Changes describe items as they are now, so applying them twice is harmless.
 - Other left-out paths, rows without a recorded kind and, for rclone remotes, a full listing older than an hour make the pass list in full.
-- Rows record whether the remote item is a folder (`is_dir`), its provider ID (`remote_id`: Proton's link ID, Google Drive's file ID) and, for folders, a change tag (`remote_tag`, Nextcloud's ETag). The tag is written only by a level pass: a tag newer than the rows would hide changes below the folder that the rows don't have yet.
+- Rows record whether the remote item is a folder (`is_dir`), its provider ID (`remote_id`: Proton's link ID, Google Drive's file ID, OneDrive's item ID) and, for folders, a change tag (`remote_tag`, Nextcloud's ETag). The tag is written only by a level pass: a tag newer than the rows would hide changes below the folder that the rows don't have yet.
 
 ## Change sources
 
@@ -24,13 +24,14 @@ A sync pass needs the remote state of its folder. Listing it costs one request p
 |---|---|---|---|
 | Proton | last event of the volume's event log and the sync folder's link ID, asked through Syncative's Proton backend for rclone (`src/go/proton/rclonefs`) | the changed links with their decrypted names, placed by ID | kept |
 | Nextcloud, ownCloud | the sync folder's ETag, which the server renews with every change below it | a walk into the subfolders whose ETag changed (`src/go/rclone/davtags.go`) | kept |
+| OneDrive | the delta token of the drive's change log and the sync folder's item ID, asked through Syncative's rclone fork (`backend/onedrive/syncative.go`, `src/go/rclone/onedrive.go`) | the changed items with their names, placed by ID: the delta listing gives no paths | kept |
 | Google Drive, Dropbox | the provider's change-log token, asked once per pass through Syncative's rclone fork | the folders holding the paths it reported (`src/go/rclone/changes.go`) | one full listing: rclone names Drive's changes through the folders its backend has listed in this run |
 | Other rclone backends | none | | every pass lists |
 
 One answer per remote:
 
 - The sync folders of a remote ask one after the other in a pass and share one answer: an answer up to 3 s old stands in for the request (`reuseFor` in `src/go/rclone/changes.go`). The window is shorter than the shortest interval (5 s), so every pass asks at least once.
-- Proton, Google Drive, Dropbox: the change log covers the whole remote, so a quiet pass makes one request for all folders. A folder whose cursor stayed behind gets the kept answers since its cursor.
+- Proton, OneDrive, Google Drive, Dropbox: the change log covers the whole remote, so a quiet pass makes one request for all folders. A folder whose cursor stayed behind gets the kept answers since its cursor.
 - Nextcloud, ownCloud: the server renews the root's ETag with every change below it, also for a change by the owner of a folder shared with the user (tested on Nextcloud 34). A pass asks the root's ETag once; a folder whose ETag was read under the root's current ETag skips its own request (`tagGate` in `src/go/rclone/davtags.go`). A quiet pass makes one request, a pass with changes one more than without the gate.
 - Every ETag request goes through one HTTP client, so its connection stays open between passes.
 
@@ -38,6 +39,11 @@ Google Drive and Dropbox:
 
 - Every sync folder of a remote asks with its own token. The answers stay in memory by the token they start from (the last 64), so all of them hear the same changes: Drive's backend names a renamed or moved folder's old path only once, since the fork then drops that folder from rclone's folder cache, where its old path would otherwise still lead to it.
 - The change query uses the backend that rclone's cache holds, the one the listings fill. Two callers can create a remote's backend at the same time; then the later one stays in the cache, and the first pass that sees the switch lists once.
+
+OneDrive:
+
+- An item names its parent by ID, which the sync matches against the IDs the listing recorded (`driveID#itemID`, as rclone's onedrive backend names items). A token too old for the drive (410 Gone, `resyncRequired`) starts the log anew and the pass lists in full.
+- A folder shared with the account and added to its OneDrive lives on the owner's drive, whose changes this drive's log doesn't report; the hourly full listing catches them.
 
 More than 64 folders to fetch, a folder without an ETag, the sync folder itself renamed or gone, or a Proton event that can't be read make the pass list in full.
 

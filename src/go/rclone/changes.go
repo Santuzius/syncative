@@ -1,7 +1,7 @@
-// Package rclone holds Syncative's additions to rclone: RPC calls with a cancel flag (call.go), the change tags of WebDAV folders (davtags.go) and the change logs of Google Drive and Dropbox (changes.go).
+// Package rclone holds Syncative's additions to rclone: RPC calls with a cancel flag (call.go), the change tags of WebDAV folders (davtags.go) and the change logs of Google Drive, Dropbox and OneDrive (changes.go, onedrive.go).
 package rclone
 
-// changes.go asks the change logs of Google Drive, Dropbox and Proton once per sync pass what changed since the previous one, so a pass can skip listing the remote; the sync folders of a remote share the answer. The calls come from Syncative's rclone fork (github.com/Santuzius/rclone, branch syncative), which exports the one-off query rclone's ChangeNotify otherwise runs on a timer.
+// changes.go asks the change logs of Google Drive, Dropbox, OneDrive and Proton once per sync pass what changed since the previous one, so a pass can skip listing the remote; the sync folders of a remote share the answer. The calls come from Syncative's rclone fork (github.com/Santuzius/rclone, branch syncative), which exports the one-off query rclone's ChangeNotify otherwise runs on a timer.
 
 import (
 	"context"
@@ -49,7 +49,7 @@ type ItemChanges struct {
 	Items  []ItemChange
 }
 
-// itemChangeLog is what Syncative's Proton backend (syncative/go/proton/rclonefs) offers: a log of items by ID, kept across restarts.
+// itemChangeLog is what Syncative's Proton backend (syncative/go/proton/rclonefs) offers, and the fork's onedrive backend through onedriveLog: a log of items by ID, kept across restarts.
 type itemChangeLog interface {
 	// ChangesRoot returns the ID of folder `dir`; fs.ErrorDirNotFound when it is missing.
 	ChangesRoot(ctx context.Context, dir string) (string, error)
@@ -192,7 +192,7 @@ func ChangesSince(ctx context.Context, remote, dir, cursor string) (Changes, err
 	if err != nil {
 		return Changes{}, err
 	}
-	if log, ok := f.(itemChangeLog); ok {
+	if log, ok := itemLogOf(f); ok {
 		return itemChangesSince(ctx, remote, log, dir, cursor)
 	}
 	log, ok := f.(changeLog)
@@ -246,7 +246,7 @@ func ChangesSince(ctx context.Context, remote, dir, cursor string) (Changes, err
 	return out, nil
 }
 
-// itemChangesSince is ChangesSince for a log by ID. Its cursor is the last event seen and the ID of the folder at `dir`, so changes naming their folder by ID can be placed; it stays valid across restarts. The log covers the whole volume, so an answer given to one sync folder answers the others too while it is recent (reuseFor).
+// itemChangesSince is ChangesSince for a log by ID (Proton, OneDrive). Its cursor is the last event seen and the ID of the folder at `dir`, so changes naming their folder by ID can be placed; it stays valid across restarts. The log covers the whole volume, so an answer given to one sync folder answers the others too while it is recent (reuseFor).
 func itemChangesSince(ctx context.Context, remote string, log itemChangeLog, dir, cursor string) (Changes, error) {
 	fresh := func(event string) (Changes, error) {
 		root, err := log.ChangesRoot(ctx, dir)

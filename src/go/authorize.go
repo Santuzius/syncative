@@ -8,14 +8,18 @@ import "C"
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/rclone/rclone/backend/onedrive/api"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config"
 	"github.com/rclone/rclone/fs/config/configmap"
+	"github.com/rclone/rclone/fs/fshttp"
 	"github.com/rclone/rclone/lib/oauthutil"
+	"github.com/rclone/rclone/lib/rest"
 )
 
 // What `rclone authorize` does, inside Syncative: the rclone binary is not there on Android, and a separate process is not needed elsewhere either. Instead of opening a browser itself rclone hands the authorization link over (see SyncativeAuthorizeURL), so Syncative can open it in the platform's way.
@@ -34,7 +38,7 @@ func init() {
 	}
 }
 
-// SyncativeAuthorize runs rclone's OAuth flow for the backend `typ` ("drive", "dropbox", "pcloud"), with the given client ID and secret unless empty, and returns `{"token": "…"}` or `{"error": "…"}`. Blocks until the browser returns to rclone's local web server, or SyncativeAuthorizeCancel. Free the result with RcloneFreeString.
+// SyncativeAuthorize runs rclone's OAuth flow for the backend `typ` ("drive", "dropbox", "onedrive", "pcloud"), with the given client ID and secret unless empty, and returns `{"token": "…", "params": {…}}` or `{"error": "…"}`. params holds what else the remote's config needs, see driveParams. Blocks until the browser returns to rclone's local web server, or SyncativeAuthorizeCancel. Free the result with RcloneFreeString.
 //
 //export SyncativeAuthorize
 func SyncativeAuthorize(typ, clientID, clientSecret *C.char) *C.char {
@@ -47,11 +51,15 @@ func SyncativeAuthorize(typ, clientID, clientSecret *C.char) *C.char {
 	clearURL()
 	defer clearURL()
 
-	reply := map[string]string{}
-	if token, err := authorize(C.GoString(typ), C.GoString(clientID), C.GoString(clientSecret)); err != nil {
+	reply := map[string]any{}
+	kind := C.GoString(typ)
+	if token, err := authorize(kind, C.GoString(clientID), C.GoString(clientSecret)); err != nil {
+		reply["error"] = err.Error()
+	} else if params, err := driveParams(kind, token); err != nil {
 		reply["error"] = err.Error()
 	} else {
 		reply["token"] = token
+		reply["params"] = params
 	}
 	out, _ := json.Marshal(reply)
 	return C.CString(string(out))
@@ -104,4 +112,28 @@ func authorize(typ, clientID, clientSecret string) (string, error) {
 		return "", err
 	}
 	return out["token"], nil
+}
+
+// driveParams is what the config of a remote of backend `typ` needs besides the token. A OneDrive remote names the drive it uses: the account's own, which `rclone config` offers first as well.
+func driveParams(typ, token string) (map[string]string, error) {
+	if typ != "onedrive" {
+		return map[string]string{}, nil
+	}
+	var tok struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal([]byte(token), &tok); err != nil {
+		return nil, fmt.Errorf("reading the token: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	srv := rest.NewClient(fshttp.NewClient(ctx)).SetRoot("https://graph.microsoft.com/v1.0").SetHeader("Authorization", "Bearer "+tok.AccessToken)
+	var drive api.DriveResource
+	if _, err := srv.CallJSON(ctx, &rest.Opts{Method: "GET", Path: "/me/drive"}, nil, &drive); err != nil {
+		return nil, fmt.Errorf("finding the account's OneDrive: %w", err)
+	}
+	if drive.DriveID == "" || drive.DriveType == "" {
+		return nil, fmt.Errorf("finding the account's OneDrive: Microsoft named no drive")
+	}
+	return map[string]string{"drive_id": drive.DriveID, "drive_type": drive.DriveType}, nil
 }
