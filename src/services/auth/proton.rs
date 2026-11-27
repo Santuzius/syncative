@@ -81,12 +81,7 @@ pub fn add_proton_drive_remote(
     Ok(id)
 }
 
-/// Reauthenticate an existing Proton Drive remote whose session blob
-/// has expired (2FA refresh exhausted) or gone missing. Logs in with
-/// fresh credentials, overwrites the keyring entry, and swaps the
-/// router's disabled stub for a live [`ProtonClient`]. Leaves
-/// the DB row untouched — same name, same sync_dirs, same exclusions —
-/// so the user's configuration survives the reauth unchanged.
+/// Reauthenticate an existing Proton Drive remote whose session blob has expired (2FA refresh exhausted) or gone missing. Logs in with fresh credentials, overwrites the keyring entry, and registers a [`ProtonClient`] with the new session in place of the old one. Leaves the DB row untouched — same name, same sync_dirs, same exclusions — so the user's configuration survives the reauth unchanged.
 pub fn reauth_proton_drive_remote(
     name: &str,
     params: &LoginParams,

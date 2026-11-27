@@ -356,17 +356,8 @@ fn random_password() -> std::io::Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// Load every remote from the DB, and for those flagged
-/// `Backend::NativeProton` resume the saved session (if any), wrap
-/// the UID in a [`ProtonClient`], and register it on the
-/// router keyed by remote name. When the resume fails, register a
-/// [`DisabledProtonClient`] instead so the sync engine surfaces a
-/// clear "Reauthenticate" message rather than falling through to
-/// rclone (which would error with an opaque config-lookup failure).
+/// Register a [`ProtonClient`] on the router for every Proton remote, resuming its saved session. A remote whose session needs a new sign-in also gets a notification.
 fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
-    use crate::infrastructure::proton::client::{
-        DisabledProtonClient, PendingProtonClient, REAUTH_HINT,
-    };
     crate::services::auth::remove_stale_proton_tempfiles();
     crate::services::auth::store_renewed_proton_sessions();
     let remotes = util::await_future(repo.list_remotes()).unwrap_or_default();
@@ -374,95 +365,11 @@ fn resume_native_sessions(repo: &dyn Repository, router: &ClientRouter) {
         if remote.backend != Backend::NativeProton {
             continue;
         }
-        if remote.session_path.is_none() {
-            let reason = format!(
-                "Proton Drive session blob missing for '{}'. {}",
-                remote.name, REAUTH_HINT,
-            );
-            eprintln!("syncative: {reason}");
+        let client = ProtonClient::resume(&remote.name, remote.session_path.is_some());
+        if client.needs_reauth(&remote.name) {
             notify_reauth_needed(&remote.name);
-            router.register(
-                remote.name.clone(),
-                Arc::new(DisabledProtonClient::new(reason)),
-            );
-            continue;
         }
-        // Offline, resuming would only time out, four times over, while the window waits for it. The pending client tries again once a pass runs, and passes wait for the network.
-        if !services::network::online() {
-            let reason = format!(
-                "Proton Drive session for '{}' not resumed yet (network is unreachable). Retrying automatically — no action needed.",
-                remote.name
-            );
-            eprintln!("syncative: {reason}");
-            router.register(
-                remote.name.clone(),
-                Arc::new(PendingProtonClient::new(remote.name.clone(), reason)),
-            );
-            continue;
-        }
-        match crate::services::auth::resume_proton_session(&remote.name) {
-            Ok(Some(cred)) => match ProtonClient::new(cred.uid, &remote.name) {
-                Ok(client) => {
-                    router.register(remote.name.clone(), Arc::new(client));
-                    eprintln!(
-                        "syncative: native-proton session resumed for '{}'.",
-                        remote.name,
-                    );
-                }
-                Err(err) => {
-                    let reason = format!(
-                        "Proton Drive session for '{}' not resumed yet ({err}). Retrying automatically — no action needed.",
-                        remote.name,
-                    );
-                    eprintln!("syncative: {reason}");
-                    router.register(
-                        remote.name.clone(),
-                        Arc::new(PendingProtonClient::new(remote.name.clone(), reason)),
-                    );
-                }
-            },
-            Ok(None) => {
-                let reason = format!(
-                    "Proton Drive session for '{}' not found in keyring. {}",
-                    remote.name, REAUTH_HINT,
-                );
-                eprintln!("syncative: {reason}");
-                notify_reauth_needed(&remote.name);
-                router.register(
-                    remote.name.clone(),
-                    Arc::new(DisabledProtonClient::new(reason)),
-                );
-            }
-            // A genuine auth failure is the only kind the user can act
-            // on. Everything else — no network yet (autostart before DNS
-            // is up, resume-from-suspend), a transient keyring fault —
-            // must NOT latch into a reauth prompt: resuming needs an
-            // HTTPS round-trip, so a cold-boot race would otherwise cost
-            // the user a full 2FA login for a session that was fine.
-            Err(err) if crate::engine::is_auth_failure(&err) => {
-                let reason = format!(
-                    "Proton Drive session for '{}' has expired ({err}). {}",
-                    remote.name, REAUTH_HINT,
-                );
-                eprintln!("syncative: {reason}");
-                notify_reauth_needed(&remote.name);
-                router.register(
-                    remote.name.clone(),
-                    Arc::new(DisabledProtonClient::new(reason)),
-                );
-            }
-            Err(err) => {
-                let reason = format!(
-                    "Proton Drive session for '{}' not resumed yet ({err}). Retrying automatically — no action needed.",
-                    remote.name,
-                );
-                eprintln!("syncative: {reason}");
-                router.register(
-                    remote.name.clone(),
-                    Arc::new(PendingProtonClient::new(remote.name.clone(), reason)),
-                );
-            }
-        }
+        router.register(remote.name.clone(), Arc::new(client));
     }
 }
 

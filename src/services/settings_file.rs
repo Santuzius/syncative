@@ -11,7 +11,7 @@ use crate::{
         remote::{Backend, Interval, SyncPolicy},
         sync::{ModeChange, NestedFilter, SyncDir, SyncMode},
     },
-    infrastructure::{client_router::ClientRouter, proton::client::DisabledProtonClient},
+    infrastructure::{client_router::ClientRouter, proton::client::ProtonClient},
     services::{appearance::Appearance, autostart, power},
     util,
 };
@@ -228,10 +228,13 @@ pub fn import(
             .map_err(|e| e.to_string())?;
             router.register(
                 entry.name.clone(),
-                std::sync::Arc::new(DisabledProtonClient::new(format!(
-                    "'{}' was imported without its sign-in. Sign in again to start syncing.",
-                    entry.name
-                ))),
+                std::sync::Arc::new(ProtonClient::needs_sign_in(
+                    &entry.name,
+                    format!(
+                        "'{}' was imported without its sign-in. Sign in again to start syncing.",
+                        entry.name
+                    ),
+                )),
             );
             id
         } else {

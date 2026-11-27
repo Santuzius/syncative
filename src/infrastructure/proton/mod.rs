@@ -1,7 +1,3 @@
-//! Native ProtonDrive client — talks directly to Proton's API via
-//! `syncative-go` (the combined Go archive), no rclone in the
-//! path. Implements [`crate::domain::ports::BackendClient`] so the
-//! sync engine and auth flow can consume it via the same trait that
-//! `LibrcloneClient` satisfies.
+//! Proton Drive remotes: [`client::ProtonClient`] keeps a remote's session and sends its calls through rclone to Syncative's own Proton backend in `syncative-go`.
 
 pub mod client;

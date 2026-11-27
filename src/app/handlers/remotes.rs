@@ -304,11 +304,7 @@ impl SyncativeApp {
                     let is_reauth = draft.reauth;
                     draft.busy = true;
                     if is_reauth {
-                        // Reauth: keep the existing DB row, just swap
-                        // the router's disabled stub for a live
-                        // session. Look up the existing id so
-                        // AddRemoteResult can reuse the normal refresh
-                        // path.
+                        // Reauth: keep the existing DB row, just give the router a client with the new session. Look up the existing id so AddRemoteResult can reuse the normal refresh path.
                         let existing_id =
                             self.remotes.iter().find(|r| r.name == name).map(|r| r.id);
                         return Task::perform(
