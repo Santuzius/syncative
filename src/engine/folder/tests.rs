@@ -1,4 +1,4 @@
-//! Unit tests for the new `services::sync` algorithm. Covers:
+//! Unit tests for the new `engine::folder` algorithm. Covers:
 //!
 //! - plan() decisions on every (local, remote, db) tuple.
 //! - apply() mirror-deletes, race-swallow on upload, conflict emission.

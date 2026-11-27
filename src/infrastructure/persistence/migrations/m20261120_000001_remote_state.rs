@@ -1,4 +1,4 @@
-//! What the database needs to stand in for the remote listing: per item whether it is a folder, the provider's ID and a folder's change tag; per sync folder the change cursor of the last pass whose listing matched the database (see `services::sync::remote_view`).
+//! What the database needs to stand in for the remote listing: per item whether it is a folder, the provider's ID and a folder's change tag; per sync folder the change cursor of the last pass whose listing matched the database (see `engine::folder::remote_view`).
 
 use sea_orm::{ConnectionTrait, Statement};
 use sea_orm_migration::prelude::*;

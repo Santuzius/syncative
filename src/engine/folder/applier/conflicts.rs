@@ -10,11 +10,11 @@ use crate::{
         remote::Remote,
         sync::{Conflict, ContentHash, FileDetails},
     },
-    services::content_hash,
+    engine::folder::content_hash,
 };
 
 use super::rows::local_timestamp;
-use crate::services::sync::planner::ConflictKind;
+use crate::engine::folder::planner::ConflictKind;
 
 pub(super) enum Inspected {
     /// One side disappeared since planning; the next pass sorts it out.

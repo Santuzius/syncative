@@ -9,20 +9,16 @@ pub mod auth;
 #[cfg_attr(target_os = "android", path = "autostart_android.rs")]
 pub mod autostart;
 pub mod beta;
-pub mod content_hash;
 pub mod diagnostics;
-pub mod editor_temp;
 #[cfg(not(target_os = "android"))]
 pub mod file_manager_menu;
 pub mod leftovers;
 pub mod nested_link;
 pub mod network;
 pub mod network_drive;
-pub mod nomedia;
 pub mod power;
 pub mod remote_lifecycle;
 pub mod secrets;
 pub mod settings_file;
 pub mod share;
 pub mod storage_access;
-pub mod sync;

@@ -13,7 +13,7 @@ use crate::{
         remote::Remote,
         sync::{ListFilter, NestedFilter, RemoteItem, SyncDir, SyncItem},
     },
-    services::nomedia,
+    engine::folder::nomedia,
     util,
 };
 
@@ -372,9 +372,9 @@ fn walk_dir(
                 continue;
             }
         };
-        if crate::services::editor_temp::is_editor_temp(&name) {
+        if crate::engine::folder::editor_temp::is_editor_temp(&name) {
             // A Proton download cut off by Syncative's end leaves its part file behind (src/go/proton/drive/download.go); no download runs into this folder while it is walked.
-            if crate::services::editor_temp::is_syncative_part(&name) {
+            if crate::engine::folder::editor_temp::is_syncative_part(&name) {
                 match fs::remove_file(entry.path()) {
                     Ok(()) => eprintln!(
                         "sync: removed the unfinished download '{}'.",

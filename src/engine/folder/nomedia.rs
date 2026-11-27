@@ -1,4 +1,4 @@
-//! `.nomedia` files in a sync folder's hidden folders. Android's media scanner skips a folder holding one, so its photos, videos and music stay out of the gallery and players. Syncative creates them from the stored setting, so a new phone, or a phone where one was deleted, gets them back; sync leaves them out (see `services::sync::snapshot`).
+//! `.nomedia` files in a sync folder's hidden folders. Android's media scanner skips a folder holding one, so its photos, videos and music stay out of the gallery and players. Syncative creates them from the stored setting, so a new phone, or a phone where one was deleted, gets them back; sync leaves them out (see `engine::folder::snapshot`).
 
 use std::{
     fs,

@@ -10,8 +10,8 @@ use crate::{
         ports::{BackendClient, Cancel},
         sync::{ListFilter, SyncDirId},
     },
+    engine::folder::nomedia,
     screens::folder_picker::{self, Picker, Source, Target},
-    services::nomedia,
 };
 
 use super::super::{Message, SyncativeApp};

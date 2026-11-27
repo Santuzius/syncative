@@ -440,7 +440,7 @@ impl SyncativeApp {
             .flatten()
             .find(|d| d.id == sd_id)
             .map(remote_page::FolderSettingsDraft::of);
-        if self.folder_settings.is_none() || !crate::services::nomedia::APPLIES {
+        if self.folder_settings.is_none() || !crate::engine::folder::nomedia::APPLIES {
             return Task::none();
         }
         let repo = self.repo.clone();

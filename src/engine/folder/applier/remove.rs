@@ -15,13 +15,13 @@ use super::{is_gone, rows::local_timestamp};
 
 /// What removing a folder took: all of it, or only the listed items (local path, remote path, whether a folder), as something below it isn't synced or changed since the pass planned the delete.
 #[derive(Debug)]
-pub(in crate::services::sync) enum Removed {
+pub(in crate::engine::folder) enum Removed {
     All,
     Some(Vec<(String, String, bool)>),
 }
 
 /// Remove the local folder `dir` with every file below it that the database knows unchanged; anything else (a new file, an edit since planning, a file the sync leaves out) stays, and with it the folders holding it.
-pub(in crate::services::sync) fn remove_synced_local(
+pub(in crate::engine::folder) fn remove_synced_local(
     dir: &Path,
     db: &HashMap<String, SyncItem>,
 ) -> std::io::Result<Removed> {

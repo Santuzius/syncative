@@ -2,7 +2,7 @@ package drive
 
 // The Drive volume's event log, as Syncative's sync follows it.
 //
-// Proton asks third-party clients to follow the volume's event log instead of re-listing the tree on a timer. Each event carries the changed link as it is now; ChangesSince turns the events after a cursor into that state with the decrypted name, and the sync puts them on top of what its database recorded (src/services/sync/remote_view.rs), so a pass costs one events request instead of a request per folder.
+// Proton asks third-party clients to follow the volume's event log instead of re-listing the tree on a timer. Each event carries the changed link as it is now; ChangesSince turns the events after a cursor into that state with the decrypted name, and the sync puts them on top of what its database recorded (src/engine/folder/remote_view.rs), so a pass costs one events request instead of a request per folder.
 
 import (
 	"context"

@@ -293,7 +293,7 @@ pub fn import(
             let hidden = folder
                 .hidden
                 .into_iter()
-                .filter(|h| crate::services::nomedia::is_inside(h))
+                .filter(|h| crate::engine::folder::nomedia::is_inside(h))
                 .collect();
             util::await_future(repo.set_hidden_folders(dir.id, hidden))
                 .map_err(|e| e.to_string())?;

@@ -9,7 +9,7 @@ use crate::domain::{
 };
 
 use super::rows::local_timestamp;
-use crate::services::sync::planner::{Action, ConflictKind};
+use crate::engine::folder::planner::{Action, ConflictKind};
 
 /// Re-check an overwrite or delete against the live state. Turns
 /// - an upload over a remote copy that changed since the last sync into a conflict,

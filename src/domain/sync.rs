@@ -186,13 +186,13 @@ pub struct SyncDir {
     pub local_path: String,
     pub remote_path: String,
     pub mode: SyncMode,
-    /// The mode the folder's `sync_items` were last written under. Until a pass brings them in line after a switch to [`SyncMode::TwoWay`], rows the one-way modes kept for files missing here don't count as deletions (see `services::sync::planner`).
+    /// The mode the folder's `sync_items` were last written under. Until a pass brings them in line after a switch to [`SyncMode::TwoWay`], rows the one-way modes kept for files missing here don't count as deletions (see `engine::folder::planner`).
     pub rows_mode: SyncMode,
     /// For [`SyncMode::Upload`] and [`SyncMode::Download`]: what was deleted on the source side after it was synced is deleted on the backup side too, also what was deleted before the switch was turned on. What only the backup side ever had stays.
     pub sync_deletions: bool,
     /// The mode and switch the user applied, which take over after the folder's next pass in [`Self::mode`] that ends without failures. That pass finishes what the current mode owes (a local backup downloads files deleted here again, a cloud backup uploads files deleted on the remote again), so the new mode doesn't read those as deletions. Until then the folder can't be changed.
     pub pending: Option<ModeChange>,
-    /// Whether a pass checked once for files here that kept the time Proton lists, the upload's, as the time they were last modified: Syncative gave downloads that date up to 0.28 (issue 25). See `services::sync::dates`.
+    /// Whether a pass checked once for files here that kept the time Proton lists, the upload's, as the time they were last modified: Syncative gave downloads that date up to 0.28 (issue 25). See `engine::folder::dates`.
     pub dates_checked: bool,
 }
 
@@ -413,7 +413,7 @@ pub enum ConflictChoice {
     /// Overwrite the local copy with the remote one.
     KeepRemote,
     /// Rename the local copy to `local_name` (same folder), then fetch the remote one; the renamed file is uploaded as a new file.
-    /// `local_name` is the new name as it would be on the remote (see `services::sync::local_names`).
+    /// `local_name` is the new name as it would be on the remote (see `engine::folder::local_names`).
     KeepBoth { local_name: String },
     /// Put a copy of what the link points to in place of a symbolic link, or remove a broken link; the next pass syncs the result like any new file.
     ReplaceLink,

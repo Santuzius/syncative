@@ -14,7 +14,7 @@ use crate::{
         remote::RemoteId,
         sync::{Conflict, FileDetails, Link, LinkTarget, SyncDirId},
     },
-    services::sync::local_names,
+    engine::folder::local_names,
     theme::{self, CAPTION, HEADING, ROW_SPACING, TEXT},
     util::{fmt_home, fmt_size},
     widgets::{icon::icon, text},

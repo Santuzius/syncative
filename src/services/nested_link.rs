@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{domain::sync::SyncDir, services::sync::local_names};
+use crate::{domain::sync::SyncDir, engine::folder::local_names};
 
 /// Whether this platform offers the link. Android's shared storage doesn't take symbolic links.
 pub const APPLIES: bool = !cfg!(target_os = "android");

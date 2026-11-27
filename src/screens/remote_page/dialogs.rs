@@ -126,7 +126,7 @@ pub fn folder_settings_dialog<'a>(
         rows = rows.push(rule::horizontal(1).style(theme::separator));
         rows = rows.push(container(switch).padding([12, 14]));
     }
-    if crate::services::nomedia::APPLIES {
+    if crate::engine::folder::nomedia::APPLIES {
         rows = rows.push(rule::horizontal(1).style(theme::separator));
         rows = rows.push(setting_row(
             "Hidden folders",

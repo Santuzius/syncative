@@ -22,6 +22,7 @@ use crate::{
 };
 
 mod core;
+pub mod folder;
 mod pass;
 #[cfg(test)]
 mod tests;

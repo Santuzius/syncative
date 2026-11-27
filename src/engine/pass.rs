@@ -13,8 +13,8 @@ use crate::{
         remote::RemoteId,
         sync::{ModeChange, Resolution, SyncDir, SyncDirId},
     },
+    engine::folder::{self, Outcome},
     infrastructure::{errors::RATE_LIMIT_MARKERS, stderr_capture::CaptureHandle},
-    services::sync::Outcome,
 };
 
 /// Aggregate outcome across every sync_dir of one remote's pass. The scheduler uses this to drive linear backoff on provider rate-limits.
@@ -103,7 +103,7 @@ impl Pass {
                     break;
                 }
                 let run = |sd: &SyncDir| {
-                    crate::services::sync::run(
+                    folder::run(
                         &remote,
                         sd,
                         &*repo,

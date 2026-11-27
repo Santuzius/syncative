@@ -162,12 +162,12 @@ pub(super) fn save_row(
     }
 }
 
-pub(in crate::services::sync) fn local_timestamp(path: &Path) -> Option<u64> {
+pub(in crate::engine::folder) fn local_timestamp(path: &Path) -> Option<u64> {
     util::unix_secs(fs::metadata(path).ok()?.modified().ok()?)
 }
 
 /// Sets a file's modification time to `secs` after 1970.
-pub(in crate::services::sync) fn set_mtime(path: &str, secs: i64) -> std::io::Result<()> {
+pub(in crate::engine::folder) fn set_mtime(path: &str, secs: i64) -> std::io::Result<()> {
     let secs =
         u64::try_from(secs).map_err(|_| std::io::Error::other("modification time before 1970"))?;
     fs::File::options()
