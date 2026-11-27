@@ -331,13 +331,41 @@ pub struct RemoteItem {
     pub tag: Option<String>,
 }
 
-/// One side of a file as the conflict dialog shows it. `size` and `sha1` are `None` where the backend doesn't report them; `mod_time` is the time the file was last modified (for Proton the time recorded by the uploading app).
+/// One side of a file as the conflict dialog shows it. `size` and `hash` are `None` where the backend doesn't report them; `mod_time` is the time the file was last modified (for Proton the time recorded by the uploading app).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileDetails {
     pub size: Option<u64>,
     pub mod_time: OffsetDateTime,
-    /// Lowercase hex SHA-1 of the content.
-    pub sha1: Option<String>,
+    pub hash: Option<ContentHash>,
+}
+
+/// A hash of a file's content, of the kind its provider keeps.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContentHash {
+    pub kind: HashKind,
+    /// Lowercase hex.
+    pub value: String,
+}
+
+/// The hash a provider keeps of each file: SHA-1 on most, a hash of their own on Dropbox and OneDrive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HashKind {
+    Sha1,
+    /// Dropbox's content hash: the SHA-256 of the SHA-256s of the file's 4 MiB blocks.
+    Dropbox,
+    /// OneDrive's QuickXorHash.
+    QuickXor,
+}
+
+impl HashKind {
+    /// The hash's name in rclone.
+    pub fn rclone_name(self) -> &'static str {
+        match self {
+            Self::Sha1 => "sha1",
+            Self::Dropbox => "dropbox",
+            Self::QuickXor => "quickxor",
+        }
+    }
 }
 
 /// A file that changed on both sides since the last sync, or that exists on both sides with different content before it was ever synced. Nothing is transferred for it until the user picks a version; every pass detects it again, so resolving it by hand (deleting or replacing one copy) also clears it.

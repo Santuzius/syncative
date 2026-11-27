@@ -8,7 +8,7 @@ use crate::{
     domain::{
         ports::{BackendClient, Cancel},
         remote::RemoteUsage,
-        sync::{Changes, FileDetails, ListFilter, RemoteItem},
+        sync::{Changes, FileDetails, HashKind, ListFilter, RemoteItem},
     },
     infrastructure::rclone::{LibrcloneClient, client::file_details, rpc},
 };
@@ -59,13 +59,14 @@ impl BackendClient for ProtonClient {
         path: &str,
         cancel: &Cancel,
     ) -> Result<Option<FileDetails>, String> {
-        let item = rpc::sync::details(remote, path, true, cancel).map_err(|err| err.error)?;
+        let item =
+            rpc::sync::details(remote, path, HashKind::Sha1, cancel).map_err(|err| err.error)?;
         match item.filter(|item| !item.is_dir) {
             // The backend gives every file's time as "mtime" and leaves it out when Proton didn't answer: the listed time, the upload's, would give the file a wrong date.
             Some(item) if !item.metadata.contains_key("mtime") => Err(format!(
                 "Proton didn't give the modification time of '{path}'; it is asked again in a later pass."
             )),
-            item => Ok(item.map(file_details)),
+            item => Ok(item.map(|item| file_details(item, HashKind::Sha1))),
         }
     }
 

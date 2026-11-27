@@ -17,7 +17,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use crate::domain::{
     ports::{BackendClient, Cancel},
     remote::RemoteUsage,
-    sync::{Changes, FileDetails, ListFilter, RemoteChange, RemoteItem},
+    sync::{Changes, ContentHash, FileDetails, HashKind, ListFilter, RemoteChange, RemoteItem},
 };
 use crate::services::secrets;
 
@@ -46,12 +46,16 @@ impl LibrcloneClient {
         }
     }
 
-    /// Whether the remote's backend keeps a SHA-1 of each file; Dropbox and OneDrive keep hashes of their own.
-    fn has_sha1(&self, remote: &str) -> bool {
+    /// The hash the remote's backend keeps of each file.
+    fn hash_kind(&self, remote: &str) -> HashKind {
         let backend = self
             .config(remote)
             .and_then(|config| config.get("type")?.as_str().map(str::to_owned));
-        !matches!(backend.as_deref(), Some("dropbox" | "onedrive"))
+        match backend.as_deref() {
+            Some("dropbox") => HashKind::Dropbox,
+            Some("onedrive") => HashKind::QuickXor,
+            _ => HashKind::Sha1,
+        }
     }
 
     /// Push the current on-disk rclone config into the keyring. Logged
@@ -78,8 +82,8 @@ impl LibrcloneClient {
     }
 }
 
-/// A file's details from rclone's `operations/stat` with hashes and metadata.
-pub(crate) fn file_details(item: BackendRemoteItem) -> FileDetails {
+/// A file's details from rclone's `operations/stat` with the hash of kind `kind` and metadata.
+pub(crate) fn file_details(item: BackendRemoteItem, kind: HashKind) -> FileDetails {
     FileDetails {
         size: u64::try_from(item.size).ok(),
         // The time the file was last modified where the backend keeps it apart from the listing's time (Proton lists the upload's).
@@ -88,11 +92,14 @@ pub(crate) fn file_details(item: BackendRemoteItem) -> FileDetails {
             .get("mtime")
             .and_then(|t| OffsetDateTime::parse(t, &Rfc3339).ok())
             .unwrap_or(item.mod_time),
-        sha1: item
+        hash: item
             .hashes
-            .get("sha1")
+            .get(kind.rclone_name())
             .filter(|h| !h.is_empty())
-            .map(|h| h.to_lowercase()),
+            .map(|h| ContentHash {
+                kind,
+                value: h.to_lowercase(),
+            }),
     }
 }
 
@@ -178,9 +185,21 @@ impl BackendClient for LibrcloneClient {
         path: &str,
         cancel: &Cancel,
     ) -> Result<Option<FileDetails>, String> {
-        let item = rpc::sync::details(remote, path, self.has_sha1(remote), cancel)
-            .map_err(|err| err.error)?;
-        Ok(item.filter(|item| !item.is_dir).map(file_details))
+        let kind = self.hash_kind(remote);
+        let item = rpc::sync::details(remote, path, kind, cancel).map_err(|err| err.error)?;
+        Ok(item
+            .filter(|item| !item.is_dir)
+            .map(|item| file_details(item, kind)))
+    }
+
+    fn local_hash(&self, local_path: &str, kind: HashKind) -> Option<String> {
+        let input = serde_json::json!({ "path": local_path, "type": kind.rclone_name() });
+        let reply = syncative_go::rpc("syncative/hash-file", input.to_string()).ok()?;
+        serde_json::from_str::<serde_json::Value>(&reply)
+            .ok()?
+            .get("hash")?
+            .as_str()
+            .map(str::to_lowercase)
     }
 
     fn mkdir(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {
@@ -398,18 +417,57 @@ mod tests {
 
     #[test]
     fn details_take_the_metadata_mtime_over_the_listed_time() {
-        let details = file_details(item(
-            r#"{"IsDir":false,"Path":"a.jpg","Name":"a.jpg","ModTime":"2026-11-20T10:00:00Z","Size":3,"Hashes":{"sha1":"ABC"},"Metadata":{"mtime":"2024-03-01T08:30:00Z"}}"#,
-        ));
+        let details = file_details(
+            item(
+                r#"{"IsDir":false,"Path":"a.jpg","Name":"a.jpg","ModTime":"2026-11-20T10:00:00Z","Size":3,"Hashes":{"sha1":"ABC"},"Metadata":{"mtime":"2024-03-01T08:30:00Z"}}"#,
+            ),
+            HashKind::Sha1,
+        );
         assert_eq!(details.mod_time.unix_timestamp(), 1_709_281_800);
-        assert_eq!(details.sha1.as_deref(), Some("abc"));
+        assert_eq!(details.hash.map(|h| h.value).as_deref(), Some("abc"));
     }
 
     #[test]
     fn details_keep_the_listed_time_without_metadata() {
-        let details = file_details(item(
-            r#"{"IsDir":false,"Path":"a.jpg","Name":"a.jpg","ModTime":"2026-11-20T10:00:00Z","Size":3}"#,
-        ));
+        let details = file_details(
+            item(
+                r#"{"IsDir":false,"Path":"a.jpg","Name":"a.jpg","ModTime":"2026-11-20T10:00:00Z","Size":3}"#,
+            ),
+            HashKind::Sha1,
+        );
         assert_eq!(details.mod_time.unix_timestamp(), 1_795_168_800);
+    }
+
+    #[test]
+    fn details_take_the_hash_of_the_backends_kind() {
+        let details = file_details(
+            item(
+                r#"{"IsDir":false,"Path":"a.jpg","Name":"a.jpg","ModTime":"2026-11-20T10:00:00Z","Size":3,"Hashes":{"quickxor":"4A00"}}"#,
+            ),
+            HashKind::QuickXor,
+        );
+        assert_eq!(
+            details.hash,
+            Some(ContentHash {
+                kind: HashKind::QuickXor,
+                value: "4a00".to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn local_files_get_the_providers_hash() {
+        let dir = crate::test_support::TempDir::new("local_hash");
+        let path = dir.write_file("j.txt", b"J");
+        let client = LibrcloneClient::for_backend_calls();
+        let path = path.to_str().unwrap();
+        assert_eq!(
+            client.local_hash(path, HashKind::QuickXor).as_deref(),
+            Some("4a00000000000000000000000100000000000000")
+        );
+        assert_eq!(
+            client.local_hash(path, HashKind::Dropbox).as_deref(),
+            Some("8938fd13801978991ebc1e6c1a731e34d67e3cbec2f171679d6dbc9b1c1d53d6")
+        );
     }
 }

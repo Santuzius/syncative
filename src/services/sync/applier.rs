@@ -13,8 +13,8 @@ use crate::{
         remote::Remote,
         run_state::{RunState, SyncActivity},
         sync::{
-            Conflict, ConflictChoice, FileDetails, Link, LinkTarget, RemoteItem, Resolution,
-            SyncDir, SyncError, SyncItem, SyncMode,
+            Conflict, ConflictChoice, ContentHash, FileDetails, HashKind, Link, LinkTarget,
+            RemoteItem, Resolution, SyncDir, SyncError, SyncItem, SyncMode,
         },
     },
     util,
@@ -430,7 +430,7 @@ where
                             );
                             break 'action;
                         }
-                        Inspected::Differs(conflict) => conflict,
+                        Inspected::Differs(conflict) => *conflict,
                     };
                     let chosen = resolutions
                         .iter()
@@ -449,7 +449,7 @@ where
                         // Never-synced pair on a backend without content digests: the newer copy wins, as before.
                         .or_else(|| {
                             (kind == ConflictKind::BothNew
-                                && conflict.remote.as_ref().is_some_and(|r| r.sha1.is_none()))
+                                && conflict.remote.as_ref().is_some_and(|r| r.hash.is_none()))
                             .then_some({
                                 if conflict.local_stamp > conflict.remote_stamp {
                                     ConflictChoice::KeepLocal
@@ -645,7 +645,7 @@ enum Inspected {
     Gone,
     Failed(String),
     Identical,
-    Differs(Conflict),
+    Differs(Box<Conflict>),
 }
 
 /// Gather both sides of a conflict fresh and compare content where both SHA-1s are known.
@@ -677,33 +677,33 @@ fn inspect_conflict(
         Err(err) => return Inspected::Failed(err),
     };
     let size_may_match = remote_details.size.is_none_or(|size| size == meta.len());
-    let local_sha1 = if remote_details.sha1.is_some() && size_may_match {
-        sha1_of(Path::new(local_path))
-    } else {
-        None
-    };
-    if local_sha1.is_some() && local_sha1 == remote_details.sha1 {
+    let local_content = remote_details
+        .hash
+        .as_ref()
+        .filter(|_| size_may_match)
+        .and_then(|remote_hash| local_hash(local_path, remote_hash.kind, client));
+    if local_content.is_some() && local_content == remote_details.hash {
         return Inspected::Identical;
     }
     // Without a digest on the remote, the same size and modification time stand for the same content, as in rsync: a download takes over the remote's time. Otherwise the first pass after a reinstall would download every such file again.
-    if remote_details.sha1.is_none() && size_may_match && local_stamp as i64 == remote_stamp {
+    if remote_details.hash.is_none() && size_may_match && local_stamp as i64 == remote_stamp {
         return Inspected::Identical;
     }
-    Inspected::Differs(Conflict {
+    Inspected::Differs(Box::new(Conflict {
         local_path: local_path.to_owned(),
         remote_path: remote_path.to_owned(),
         local: FileDetails {
             size: Some(meta.len()),
             mod_time: OffsetDateTime::from_unix_timestamp(local_stamp as i64)
                 .unwrap_or(OffsetDateTime::UNIX_EPOCH),
-            sha1: local_sha1,
+            hash: local_content,
         },
         remote: Some(remote_details),
         local_stamp: local_stamp as i64,
         remote_stamp,
         first_sync: kind == ConflictKind::BothNew,
         link: None,
-    })
+    }))
 }
 
 /// Gather what the dialog shows about a symbolic link: where it points, and what the remote has under its name.
@@ -740,7 +740,7 @@ fn inspect_link(
                 let bare = FileDetails {
                     size: None,
                     mod_time: item.mod_time,
-                    sha1: None,
+                    hash: None,
                 };
                 let details = if item.is_dir {
                     bare
@@ -755,14 +755,14 @@ fn inspect_link(
             Ok(None) => (None, false, 0),
             Err(err) => return Inspected::Failed(err),
         };
-    Inspected::Differs(Conflict {
+    Inspected::Differs(Box::new(Conflict {
         local_path: local_path.to_owned(),
         remote_path: remote_path.to_owned(),
         local: FileDetails {
             size,
             mod_time: OffsetDateTime::from_unix_timestamp(local_stamp)
                 .unwrap_or(OffsetDateTime::UNIX_EPOCH),
-            sha1: None,
+            hash: None,
         },
         remote: remote_details,
         local_stamp,
@@ -773,7 +773,7 @@ fn inspect_link(
             target_kind,
             remote_is_dir,
         }),
-    })
+    }))
 }
 
 /// `a/b/../c` as `a/c`, without asking the disk: a broken link's target can't be resolved there.
@@ -891,11 +891,12 @@ fn same_content(
         .details(&remote.name, remote_path, cancel)
         .ok()
         .flatten()?;
-    let remote_sha1 = details.sha1.as_deref()?;
+    let remote_hash = details.hash.as_ref()?;
     if details.size.is_some_and(|size| size != meta.len()) {
         return None;
     }
-    (sha1_of(Path::new(local_path))?.as_str() == remote_sha1).then_some(details)
+    (local_hash(local_path, remote_hash.kind, client).as_ref() == Some(remote_hash))
+        .then_some(details)
 }
 
 /// Sets a file's modification time to `secs` after 1970.
@@ -906,6 +907,15 @@ pub(super) fn set_mtime(path: &str, secs: i64) -> std::io::Result<()> {
         .write(true)
         .open(path)?
         .set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs))
+}
+
+/// The hash of kind `kind` of the local file at `local_path`; `None` when it can't be read.
+fn local_hash(local_path: &str, kind: HashKind, client: &dyn BackendClient) -> Option<ContentHash> {
+    let value = match kind {
+        HashKind::Sha1 => sha1_of(Path::new(local_path)),
+        _ => client.local_hash(local_path, kind),
+    }?;
+    Some(ContentHash { kind, value })
 }
 
 fn sha1_of(path: &Path) -> Option<String> {

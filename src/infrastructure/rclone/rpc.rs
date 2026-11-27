@@ -246,7 +246,10 @@ pub mod sync {
     use super::{
         BackendAbout, BackendList, BackendListFilter, BackendRemoteItem, BackendStat, RcloneError,
     };
-    use crate::{domain::ports::Cancel, util};
+    use crate::{
+        domain::{ports::Cancel, sync::HashKind},
+        util,
+    };
     use serde_json::json;
 
     /// Get a remote name.
@@ -321,11 +324,11 @@ pub mod sync {
         }
     }
 
-    /// Like [`stat`], with the backend's metadata and, with `sha1`, the SHA-1 of the content (Google Drive has one). Without it nothing is hashed: rclone logs an error for each file of a backend that has no SHA-1, such as Dropbox and OneDrive.
+    /// Like [`stat`], with the backend's metadata and the hash of kind `kind` of the content. Ask for the backend's own kind: rclone logs an error for each file of a backend without it.
     pub fn details(
         remote_name: &str,
         path: &str,
-        sha1: bool,
+        kind: HashKind,
         cancel: &Cancel,
     ) -> Result<Option<BackendRemoteItem>, RcloneError> {
         let resp = run_cancellable(
@@ -333,7 +336,7 @@ pub mod sync {
             &json!({
                 "fs": get_remote_name(remote_name),
                 "remote": util::strip_slashes(path),
-                "opt": { "showHash": sha1, "hashTypes": ["sha1"], "metadata": true }
+                "opt": { "showHash": true, "hashTypes": [kind.rclone_name()], "metadata": true }
             })
             .to_string(),
             cancel,

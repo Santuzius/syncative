@@ -14,7 +14,7 @@ The drive's change log is its delta listing, which names items by ID and gives n
 
 The delta listing also names every folder above a changed item. A folder rclone's folder cache knows and that stands where the cache has it is left out; one that is gone or stands elsewhere leaves the cache with everything below it, so a sync folder renamed or trashed on OneDrive shows "Remote folder not found" instead of being found under its old path.
 
-OneDrive keeps no SHA-1 of files (only its QuickXorHash), so `details` asks it for none.
+OneDrive keeps no SHA-1 of files but its QuickXorHash, so `details` asks for that and the sync hashes the local copy the same way (`syncative/hash-file`, with rclone's own implementation) to tell identical files apart from changed ones. Dropbox does the same with its content hash.
 
 ## Tested
 

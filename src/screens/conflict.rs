@@ -148,7 +148,7 @@ pub fn view(dialog: &Dialog, compact: bool) -> Element<'_, Msg> {
     let remote_details = c.remote.clone().unwrap_or(FileDetails {
         size: None,
         mod_time: OffsetDateTime::UNIX_EPOCH,
-        sha1: None,
+        hash: None,
     });
 
     let side = |title: String, path: String, glyph: icondata::Icon, details: &FileDetails| {

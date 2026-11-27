@@ -129,7 +129,7 @@ fn conflict(path: &str) -> Conflict {
     let details = FileDetails {
         size: Some(1),
         mod_time: OffsetDateTime::UNIX_EPOCH,
-        sha1: None,
+        hash: None,
     };
     Conflict {
         local_path: format!("/tmp/{path}"),

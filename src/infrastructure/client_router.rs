@@ -13,7 +13,7 @@ use std::{
 use crate::domain::{
     ports::{BackendClient, Cancel},
     remote::RemoteUsage,
-    sync::{Changes, FileDetails, ListFilter, RemoteItem},
+    sync::{Changes, FileDetails, HashKind, ListFilter, RemoteItem},
 };
 
 pub struct ClientRouter {
@@ -83,6 +83,10 @@ impl BackendClient for ClientRouter {
         cancel: &Cancel,
     ) -> Result<Option<FileDetails>, String> {
         self.pick(remote).details(remote, path, cancel)
+    }
+    /// A hash depends on the content alone, so the default client, rclone's, computes it for every remote.
+    fn local_hash(&self, local_path: &str, kind: HashKind) -> Option<String> {
+        self.default.local_hash(local_path, kind)
     }
     fn mkdir(&self, remote: &str, path: &str, cancel: &Cancel) -> Result<(), String> {
         self.pick(remote).mkdir(remote, path, cancel)

@@ -9,7 +9,7 @@ use std::{collections::HashMap, sync::Mutex};
 
 use crate::domain::{
     ports::{BackendClient, Cancel},
-    sync::{Changes, FileDetails, ListFilter, RemoteItem},
+    sync::{Changes, ContentHash, FileDetails, HashKind, ListFilter, RemoteItem},
 };
 
 /// See [`FakeBackend::during_copy_to_remote`].
@@ -175,7 +175,15 @@ impl BackendClient for FakeBackend {
         if let Some(err) = self.details_error.lock().unwrap().clone() {
             return Err(err);
         }
-        let sha1 = self.sha1_map.lock().unwrap().get(path).cloned();
+        let hash = self
+            .sha1_map
+            .lock()
+            .unwrap()
+            .get(path)
+            .map(|value| ContentHash {
+                kind: HashKind::Sha1,
+                value: value.clone(),
+            });
         let recorded = self.details_time_map.lock().unwrap().get(path).copied();
         Ok(self
             .stat(remote, path, cancel)?
@@ -185,7 +193,7 @@ impl BackendClient for FakeBackend {
                 mod_time: recorded.map_or(item.mod_time, |t| {
                     time::OffsetDateTime::from_unix_timestamp(t).unwrap()
                 }),
-                sha1,
+                hash,
             }))
     }
     fn mkdir(&self, _remote: &str, path: &str, _cancel: &Cancel) -> Result<(), String> {
