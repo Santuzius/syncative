@@ -312,9 +312,7 @@ impl Core {
 
     /// A remote's interval under the current cadence; `None` while held.
     fn interval(&self, remote: &Remote) -> Option<std::time::Duration> {
-        self.cadence
-            .floor()
-            .map(|floor| remote.policy.interval.duration().max(floor))
+        self.cadence.interval(remote.policy.interval.duration())
     }
 
     /// Read remotes and folders from the database and align the state with them.
@@ -916,7 +914,13 @@ impl Core {
             usage: self.usage.clone(),
             uploads: self.upload_status(),
             drive_transfers: self.drive_transfers.clone(),
+            cadence: self.cadence,
         }
+    }
+
+    /// See [`Command::Cadence`].
+    pub fn cadence(&self) -> Cadence {
+        self.cadence
     }
 
     /// Per remote: how many shared files wait, whether one is going up and why the last try failed.

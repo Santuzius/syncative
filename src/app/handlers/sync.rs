@@ -65,13 +65,16 @@ impl SyncativeApp {
             && !self.snapshot.state.needs_reauth(id)
     }
 
-    /// Time until the engine will next attempt this remote, plus a flag telling the caller whether the remote is currently in a backoff window (next attempt will be a skip, not a real pass). Returns `None` when the remote is disabled or needs reauth.
+    /// Time until the engine will next attempt this remote, plus a flag telling the caller whether the remote is currently in a backoff window (next attempt will be a skip, not a real pass). Returns `None` when the remote is disabled, needs reauth or scheduled passes are held. The interval is the engine's: the remote's own, no shorter than the power mode allows.
     pub fn next_sync_eta(&self, id: RemoteId) -> Option<(std::time::Duration, bool)> {
         if !self.is_schedulable(id) {
             return None;
         }
         let remote = self.remotes.iter().find(|r| r.id == id)?;
-        let interval = remote.policy.interval.duration();
+        let interval = self
+            .snapshot
+            .cadence
+            .interval(remote.policy.interval.duration())?;
         let base_remaining = match self.snapshot.last_sync_at.get(&id) {
             Some(t) => interval.saturating_sub(Instant::now().duration_since(*t)),
             None => std::time::Duration::ZERO,

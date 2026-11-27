@@ -87,6 +87,8 @@ pub enum Cadence {
     AtMost(std::time::Duration),
     /// No scheduled passes; "Sync now" still works.
     Held,
+    /// Held because the network is metered and Preferences say to wait for another one.
+    HeldOnMetered,
 }
 
 impl Cadence {
@@ -95,8 +97,13 @@ impl Cadence {
         match self {
             Cadence::Full => Some(std::time::Duration::ZERO),
             Cadence::AtMost(floor) => Some(floor),
-            Cadence::Held => None,
+            Cadence::Held | Cadence::HeldOnMetered => None,
         }
+    }
+
+    /// A remote's interval `own` under this cadence; `None` while held.
+    pub fn interval(self, own: std::time::Duration) -> Option<std::time::Duration> {
+        self.floor().map(|floor| own.max(floor))
     }
 
     /// Whether it allows syncing more often than `other`.
@@ -166,6 +173,8 @@ pub struct Snapshot {
     pub uploads: HashMap<RemoteId, UploadStatus>,
     /// Network drives moving files outside a pass; absent when idle.
     pub drive_transfers: HashMap<SyncDirId, crate::services::network_drive::DriveTransfers>,
+    /// How the remotes' intervals apply right now (see [`Command::Cadence`]).
+    pub cadence: Cadence,
 }
 
 /// One log entry: local `HH:MM:SS` plus the message.
@@ -290,7 +299,7 @@ async fn run(
         if cfg!(target_os = "android")
             && let Some(status) = core.take_status_change()
         {
-            status_changed(&status);
+            status_changed(&status, core.cadence());
         }
         let wake = core.next_due().into_iter().chain(next_snapshot).min();
         let input = match wake {
@@ -310,12 +319,11 @@ async fn run(
 
 /// Shows the summary that changed where the platform wants it: the desktop tray reads the snapshots itself, Android shows it in the sync service's notification.
 #[cfg(target_os = "android")]
-fn status_changed(status: &crate::infrastructure::tray::TrayStatus) {
+fn status_changed(status: &crate::infrastructure::tray::TrayStatus, cadence: Cadence) {
     use crate::infrastructure::tray::{TrayStatus, description_for};
     // "Up to date" with the time of the last sync, which Android shows as an age that stays current; the engine only reports changes.
-    let power = crate::services::power::PowerSettings::load(&crate::util::get_data_dir());
     match status {
-        TrayStatus::Done { .. } if crate::services::power::held_on_metered(power) => {
+        TrayStatus::Done { .. } if cadence == Cadence::HeldOnMetered => {
             crate::infrastructure::android::show_sync_status("Held (metered)", 0)
         }
         TrayStatus::Done {
@@ -332,7 +340,7 @@ fn status_changed(status: &crate::infrastructure::tray::TrayStatus) {
 }
 
 #[cfg(not(target_os = "android"))]
-fn status_changed(_status: &crate::infrastructure::tray::TrayStatus) {}
+fn status_changed(_status: &crate::infrastructure::tray::TrayStatus, _cadence: Cadence) {}
 
 /// A pass or an upload of shared files started while none ran (`true`), or the last one ended. On Android the device stays awake in between, so what started finishes even when the screen goes off.
 #[cfg(target_os = "android")]

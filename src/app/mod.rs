@@ -816,7 +816,7 @@ impl SyncativeApp {
         let countdown = self
             .window_id
             .and(self.selected)
-            .filter(|_| !power::held_on_metered(self.power) && !self.snapshot.offline)
+            .filter(|_| !self.snapshot.offline)
             .and_then(|id| self.next_sync_eta(id));
         match countdown {
             Some((remaining, _)) if remaining < Duration::from_secs(60 * 60) => {
@@ -1229,7 +1229,7 @@ impl SyncativeApp {
     fn held(&self, remote: &Remote, state: RunState) -> RunState {
         if remote.policy.enabled
             && matches!(state, RunState::Synced | RunState::Waiting)
-            && power::held_on_metered(self.power)
+            && self.snapshot.cadence == crate::engine::Cadence::HeldOnMetered
         {
             RunState::Held
         } else {
@@ -1277,18 +1277,17 @@ impl SyncativeApp {
                 draft_exclusion: self.draft_exclusion.get(&dir.id).map_or("", |s| s.as_str()),
             })
             .collect();
-        let held_on_metered = power::held_on_metered(self.power);
         remote_page::Page {
             remote,
             state: self.display_state(remote),
             syncing: self.snapshot.syncing.contains(&remote.id),
-            // No countdown while held: nothing is scheduled until the network changes. `tick_interval` follows the same rule.
-            next_sync: if held_on_metered || self.snapshot.offline {
+            // No countdown offline: nothing is scheduled until the network is back. `tick_interval` follows the same rule.
+            next_sync: if self.snapshot.offline {
                 None
             } else {
                 self.next_sync_eta(remote.id)
             },
-            held_on_metered,
+            held_on_metered: self.snapshot.cadence == crate::engine::Cadence::HeldOnMetered,
             device_offline: self.snapshot.offline,
             dirs: folders,
             shared_oauth_client: self.shared_oauth_client.contains(&remote.id),

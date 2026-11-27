@@ -153,14 +153,14 @@ impl PowerSettings {
     /// The engine's cadence under `now`: held on a metered network if so chosen, otherwise as the power mode says.
     pub fn cadence(self, now: Conditions) -> Cadence {
         if self.held_on_metered(now) {
-            Cadence::Held
+            Cadence::HeldOnMetered
         } else {
             self.mode.cadence(now)
         }
     }
 
     /// Scheduled passes wait because the network is metered.
-    pub fn held_on_metered(self, now: Conditions) -> bool {
+    fn held_on_metered(self, now: Conditions) -> bool {
         !self.sync_metered && now.metered
     }
 }
@@ -177,11 +177,6 @@ pub fn conditions() -> Conditions {
     }
 }
 
-/// Whether scheduled passes wait for an unmetered network right now.
-pub fn held_on_metered(settings: PowerSettings) -> bool {
-    settings.held_on_metered(conditions())
-}
-
 /// The engine's cadence under the saved settings and the current conditions. The power mode exists only on Android; the desktop syncs at each remote's interval unless it waits for an unmetered network.
 pub fn current_cadence() -> Cadence {
     let settings = PowerSettings::load(&crate::util::get_data_dir());
@@ -189,7 +184,7 @@ pub fn current_cadence() -> Cadence {
     if cfg!(target_os = "android") {
         settings.cadence(now)
     } else if settings.held_on_metered(now) {
-        Cadence::Held
+        Cadence::HeldOnMetered
     } else {
         Cadence::Full
     }
@@ -297,7 +292,7 @@ mod tests {
             sync_metered: false,
             ..everywhere
         };
-        assert_eq!(unmetered_only.cadence(metered), Cadence::Held);
+        assert_eq!(unmetered_only.cadence(metered), Cadence::HeldOnMetered);
         assert_eq!(
             unmetered_only.cadence(Conditions {
                 metered: false,
