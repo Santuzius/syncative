@@ -197,6 +197,20 @@ impl Draft {
     pub fn can_cancel(&self) -> bool {
         !self.busy || self.oauth.is_some()
     }
+
+    /// Why the entered name can't be submitted, given the names of the existing remotes; `None` when it can. A new remote must not take an existing name: rclone's `config/create` would replace that remote's config.
+    pub fn name_error<'a>(&self, existing: impl IntoIterator<Item = &'a str>) -> Option<String> {
+        let name = self.name.trim();
+        if name.is_empty() {
+            return Some("Name is required.".to_owned());
+        }
+        if !self.reauth && existing.into_iter().any(|n| n == name) {
+            return Some(format!(
+                "A remote named {name} exists already. Choose another name."
+            ));
+        }
+        None
+    }
 }
 
 const LABEL_WIDTH: f32 = 110.0;
@@ -524,4 +538,32 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
         .max_width(540)
         .style(theme::dialog)
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_remote_cannot_take_an_existing_name() {
+        let draft = Draft {
+            name: " Cloud ".to_owned(),
+            ..Draft::default()
+        };
+        assert!(draft.name_error(["Cloud"]).is_some());
+        assert_eq!(draft.name_error(["Other"]), None);
+
+        let blank = Draft {
+            name: "  ".to_owned(),
+            ..Draft::default()
+        };
+        assert!(blank.name_error([]).is_some());
+
+        let reauth = Draft {
+            name: "Cloud".to_owned(),
+            reauth: true,
+            ..Draft::default()
+        };
+        assert_eq!(reauth.name_error(["Cloud"]), None);
+    }
 }

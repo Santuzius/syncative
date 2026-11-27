@@ -202,11 +202,12 @@ impl SyncativeApp {
                     draft.error = Some("Pick a provider first.".to_owned());
                     return Task::none();
                 };
-                if draft.name.trim().is_empty() {
-                    draft.error = Some("Name is required.".to_owned());
+                if let Some(error) = draft.name_error(self.remotes.iter().map(|r| r.name.as_str()))
+                {
+                    draft.error = Some(error);
                     return Task::none();
                 }
-                let name = draft.name.clone();
+                let name = draft.name.trim().to_owned();
                 let repo = self.repo.clone();
                 let rclone = self.rclone.clone();
                 draft.error = None;

@@ -36,7 +36,7 @@ pub fn reauth_nextcloud_remote(
     pass: &str,
     client: &dyn BackendClient,
 ) -> Result<(), String> {
-    // rclone's `config/create` rejects a name that already exists.
+    // Not needed for the new config, which `config/create` puts in place of the old one by itself.
     let _ = client.delete_config(name);
     client.create_config(config_payload(name, url, user, pass))?;
     check_sign_in(name, client)

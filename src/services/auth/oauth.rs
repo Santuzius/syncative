@@ -92,9 +92,7 @@ pub fn reauth_oauth_remote(
     let authorized = run_rclone_authorize(provider, client_id, client_secret, handle)?;
     let payload = config_payload(name, provider, client_id, client_secret, authorized);
 
-    // rclone's `config/create` rejects a name that already exists, so
-    // drop the stale entry first. Failure to delete is non-fatal — the
-    // create step will surface the real error if anything's wrong.
+    // Not needed for the new config, which `config/create` puts in place of the old one by itself.
     let _ = client.delete_config(name);
     client.create_config(payload)
 }

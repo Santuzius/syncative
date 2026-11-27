@@ -29,7 +29,7 @@ pub fn change_local_folder(
     client: &dyn BackendClient,
 ) -> Result<(), String> {
     let folder = checked_folder(folder)?;
-    // rclone's `config/create` rejects a name that already exists.
+    // Not needed for the new config, which `config/create` puts in place of the old one by itself.
     let _ = client.delete_config(name);
     client.create_config(config_payload(name, &folder))
 }
