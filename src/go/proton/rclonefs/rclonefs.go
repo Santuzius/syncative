@@ -199,9 +199,9 @@ type Object struct {
 	remote string
 	item   drive.Item
 
-	attrsOnce sync.Once
-	attrs     *drive.FileAttrs
-	attrsErr  error
+	// attrsMu guards attrs, the revision's extended attributes once fetched.
+	attrsMu sync.Mutex
+	attrs   *drive.FileAttrs
 }
 
 // NewFs makes the backend for remote `name` with the path `root`.
@@ -534,23 +534,24 @@ func (o *Object) ModifiedTime(ctx context.Context) time.Time {
 	return o.ModTime(ctx)
 }
 
-// fileAttrs decrypts the revision's extended attributes once; an error when they couldn't be fetched.
+// fileAttrs decrypts the revision's extended attributes once; an error when they couldn't be fetched, and the next call asks again: the errors are the network's or the session's (attributes that don't decrypt give defaults), and the VFS keeps an object for long.
 func (o *Object) fileAttrs(ctx context.Context) (*drive.FileAttrs, error) {
-	o.attrsOnce.Do(func() {
-		sess, err := o.fs.session()
-		if err != nil {
-			o.attrsErr = err
-			return
-		}
-		attrs, err := sess.Attrs(ctx, &o.item)
-		if err != nil {
-			fs.Debugf(o, "extended attributes: %v", err)
-			o.attrsErr = fmt.Errorf("extended attributes: %w", err)
-			return
-		}
-		o.attrs = attrs
-	})
-	return o.attrs, o.attrsErr
+	o.attrsMu.Lock()
+	defer o.attrsMu.Unlock()
+	if o.attrs != nil {
+		return o.attrs, nil
+	}
+	sess, err := o.fs.session()
+	if err != nil {
+		return nil, err
+	}
+	attrs, err := sess.Attrs(ctx, &o.item)
+	if err != nil {
+		fs.Debugf(o, "extended attributes: %v", err)
+		return nil, fmt.Errorf("extended attributes: %w", err)
+	}
+	o.attrs = attrs
+	return attrs, nil
 }
 
 // Size is the plaintext size the uploader recorded; -1 when the revision has none, as the encrypted size Proton keeps is larger.
@@ -635,10 +636,10 @@ func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, op
 		return fs.ErrorObjectNotFound
 	}
 	o.fs.recent.update(dirID, item, "")
+	o.attrsMu.Lock()
 	o.item = *item
-	o.attrsOnce = sync.Once{}
 	o.attrs = nil
-	o.attrsErr = nil
+	o.attrsMu.Unlock()
 	return nil
 }
 
