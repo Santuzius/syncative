@@ -1,6 +1,4 @@
-//! Snapshot building: pull the authoritative remote listing, walk the
-//! local tree, load DB rows, and combine into one structure the planner
-//! can decide against.
+//! Snapshot building: take the remote side from [`super::remote_view`], walk the local tree, load DB rows, and combine them into one structure the planner can decide against.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -194,12 +192,6 @@ impl Snapshot {
     }
 }
 
-/// Does `err` look like a "remote directory doesn't exist" failure?
-/// Providers word this differently: rclone's GDrive backend bubbles up
-/// `error in ListJSON: directory not found`, the native Proton client
-/// returns our own `resolve_path` miss, WebDAV can reply with a 404
-/// body. Match broadly — a false positive here costs us one speculative
-/// mkdir, a miss costs the user a broken sync cycle.
 /// The sync folder's own folder is missing on the remote. Never synced: create it, the local files go up into it. Synced before: the user renamed, moved or deleted it there, and an empty listing would read as every file deleted (a file alone in its subfolder has no sibling to prove otherwise), so the folder stops with an error and nothing changes on either side.
 fn missing_root(
     remote: &Remote,

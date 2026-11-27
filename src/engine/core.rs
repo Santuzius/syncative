@@ -41,10 +41,9 @@ use super::{
 pub(crate) const UPLOAD_TRIES: u32 = 3;
 /// Wait before a failed upload is tried again, times the tries so far.
 const UPLOAD_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
-/// Wait before a file that changed during its upload goes up again, so a save in progress can finish.
 /// How often the network drives are asked whether they move files, while there are any.
 const DRIVE_CHECK: std::time::Duration = std::time::Duration::from_secs(1);
-
+/// Wait before a file that changed during its upload goes up again, so a save in progress can finish.
 const UPLOAD_SETTLE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Why a shared file didn't go up.
@@ -466,7 +465,6 @@ impl Core {
         }
     }
 
-    /// Start every remote whose interval is up. Remotes inside a backoff window skip the turn instead: the counter goes down and the interval starts over.
     /// Ask the network drives whether they move files, at most every [`DRIVE_CHECK`], and show it on their folders.
     fn check_drives(&mut self, now: Instant) {
         if now < self.next_drive_check {
@@ -517,6 +515,7 @@ impl Core {
         self.state.set_transfers(&activities);
     }
 
+    /// Start every remote whose interval is up. Remotes inside a backoff window skip the turn instead: the counter goes down and the interval starts over.
     pub fn start_due(&mut self, now: Instant) {
         self.check_drives(now);
         let candidates: Vec<(RemoteId, std::time::Duration)> = self

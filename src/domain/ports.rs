@@ -311,8 +311,7 @@ pub trait BackendClient: Send + Sync {
         }
     }
 
-    /// `true` when this client is a placeholder for a session that
-    /// can't be used until the user reauthenticates.
+    /// `true` when the remote can't be used until the user signs in again: its session is gone, or its config lacks the token or password.
     fn needs_reauth(&self, _remote: &str) -> bool {
         false
     }

@@ -2,10 +2,7 @@
 //!
 //! Three submodules cover the three phases of one pass:
 //!
-//! 1. [`snapshot`] fetches the authoritative remote listing
-//!    ([`BackendClient::list`] recursive), walks the local tree, and loads
-//!    the DB rows. Bails out on list errors; rate-limit handling lives in
-//!    [`run`]'s stderr-tap check around the build call.
+//! 1. [`snapshot`] takes the remote side from [`remote_view`] (the database plus the backend's changes, or a full listing when those can't tell), walks the local tree, and loads the DB rows. Bails out on list errors; [`run`] checks for rate-limit warnings around the build call.
 //!
 //! 2. [`planner`] turns the snapshot into a `Vec<Action>` in a pure function.
 //!    Every destructive decision is reducible to a `(local, remote, db)`
@@ -338,7 +335,6 @@ where
     }
 }
 
-/// Takes the pass's listing back from the backend when the pass ends, whichever way.
 /// What a pass is about to do, e.g. "To do: 2 to upload, 714 to compare." Bookkeeping actions are left out.
 fn plan_text(actions: &[planner::Action]) -> String {
     use planner::Action;
