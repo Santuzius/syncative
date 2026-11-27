@@ -47,21 +47,7 @@
 - Forks of iced, iced_android and android-activity: see [android/README.md](../../android/README.md) and [release.md](../packaging/release.md#the-android-forks).
 
 ## Layers
-The Rust code in `src/` is split into layers; each uses only the layers named in its row:
-
-| Layer | Holds | Uses |
-|---|---|---|
-| `domain` | types and port traits (`domain::ports`), no I/O | nothing |
-| `infrastructure` | adapters: database, rclone and Go, keyring, files outside sync folders, D-Bus, JNI | `domain` |
-| `engine` | the sync thread: scheduling, one pass per remote, the network drives; `engine/folder` syncs one folder | `domain`, `infrastructure`; `engine/folder` only the port traits |
-| `services` | the features around the sync: sign-in, sharing, preferences, folder helpers | `domain`, `infrastructure`, `engine` |
-| `app`, `screens`, `widgets` | the window | everything below |
-| `inbound` | entry points through which the platform calls Syncative on its own: Android's JNI callbacks from the sync service, the network watch, shared files and the document provider | everything below `app` |
-
-- `engine/folder` reaches the remote and the database only through `BackendClient` and `Repository`, so its tests run it against the fakes in `test_support`. A unit test (`the_folder_sync_uses_no_adapter_directly`) fails once a file there names `infrastructure` or the Go library.
-- The window talks to the engine through its commands; only `engine::shutdown()`, which unmounts the network drives on quit, is called directly.
-- An adapter that reports on its own gets its handlers from whoever starts it: `lib.rs` hands the desktop portal's network monitor the functions of `services::network`, and the second-start socket yields requests that the window handles. JNI entry points that only answer a call Syncative made, such as a picked folder, stay with their adapter.
-- The one exception is the Proton client, which calls into sign-in, the network state and the network drives until its session moves to Go ([todo.md](../todo.md)).
+Which layer may use which: see [architecture.md](architecture.md#layers).
 
 ## Code
 - Rust code follows `rustfmt` with its defaults (`rustfmt.toml` only pins the style edition): run `cargo fmt --all` before committing, and `cargo fmt --all --check` stays clean. Editors that format on save pick up `rustfmt.toml` by themselves.

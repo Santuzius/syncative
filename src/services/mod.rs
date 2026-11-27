@@ -1,4 +1,4 @@
-//! The features around the sync: sign-in, sharing, the preferences and helpers for sync folders. They use the domain, the adapters in [`crate::infrastructure`] and the engine; the window calls them (layers: `doc/development/conventions.md`).
+//! The features around the sync: sign-in, sharing, the preferences and helpers for sync folders. They use the domain, the adapters in [`crate::infrastructure`] and the engine; the window calls them (layers: `doc/development/architecture.md`).
 
 pub mod auth;
 #[cfg(not(target_os = "android"))]

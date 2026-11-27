@@ -3,6 +3,7 @@
 For users, see the [README](../README.md) and the [privacy policy](../PRIVACY.md). These pages are for working on Syncative.
 
 - **Development**
+  - [Architecture](development/architecture.md): the parts of the process, start-up, the layers and what each may use, where to look for a task
   - [Conventions](development/conventions.md): branches, versions, commits, file locations, UI text, the rename from Celeste
   - [Testing](development/testing.md): the isolated desktop test instance, mock remotes, Android tests
   - [Remote changes](development/remote-changes.md): when a sync pass lists the remote and when the database stands in for it
