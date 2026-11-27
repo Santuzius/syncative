@@ -54,25 +54,3 @@ func (s *Session) TrashLink(ctx context.Context, linkID string) error {
 	}
 	return nil
 }
-
-// PermanentDeleteLink removes a trashed link outright. Syncative's
-// sync engine shouldn't call this — mirror-deletes go through
-// TrashLink so the user has a recovery window — but it's here for
-// completeness (integration code may expose it as an explicit
-// "empty trash for this file" action later).
-func (s *Session) PermanentDeleteLink(ctx context.Context, linkID string) error {
-	if linkID == "" {
-		return errors.New("link ID is empty")
-	}
-	link, err := s.c.GetLink(ctx, s.mainShare.ShareID, linkID)
-	if err != nil {
-		return err
-	}
-	if link.ParentLinkID == "" {
-		return ErrLinkHasNoParent
-	}
-	if err := s.c.DeleteChildren(ctx, s.mainShare.ShareID, link.ParentLinkID, linkID); err != nil {
-		return err
-	}
-	return nil
-}

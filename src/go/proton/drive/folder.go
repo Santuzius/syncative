@@ -29,7 +29,7 @@ import (
 	"github.com/ProtonMail/go-proton-api"
 )
 
-// Entry is the per-child record returned by ListDirectory / Stat.
+// Entry is the per-child record returned by ListDirectory.
 // Shapes to match Syncative's `RemoteItem` domain type across the FFI
 // boundary without the domain crate pulling in anything Proton-
 // specific.
@@ -142,40 +142,6 @@ func (s *Session) listDirectory(ctx context.Context, folderLinkID string) ([]*En
 		out = append(out, entryFromLink(child, name))
 	}
 	return out, nil
-}
-
-// Stat returns the metadata for a single link, with the name decrypted
-// via the parent's keyring. Returns nil without error when the link
-// exists but is not in the active state — mirrors the semantics the
-// sync engine expects from its `stat` port.
-func (s *Session) Stat(ctx context.Context, linkID string) (*Entry, error) {
-	if linkID == "" {
-		linkID = s.RootLinkID()
-	}
-	// Fresh from the API: callers record the timestamp the sync engine compares against, and a cached link would still show the revision before an upload.
-	link, err := s.refreshLink(ctx, linkID)
-	if err != nil {
-		return nil, err
-	}
-	if link.State != proton.LinkStateActive {
-		return nil, nil
-	}
-	var name string
-	if link.ParentLinkID == "" {
-		// Root link has no encrypted name — it's named by the share,
-		// not by the parent's keyring. Return a stable placeholder.
-		name = ""
-	} else {
-		parentKR, err := s.linkKRByID(ctx, link.ParentLinkID)
-		if err != nil {
-			return nil, err
-		}
-		name, err = link.GetName(parentKR, s.defaultAddrKR)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return entryFromLink(&link, name), nil
 }
 
 // ListAllChildren is a diagnostic variant of ListDirectory that returns
@@ -393,4 +359,14 @@ func (s *Session) listRecursive(ctx context.Context, rootLinkID string) ([]*Entr
 	}
 
 	return out, nil
+}
+
+// refreshLink fetches a link from the API, bypassing and updating the link cache.
+func (s *Session) refreshLink(ctx context.Context, linkID string) (proton.Link, error) {
+	link, err := s.c.GetLink(ctx, s.mainShare.ShareID, linkID)
+	if err != nil {
+		return link, err
+	}
+	s.cacheLink(link)
+	return link, nil
 }
