@@ -116,7 +116,7 @@ where
     if sync_dir.mode == SyncMode::NetworkDrive {
         // As a synced folder's pass, this one starts by checking for changes, which clears an error a previous pass left: Error stays over a later Synced.
         emit_state(RunState::Syncing(SyncActivity::Listing));
-        let drive = crate::services::network_drive::ensure_mounted(
+        let drive = super::network_drive::ensure_mounted(
             &remote.name,
             &sync_dir.remote_path,
             &sync_dir.local_path,
@@ -130,12 +130,7 @@ where
                 ));
             }
             // Like a synced folder's pass, each pass asks for the remote's changes; the mount then lists the changed folders anew.
-            crate::services::network_drive::poll(
-                &remote.name,
-                &sync_dir.remote_path,
-                sync_dir.id.0,
-                mounted,
-            )
+            super::network_drive::poll(&remote.name, &sync_dir.remote_path, sync_dir.id.0, mounted)
         });
         return match drive {
             Ok(_) => {

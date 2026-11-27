@@ -465,6 +465,16 @@ impl Msg {
     }
 }
 
+/// How the window names a folder: where its local side is, the path or for an Android network drive where other apps find it, with the beta mark (🧪) while its mode is a beta feature, as a beta provider's remote.
+fn folder_title(sync_dir: &SyncDir) -> String {
+    let local = if sync_dir.is_android_drive() {
+        "File manager".to_owned()
+    } else {
+        crate::util::fmt_home(&sync_dir.local_path)
+    };
+    crate::services::beta::marked(&local, sync_dir.mode.is_beta())
+}
+
 fn section_heading<'a>(label: &'a str) -> Element<'a, Msg> {
     container(text(label).size(HEADING)).padding([4, 2]).into()
 }

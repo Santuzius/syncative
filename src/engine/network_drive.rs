@@ -1,4 +1,4 @@
-//! The network drive mode ([`SyncMode::NetworkDrive`]): nothing is synced; rclone's VFS shows the remote folder, fetching a file when it is opened and keeping recently used ones in its cache. On Linux the folder's local path is a FUSE mount (`src/go/mount_linux.go`), which needs `fusermount3` (fuse3). On Android the folder has no local path, only [`android_path`] to tell folders apart; Syncative's document provider shows it to other apps (`src/go/rclone/netdrive/documents.go`, `DocumentsProvider.java`).
+//! The network drive mode ([`SyncMode::NetworkDrive`]): nothing is synced; rclone's VFS shows the remote folder, fetching a file when it is opened and keeping recently used ones in its cache. On Linux the folder's local path is a FUSE mount (`src/go/mount_linux.go`), which needs `fusermount3` (fuse3). On Android the folder has no local path, only a stand-in path to tell folders apart ([`SyncDir::android_drive_path`]); Syncative's document provider shows it to other apps (`src/go/rclone/netdrive/documents.go`, `DocumentsProvider.java`).
 
 use std::{
     collections::HashMap,
@@ -261,122 +261,38 @@ fn unmount_locked(mounts: &mut HashMap<String, Mount>, local_path: &str) -> Resu
     result.map(|_| ())
 }
 
-/// Where Android's network drive folders are said to be: they have no local path, but the database tells folders apart by it.
-pub const ANDROID_ROOT: &str = "/network-drive";
-
-/// The stand-in local path of a network drive of `remote_path` on `remote`, on Android.
-pub fn android_path(remote: &str, remote_path: &str) -> String {
-    let path = crate::util::strip_slashes(remote_path);
-    if path.is_empty() {
-        format!("{ANDROID_ROOT}/{remote}")
-    } else {
-        format!("{ANDROID_ROOT}/{remote}/{path}")
-    }
-}
-
-/// `local_path` is the stand-in of an Android network drive, see [`android_path`].
-pub fn is_android_drive(local_path: &str) -> bool {
-    cfg!(target_os = "android") && local_path.starts_with(ANDROID_ROOT)
-}
-
-/// [`local_display`] as the window names the folder: with the beta mark (🧪) while its mode is a beta feature, as a beta provider's remote.
-pub fn title(sync_dir: &SyncDir) -> String {
-    crate::services::beta::marked(&local_display(sync_dir), sync_dir.mode.is_beta())
-}
-
-/// How a folder's local side reads in the app: the path, or for an Android network drive where other apps find it.
-pub fn local_display(sync_dir: &SyncDir) -> String {
-    if is_android_drive(&sync_dir.local_path) {
-        "File manager".to_owned()
-    } else {
-        crate::util::fmt_home(&sync_dir.local_path)
-    }
-}
-
-/// A network drive as Android's document provider offers it to other apps.
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct Root {
-    /// The folder's ID, which the provider's document IDs start with.
-    pub id: i32,
-    /// What the VFS shows, `remote:path`.
-    #[serde(skip)]
-    pub fs: String,
-    /// The stand-in local path, see [`android_path`].
-    #[serde(skip)]
-    pub local_path: String,
-    /// The folder on the remote, or the remote's name for the whole drive.
-    pub title: String,
-    /// The remote's name; empty for the whole drive, whose title already names it.
-    pub summary: String,
-}
-
-static ROOTS: Mutex<Vec<Root>> = Mutex::new(Vec::new());
-
-/// The network drives the document provider offers, as the engine last read them.
-pub fn roots() -> Vec<Root> {
-    ROOTS.lock().map(|r| r.clone()).unwrap_or_default()
-}
-
-/// `remote:path` of the network drive folder `id`, for the document provider.
-pub fn root_fs(id: i32) -> Option<String> {
-    ROOTS
-        .lock()
-        .ok()?
-        .iter()
-        .find(|r| r.id == id)
-        .map(|r| r.fs.clone())
-}
-
-/// The ID of the network drive whose stand-in local path is `local_path`, see [`android_path`].
-pub fn root_at(local_path: &str) -> Option<i32> {
-    ROOTS
-        .lock()
-        .ok()?
-        .iter()
-        .find(|r| r.local_path == local_path)
-        .map(|r| r.id)
-}
-
-/// Offer the network drive folders among `sync_dirs` to other apps (Android), after the engine read them.
+/// Offer the network drive folders among `sync_dirs` to other apps through Android's document provider, after the engine read them.
 pub fn publish(remotes: &[Remote], sync_dirs: &[SyncDir]) {
-    let roots: Vec<Root> = sync_dirs
-        .iter()
-        .filter(|d| d.mode == SyncMode::NetworkDrive)
-        .filter_map(|d| {
-            let remote = remotes.iter().find(|r| r.id == d.remote_id)?;
-            Some(Root {
-                id: d.id.0,
-                fs: format!("{}:{}", remote.name, d.remote_path),
-                local_path: d.local_path.clone(),
-                title: if d.remote_path.is_empty() {
-                    remote.name.clone()
-                } else {
-                    d.remote_path.clone()
-                },
-                summary: if d.remote_path.is_empty() {
-                    String::new()
-                } else {
-                    remote.name.clone()
-                },
-            })
-        })
-        .collect();
-    let Ok(mut current) = ROOTS.lock() else {
-        return;
-    };
-    let changed = current.len() != roots.len()
-        || current
-            .iter()
-            .zip(&roots)
-            .any(|(a, b)| a.id != b.id || a.fs != b.fs);
-    *current = roots;
-    drop(current);
     #[cfg(target_os = "android")]
-    if changed {
-        crate::infrastructure::android::provider::roots_changed();
+    {
+        use crate::infrastructure::android::provider::{Root, set_roots};
+        set_roots(
+            sync_dirs
+                .iter()
+                .filter(|d| d.mode == SyncMode::NetworkDrive)
+                .filter_map(|d| {
+                    let remote = remotes.iter().find(|r| r.id == d.remote_id)?;
+                    Some(Root {
+                        id: d.id.0,
+                        fs: format!("{}:{}", remote.name, d.remote_path),
+                        local_path: d.local_path.clone(),
+                        title: if d.remote_path.is_empty() {
+                            remote.name.clone()
+                        } else {
+                            d.remote_path.clone()
+                        },
+                        summary: if d.remote_path.is_empty() {
+                            String::new()
+                        } else {
+                            remote.name.clone()
+                        },
+                    })
+                })
+                .collect(),
+        );
     }
     #[cfg(not(target_os = "android"))]
-    let _ = changed;
+    let _ = (remotes, sync_dirs);
 }
 
 /// Unmount what isn't a network drive folder in `sync_dirs` any more, e.g. after the folder or its remote was removed, and delete its cache and trash.
@@ -448,7 +364,6 @@ fn rclone_cache_dir() -> Option<std::path::PathBuf> {
     Some(value.get("cache")?.as_str()?.into())
 }
 
-/// Unmount every network drive, before the app quits; a mount left behind would fail every access until unmounted.
 /// Unmount the network drives of `remote`, e.g. when it signs in anew: a mount keeps the backend it was made with. The next pass mounts them again.
 pub fn unmount_remote(remote: &str) {
     let Ok(mut mounts) = MOUNTS.lock() else {
@@ -466,7 +381,8 @@ pub fn unmount_remote(remote: &str) {
     }
 }
 
-pub fn unmount_all() {
+/// Unmount every network drive, before the app quits; a mount left behind would fail every access until unmounted.
+pub(super) fn unmount_all() {
     let Ok(mut mounts) = MOUNTS.lock() else {
         return;
     };

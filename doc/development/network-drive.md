@@ -4,7 +4,7 @@ The fourth folder mode, *Network drive* 🧪 (`SyncMode::NetworkDrive`, a beta f
 
 ## Linux
 
-- `src/go/mount_linux.go` links rclone's FUSE mount (`cmd/mount`), which registers rclone's remote-control calls `mount/mount` and `mount/unmount`. Rust sends them through the ordinary RPC call (`src/services/network_drive.rs`); no export of its own is needed.
+- `src/go/mount_linux.go` links rclone's FUSE mount (`cmd/mount`), which registers rclone's remote-control calls `mount/mount` and `mount/unmount`. Rust sends them through the ordinary RPC call (`src/engine/network_drive.rs`); no export of its own is needed.
 - The mount uses `--vfs-cache-mode full`. The cache lies in rclone's default place, `~/.cache/rclone/vfs/<remote>{trash}/` (the name of the trash wrapper, see [Trash](#trash)); a cache of version 0.27 under `<remote>/` is moved there on the first mount.
 - Users need `fusermount3` (the `fuse3` package). Without it the folder shows rclone's error and the hint to install it.
 - **When it mounts:** a pass for the folder mounts it if this process hasn't yet, so it follows the remote's pause and the engine's schedule like any folder. Proton remotes work through Syncative's own rclone backend, Google Drive through rclone's.

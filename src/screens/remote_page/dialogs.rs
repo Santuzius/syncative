@@ -157,12 +157,9 @@ pub fn folder_settings_dialog<'a>(
     }
     let card = container(
         column![
-            text(format!(
-                "Settings for {}",
-                crate::services::network_drive::title(sd)
-            ))
-            .size(HEADING + 2.0)
-            .wrapping(Wrapping::WordOrGlyph),
+            text(format!("Settings for {}", super::folder_title(sd)))
+                .size(HEADING + 2.0)
+                .wrapping(Wrapping::WordOrGlyph),
             container(rows)
                 .padding([2, 0])
                 .width(Length::Fill)
@@ -404,7 +401,7 @@ pub fn confirm_delete_overlay<'a>(pending: &'a PendingDelete) -> Element<'a, Msg
             local,
             remote_label,
             ..
-        } if crate::services::network_drive::is_android_drive(local) => (
+        } if crate::domain::sync::SyncDir::is_android_drive_path(local) => (
             "Remove this network drive?".to_owned(),
             format!(
                 "{remote_label} no longer shows up in the Files app. No files are deleted there."

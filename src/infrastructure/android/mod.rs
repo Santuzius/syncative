@@ -208,7 +208,7 @@ pub fn run_in_background(on: bool) {
 
 /// Shows the folder at `path` in the default file manager; a network drive's stand-in path shows the drive.
 pub fn open_folder(path: &str) {
-    if let Some(root) = crate::services::network_drive::root_at(path) {
+    if let Some(root) = provider::root_at(path) {
         with_context(|env, context| {
             let class = bridge(env, context)?;
             env.call_static_method(

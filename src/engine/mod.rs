@@ -23,6 +23,7 @@ use crate::{
 
 mod core;
 pub mod folder;
+pub mod network_drive;
 mod pass;
 #[cfg(test)]
 mod tests;
@@ -173,7 +174,7 @@ pub struct Snapshot {
     /// Shared files waiting for or in their upload, per remote; absent when there are none.
     pub uploads: HashMap<RemoteId, UploadStatus>,
     /// Network drives moving files outside a pass; absent when idle.
-    pub drive_transfers: HashMap<SyncDirId, crate::services::network_drive::DriveTransfers>,
+    pub drive_transfers: HashMap<SyncDirId, network_drive::DriveTransfers>,
     /// How the remotes' intervals apply right now (see [`Command::Cadence`]).
     pub cadence: Cadence,
 }
@@ -229,6 +230,11 @@ pub fn start(
 /// The engine started by [`start`], if any.
 pub fn get() -> Option<&'static Handle> {
     GLOBAL.get()
+}
+
+/// Unmounts the network drives before the app quits: a mount left behind fails every access until unmounted. The one call into the engine that doesn't go through a [`Command`], since the app exits right after without waiting for a running pass, which can't be cancelled.
+pub fn shutdown() {
+    network_drive::unmount_all();
 }
 
 fn spawn(

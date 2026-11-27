@@ -25,16 +25,15 @@ use crate::{
         stderr_capture::CaptureHandle,
         tray::{self, TrayStatus},
     },
-    services::{
-        network_drive::{self, DriveTransfers},
-        share,
-    },
+    services::share,
     util::fmt_home,
 };
 
 use super::{
     CONFLICT_LINE_PREFIXES, Cadence, Command, Input, LINK_LINE_PREFIX, LogLine, Logs,
-    MAX_LOG_LINES, NESTED_LINE_PREFIX, PassEnd, PassVerdict, Snapshot, UploadStatus, pass::Pass,
+    MAX_LOG_LINES, NESTED_LINE_PREFIX, PassEnd, PassVerdict, Snapshot, UploadStatus,
+    network_drive::{self, DriveTransfers},
+    pass::Pass,
 };
 
 /// Tries per shared file before it is given up, not counting those that failed for want of a connection or a sign-in.
@@ -324,8 +323,8 @@ impl Core {
         };
         // The provider decides whether a pass watches stderr for rate-limit warnings; a failed lookup only loses that.
         self.backend.fill_provider_kinds(&mut remotes);
-        crate::services::network_drive::retain(&sync_dirs);
-        crate::services::network_drive::publish(&remotes, &sync_dirs);
+        network_drive::retain(&sync_dirs);
+        network_drive::publish(&remotes, &sync_dirs);
         self.apply(remotes, sync_dirs);
     }
 

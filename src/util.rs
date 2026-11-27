@@ -49,7 +49,7 @@ pub fn open_folder(path: &str) {
 pub fn can_open_folder(path: &str) -> bool {
     !cfg!(target_os = "android")
         || path.starts_with("/storage/")
-        || path.starts_with(crate::services::network_drive::ANDROID_ROOT)
+        || path.starts_with(crate::domain::sync::ANDROID_DRIVE_ROOT)
 }
 
 /// Show a local folder in Android's file manager.

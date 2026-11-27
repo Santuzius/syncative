@@ -113,7 +113,7 @@ pub(super) fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element
             status_icon(folder.state, 20.0)
         },
         column![
-            text(crate::services::network_drive::title(sd))
+            text(super::folder_title(sd))
                 .size(TEXT)
                 .wrapping(Wrapping::WordOrGlyph),
             row![

@@ -68,7 +68,7 @@ pub enum SyncMode {
     Upload,
     /// Local backup: the remote is the source. New and changed files come down; a file changed or deleted here is downloaded again; files deleted on the remote stay here, and files only here are left alone.
     Download,
-    /// Network drive (beta): nothing is synced; the local path shows the remote folder through rclone's mount, which fetches files when they are opened (`services::network_drive`).
+    /// Network drive (beta): nothing is synced; the local path shows the remote folder through rclone's mount, which fetches files when they are opened (`engine::network_drive`).
     NetworkDrive,
 }
 
@@ -214,7 +214,31 @@ impl From<SyncMode> for ModeChange {
     }
 }
 
+/// Where Android's network drive folders are said to be: they have no local path, but the database tells folders apart by it.
+pub const ANDROID_DRIVE_ROOT: &str = "/network-drive";
+
 impl SyncDir {
+    /// The stand-in local path of a network drive of `remote_path` on `remote`, on Android.
+    pub fn android_drive_path(remote: &str, remote_path: &str) -> String {
+        let path = remote_path.strip_prefix('/').unwrap_or(remote_path);
+        let path = path.strip_suffix('/').unwrap_or(path);
+        if path.is_empty() {
+            format!("{ANDROID_DRIVE_ROOT}/{remote}")
+        } else {
+            format!("{ANDROID_DRIVE_ROOT}/{remote}/{path}")
+        }
+    }
+
+    /// `local_path` is the stand-in of an Android network drive, see [`SyncDir::android_drive_path`].
+    pub fn is_android_drive_path(local_path: &str) -> bool {
+        cfg!(target_os = "android") && local_path.starts_with(ANDROID_DRIVE_ROOT)
+    }
+
+    /// This folder is an Android network drive, see [`SyncDir::android_drive_path`].
+    pub fn is_android_drive(&self) -> bool {
+        Self::is_android_drive_path(&self.local_path)
+    }
+
     /// `remote_path` relative to this folder's remote path, e.g. as an exclusion is stored; a path outside it comes back whole.
     pub fn relative<'a>(&self, remote_path: &'a str) -> &'a str {
         if self.remote_path.is_empty() {

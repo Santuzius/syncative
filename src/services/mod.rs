@@ -15,7 +15,6 @@ pub mod file_manager_menu;
 pub mod leftovers;
 pub mod nested_link;
 pub mod network;
-pub mod network_drive;
 pub mod power;
 pub mod remote_lifecycle;
 pub mod secrets;

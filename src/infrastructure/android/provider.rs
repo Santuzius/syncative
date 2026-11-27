@@ -1,4 +1,6 @@
-//! The native half of `NetworkDriveProvider`, the document provider that shows network drive folders ([`crate::services::network_drive`]) to other apps. The Java side turns Android's document calls into the RPC calls of src/go/rclone/netdrive/documents.go; file contents go through [`syncative_go::doc_read`] and [`syncative_go::doc_write`].
+//! The native half of `NetworkDriveProvider`, the document provider that shows network drive folders to other apps. The Java side turns Android's document calls into the RPC calls of src/go/rclone/netdrive/documents.go; file contents go through [`syncative_go::doc_read`] and [`syncative_go::doc_write`].
+
+use std::sync::Mutex;
 
 use jni::{
     JNIEnv,
@@ -6,7 +8,66 @@ use jni::{
     sys::{jint, jlong, jstring},
 };
 
-use crate::services::network_drive;
+/// A network drive as Android's document provider offers it to other apps.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Root {
+    /// The folder's ID, which the provider's document IDs start with.
+    pub id: i32,
+    /// What the VFS shows, `remote:path`.
+    #[serde(skip)]
+    pub fs: String,
+    /// The stand-in local path, see [`SyncDir::android_drive_path`](crate::domain::sync::SyncDir::android_drive_path).
+    #[serde(skip)]
+    pub local_path: String,
+    /// The folder on the remote, or the remote's name for the whole drive.
+    pub title: String,
+    /// The remote's name; empty for the whole drive, whose title already names it.
+    pub summary: String,
+}
+
+static ROOTS: Mutex<Vec<Root>> = Mutex::new(Vec::new());
+
+/// The network drives the document provider offers, as the engine last set them.
+fn roots() -> Vec<Root> {
+    ROOTS.lock().map(|r| r.clone()).unwrap_or_default()
+}
+
+/// `remote:path` of the network drive folder `id`, for the document provider.
+fn root_fs(id: i32) -> Option<String> {
+    ROOTS
+        .lock()
+        .ok()?
+        .iter()
+        .find(|r| r.id == id)
+        .map(|r| r.fs.clone())
+}
+
+/// The ID of the network drive whose stand-in local path is `local_path`, see [`SyncDir::android_drive_path`](crate::domain::sync::SyncDir::android_drive_path).
+pub(super) fn root_at(local_path: &str) -> Option<i32> {
+    ROOTS
+        .lock()
+        .ok()?
+        .iter()
+        .find(|r| r.local_path == local_path)
+        .map(|r| r.id)
+}
+
+/// Sets the network drives the document provider offers and tells apps showing it when they changed. The engine calls it after reading the folders.
+pub fn set_roots(roots: Vec<Root>) {
+    let Ok(mut current) = ROOTS.lock() else {
+        return;
+    };
+    let changed = current.len() != roots.len()
+        || current
+            .iter()
+            .zip(&roots)
+            .any(|(a, b)| a.id != b.id || a.fs != b.fs);
+    *current = roots;
+    drop(current);
+    if changed {
+        roots_changed();
+    }
+}
 
 fn new_string(env: &mut JNIEnv, text: &str) -> jstring {
     env.new_string(text)
@@ -27,7 +88,7 @@ extern "system" fn Java_io_github_santuzius_syncative_NetworkDriveProvider_nativ
     if crate::engine::get().is_none() {
         std::thread::spawn(crate::start_engine);
     }
-    let json = serde_json::to_string(&network_drive::roots()).unwrap_or_else(|_| "[]".to_owned());
+    let json = serde_json::to_string(&roots()).unwrap_or_else(|_| "[]".to_owned());
     new_string(&mut env, &json)
 }
 
@@ -46,7 +107,7 @@ extern "system" fn Java_io_github_santuzius_syncative_NetworkDriveProvider_nativ
         let mut input: serde_json::Value =
             serde_json::from_str(&input).map_err(|e| e.to_string())?;
         if root >= 0 {
-            let fs = network_drive::root_fs(root).ok_or("This network drive was removed.")?;
+            let fs = root_fs(root).ok_or("This network drive was removed.")?;
             input["fs"] = fs.into();
         }
         syncative_go::rpc(method, input.to_string()).map_err(|e| {
@@ -102,7 +163,7 @@ extern "system" fn Java_io_github_santuzius_syncative_NetworkDriveProvider_nativ
 }
 
 /// Tells apps showing Syncative's document provider that the network drives changed, e.g. after one was added.
-pub fn roots_changed() {
+fn roots_changed() {
     super::with_context(|env, context| {
         let class = super::bridge(env, context)?;
         env.call_static_method(

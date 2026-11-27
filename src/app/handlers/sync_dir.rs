@@ -315,10 +315,10 @@ impl SyncativeApp {
         else {
             return Task::none();
         };
-        // An Android network drive has no local folder, only a stand-in path (see `network_drive::android_path`).
+        // An Android network drive has no local folder, only a stand-in path (see `SyncDir::android_drive_path`).
         let android_drive = mode == SyncMode::NetworkDrive && cfg!(target_os = "android");
         let local = if android_drive {
-            crate::services::network_drive::android_path(&remote_name, &remote)
+            crate::domain::sync::SyncDir::android_drive_path(&remote_name, &remote)
         } else {
             expand_home(local.trim())
         };
@@ -373,7 +373,7 @@ impl SyncativeApp {
                 let created = tokio::task::spawn_blocking(move || {
                     if mode == SyncMode::NetworkDrive
                         && let Some(reason) =
-                            crate::services::network_drive::unusable_folder(&local_for_mk)
+                            crate::engine::network_drive::unusable_folder(&local_for_mk)
                     {
                         return Err(reason);
                     }

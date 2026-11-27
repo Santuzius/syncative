@@ -115,7 +115,7 @@ impl ProtonClient {
 /// Bind the session `uid` to `remote`, ending a session it replaces.
 fn bind(uid: &str, remote: &str) -> Result<(), String> {
     if let Some(replaced) = syncative_go::proton::bind_remote(uid, remote)? {
-        crate::services::network_drive::unmount_remote(remote);
+        crate::engine::network_drive::unmount_remote(remote);
         if let Err(err) = syncative_go::proton::logout(&replaced) {
             eprintln!("syncative: couldn't end the replaced Proton session of '{remote}': {err}");
         }
