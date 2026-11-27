@@ -70,8 +70,7 @@ pub struct Remote {
     pub id: RemoteId,
     pub name: String,
     pub policy: SyncPolicy,
-    /// Filled in after load by the app layer via `BackendClient::remote_type`.
-    /// Drives provider-specific UI hints (interval warnings, defaults).
+    /// Filled in after loading by [`crate::domain::ports::BackendClient::fill_provider_kinds`], in the app and in the engine. Picks the sign-in dialog, the settings card's account row and whether a pass watches stderr for rate limits.
     pub provider_kind: Option<ProviderKind>,
     /// Which adapter owns this remote at runtime. New rows default
     /// to `Backend::Rclone`; ProtonDrive remotes added via the

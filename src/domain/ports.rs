@@ -19,7 +19,7 @@ use std::{
 };
 
 use super::{
-    remote::{Remote, RemoteId, RemoteUsage, SyncPolicy},
+    remote::{ProviderKind, Remote, RemoteId, RemoteUsage, SyncPolicy},
     sync::{
         Changes, FileDetails, ListFilter, ModeChange, NestedFilter, RemoteCursor, RemoteItem,
         RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId,
@@ -301,6 +301,15 @@ pub trait BackendClient: Send + Sync {
     /// `"dropbox"`, `"protondrive"`, `"webdav"`, etc. Returns `Ok(None)`
     /// when the remote name isn't in rclone's config.
     fn remote_type(&self, remote: &str) -> Result<Option<String>, String>;
+
+    /// Fill in each remote's [`Remote::provider_kind`] from its backend type; a remote whose type can't be read keeps None.
+    fn fill_provider_kinds(&self, remotes: &mut [Remote]) {
+        for r in remotes {
+            if let Ok(Some(t)) = self.remote_type(&r.name) {
+                r.provider_kind = ProviderKind::from_rclone_type(&t);
+            }
+        }
+    }
 
     /// `true` when this client is a placeholder for a session that
     /// can't be used until the user reauthenticates.

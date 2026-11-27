@@ -16,7 +16,7 @@ use crate::{
     domain::{
         events::SyncEvent,
         ports::{BackendClient, Cancel, Repository, cancel_never},
-        remote::{ProviderKind, Remote, RemoteId, RemoteUsage},
+        remote::{Remote, RemoteId, RemoteUsage},
         run_state::{AppState, RunState, SyncActivity},
         sync::{Conflict, Resolution, SyncDir, SyncDirId, SyncError, SyncMode},
     },
@@ -326,11 +326,7 @@ impl Core {
             return;
         };
         // The provider decides whether a pass watches stderr for rate-limit warnings; a failed lookup only loses that.
-        for r in &mut remotes {
-            if let Ok(Some(t)) = self.backend.remote_type(&r.name) {
-                r.provider_kind = ProviderKind::from_rclone_type(&t);
-            }
-        }
+        self.backend.fill_provider_kinds(&mut remotes);
         crate::services::network_drive::retain(&sync_dirs);
         crate::services::network_drive::publish(&remotes, &sync_dirs);
         self.apply(remotes, sync_dirs);

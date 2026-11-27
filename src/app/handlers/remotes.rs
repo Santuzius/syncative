@@ -21,16 +21,8 @@ impl SyncativeApp {
         &mut self,
         mut remotes: Vec<Remote>,
     ) -> Task<Message> {
-        // Ask rclone for each remote's backend type so the settings
-        // can enforce provider-specific interval floors (see
-        // `ProviderKind::min_interval`). A failure here is non-fatal —
-        // the remote just loses its provider-specific floor for this
-        // session.
-        for r in &mut remotes {
-            if let Ok(Some(t)) = self.rclone.remote_type(&r.name) {
-                r.provider_kind = ProviderKind::from_rclone_type(&t);
-            }
-        }
+        // The settings card and the sign-in dialog tell the provider by it; a failed lookup only loses that.
+        self.rclone.fill_provider_kinds(&mut remotes);
         self.remotes = remotes;
         self.shared_oauth_client = self
             .remotes
