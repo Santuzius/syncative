@@ -40,19 +40,6 @@ impl ProviderKind {
         Interval::FifteenSeconds
     }
 
-    /// Intervals shorter than this are flagged in the UI with a ⚠.
-    /// Above it, the backend should cope without the warning. `None`
-    /// means no warnings for this provider.
-    pub fn short_interval_threshold(self) -> Option<Interval> {
-        None
-    }
-
-    /// Text shown on the tooltip next to the picker when the provider
-    /// has short-interval warnings.
-    pub fn short_interval_warning(self) -> Option<&'static str> {
-        None
-    }
-
     /// True when this provider uses rclone as its transport and therefore
     /// can benefit from the stderr-tap rate-limit detection in the rclone
     /// translator. ProtonDrive reports rate limits via its own error paths,
@@ -263,13 +250,6 @@ mod tests {
             ProviderKind::Nextcloud.default_interval(),
             Interval::FifteenSeconds,
         );
-    }
-
-    #[test]
-    fn short_interval_threshold_is_none_for_all_providers() {
-        assert_eq!(ProviderKind::ProtonDrive.short_interval_threshold(), None);
-        assert_eq!(ProviderKind::GDrive.short_interval_threshold(), None);
-        assert_eq!(ProviderKind::Dropbox.short_interval_threshold(), None);
     }
 
     #[test]

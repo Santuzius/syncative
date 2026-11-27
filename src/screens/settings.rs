@@ -2,13 +2,13 @@
 
 use iced::{
     Alignment, Element, Length,
-    widget::{button, column, container, row, rule, tooltip},
+    widget::{button, column, container, row, rule},
 };
 
 use crate::{
     domain::remote::{Interval, ProviderKind, Remote, RemoteId, SyncPolicy},
     theme::{self, CAPTION, TEXT},
-    widgets::{duration_picker, icon::icon, text},
+    widgets::{duration_picker, text},
 };
 
 #[derive(Debug, Clone)]
@@ -32,30 +32,7 @@ pub fn policy_from(msg: &Msg, current: &SyncPolicy) -> Option<SyncPolicy> {
 }
 
 pub fn view(remote: &Remote, auth_needed: bool) -> Element<'_, Msg> {
-    let warn_below = remote
-        .provider_kind
-        .and_then(|k| k.short_interval_threshold());
-    let mut interval_control = row![duration_picker::view(
-        remote.policy.interval,
-        warn_below,
-        Msg::IntervalChanged
-    )]
-    .spacing(8)
-    .align_y(Alignment::Center);
-    // Providers with a short-interval tripwire get a hoverable explanation next to the picker.
-    if let Some(warning) = remote
-        .provider_kind
-        .and_then(|k| k.short_interval_warning())
-    {
-        interval_control = interval_control.push(tooltip(
-            icon(icondata::TbAlertTriangleOutline, 16.0),
-            container(text(warning).size(CAPTION))
-                .padding(10)
-                .max_width(320)
-                .style(theme::card),
-            tooltip::Position::Left,
-        ));
-    }
+    let interval_control = duration_picker::view(remote.policy.interval, Msg::IntervalChanged);
 
     let (account_detail, account_button) = if auth_needed {
         (
@@ -85,7 +62,7 @@ pub fn view(remote: &Remote, auth_needed: bool) -> Element<'_, Msg> {
         setting_row(
             "Interval",
             "How often Syncative checks for changes on both sides.",
-            interval_control.into()
+            interval_control
         ),
         rule::horizontal(1).style(theme::separator),
         setting_row(
