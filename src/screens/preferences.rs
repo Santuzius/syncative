@@ -543,6 +543,7 @@ mod tests {
         assert_eq!(
             super::beta_features(),
             [
+                "Dropbox integration",
                 "Nextcloud integration",
                 "Local folder as a remote",
                 "Network drive",

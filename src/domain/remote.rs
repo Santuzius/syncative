@@ -77,7 +77,7 @@ impl ProviderKind {
 
     /// Offered only with the beta features on; such remotes carry the beta mark after their name. The one list of beta providers: taking one out here drops its mark from the picker and from every remote of it, as names are stored without the mark.
     pub fn is_beta(self) -> bool {
-        matches!(self, Self::Nextcloud | Self::Local)
+        matches!(self, Self::Dropbox | Self::Nextcloud | Self::Local)
     }
 }
 

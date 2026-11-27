@@ -55,7 +55,7 @@ pub const GDRIVE_CLIENT_ID_GUIDE: &str = "https://rclone.org/drive/#making-your-
 /// Syncative's privacy policy, usable as privacy policy link in the Google consent screen's branding.
 pub const PRIVACY_POLICY: &str = "https://github.com/Santuzius/syncative/blob/main/PRIVACY.md";
 
-/// The backends the auth code can set up, the same kinds a remote has. The picker offers Proton and Google, which the sync algorithm has been exercised against, and Nextcloud as a beta feature (see [`OFFERED`]). WebDAV / Owncloud / Dropbox / pCloud stay out of it: the snapshot algorithm is backend-agnostic so they should work, but none of them have been tested; the auth / RPC code paths for them stay.
+/// The backends the auth code can set up, the same kinds a remote has. The picker offers Proton and Google, which the sync algorithm has been exercised against, and Dropbox and Nextcloud as beta features (see [`OFFERED`]). WebDAV / Owncloud / pCloud stay out of it: the snapshot algorithm is backend-agnostic so they should work, but none of them have been tested; the auth / RPC code paths for them stay.
 pub use crate::domain::remote::ProviderKind;
 
 /// What the add-remote dialog needs to know about a provider.
@@ -119,9 +119,10 @@ impl std::fmt::Display for ProviderOption {
 }
 
 /// Every provider the picker can offer, in its order; the beta ones only with the beta features on.
-const OFFERED: [ProviderKind; 4] = [
+const OFFERED: [ProviderKind; 5] = [
     ProviderKind::ProtonDrive,
     ProviderKind::GDrive,
+    ProviderKind::Dropbox,
     ProviderKind::Nextcloud,
     ProviderKind::Local,
 ];
