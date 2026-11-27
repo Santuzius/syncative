@@ -41,7 +41,7 @@ type trashbinListing struct {
 	} `xml:"response"`
 }
 
-// NextcloudRestore takes what was at `location` (a path from the remote's root, as in rclone's listings) out of Nextcloud remote `remote`'s trash bin; of several entries from there, the one deleted closest to `deleted`. Returns ErrNoFolderTags when `remote` isn't a Nextcloud remote.
+// NextcloudRestore takes what was at `location` (a path from the remote's root, as in rclone's listings) out of Nextcloud remote `remote`'s trash bin; of several entries from there, the one deleted closest to `deleted`. Returns ErrNotNextcloud when `remote` isn't a Nextcloud remote.
 func NextcloudRestore(ctx context.Context, remote, location string, deleted time.Time) error {
 	opt, err := nextcloudOptions(remote)
 	if err != nil {

@@ -287,7 +287,7 @@ pub fn folder_tags(
     let reply: serde_json::Value =
         serde_json::from_str(&json).map_err(|e| format!("folder tags: {e}: {json}"))?;
     match reply.get("error").and_then(|e| e.as_str()) {
-        Some(NO_FOLDER_TAGS) => Ok(None),
+        Some(NOT_NEXTCLOUD) => Ok(None),
         Some(err) => Err(err.to_owned()),
         None => serde_json::from_value(reply)
             .map(Some)
@@ -295,8 +295,8 @@ pub fn folder_tags(
     }
 }
 
-/// `rclone.ErrNoFolderTags` in src/go/rclone/davtags.go.
-const NO_FOLDER_TAGS: &str = "the remote keeps no folder change tags";
+/// `rclone.ErrNotNextcloud` in src/go/rclone/davtags.go.
+const NOT_NEXTCLOUD: &str = "the remote is no Nextcloud remote";
 
 /// Drop the backend kept for `remote`'s change log, e.g. after its config was replaced or deleted.
 pub fn forget_remote(remote: &str) {

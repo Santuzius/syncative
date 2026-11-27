@@ -25,8 +25,8 @@ import (
 	"github.com/rclone/rclone/lib/rest"
 )
 
-// ErrNoFolderTags: the remote isn't a WebDAV remote whose server propagates folder ETags.
-var ErrNoFolderTags = errors.New("the remote keeps no folder change tags")
+// ErrNotNextcloud: the remote is no Nextcloud remote, so it has neither folder ETags nor Nextcloud's trash bin.
+var ErrNotNextcloud = errors.New("the remote is no Nextcloud remote")
 
 var etagProps = []byte(`<?xml version="1.0"?>
 <d:propfind xmlns:d="DAV:">
@@ -125,7 +125,7 @@ func (g *tagGate) folderTag(dir string, ask func(string) (string, error)) (strin
 	return tag, nil
 }
 
-// nextcloudOptions reads the options of Nextcloud remote `remote`, with the password revealed; ErrNoFolderTags when it is no Nextcloud remote.
+// nextcloudOptions reads the options of Nextcloud remote `remote`, with the password revealed; ErrNotNextcloud when it is no Nextcloud remote.
 func nextcloudOptions(remote string) (*webdav.Options, error) {
 	info, err := fs.Find("webdav")
 	if err != nil {
@@ -133,14 +133,14 @@ func nextcloudOptions(remote string) (*webdav.Options, error) {
 	}
 	m := fs.ConfigMap(info.Prefix, info.Options, remote, nil)
 	if kind, _ := m.Get("type"); kind != "webdav" {
-		return nil, ErrNoFolderTags
+		return nil, ErrNotNextcloud
 	}
 	opt := new(webdav.Options)
 	if err := configstruct.Set(m, opt); err != nil {
 		return nil, err
 	}
 	if opt.Vendor != "nextcloud" {
-		return nil, ErrNoFolderTags
+		return nil, ErrNotNextcloud
 	}
 	if !strings.HasSuffix(opt.URL, "/") {
 		opt.URL += "/"

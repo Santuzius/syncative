@@ -31,9 +31,46 @@ import (
 	"github.com/rclone/rclone/lib/ranges"
 )
 
-// untrasher: a remote that takes a file or folder out of its trash by ID, back where it was. Syncative's Proton backend and its Google Drive fork have it.
+// remoteTrash takes a trashed file or folder out of the remote's trash, back where it was. remoteTrashOf picks the way a remote has.
+type remoteTrash interface {
+	// restore returns errNotRestorable when `entry` lacks what this way needs.
+	restore(ctx context.Context, entry trashEntry) error
+}
+
+// errNotRestorable: the remote's trash can't give back this entry; restoring uploads the local copy instead.
+var errNotRestorable = errors.New("the remote has no trash to restore from")
+
+// untrasher: a remote that takes a file or folder out of its trash by ID. Syncative's Proton backend and its Google Drive fork have it.
 type untrasher interface {
 	Untrash(ctx context.Context, id string) error
+}
+
+// idTrash restores by the ID noted at trashing.
+type idTrash struct{ untrasher }
+
+func (t idTrash) restore(ctx context.Context, entry trashEntry) error {
+	if entry.ID == "" {
+		return errNotRestorable
+	}
+	return t.Untrash(ctx, entry.ID)
+}
+
+// nextcloudTrash restores from Nextcloud's trash bin by where the entry was and when it went (nextcloudtrash.go); root is the mount's folder on the remote.
+type nextcloudTrash struct{ remote, root string }
+
+func (t nextcloudTrash) restore(ctx context.Context, entry trashEntry) error {
+	return NextcloudRestore(ctx, t.remote, path.Join(t.root, entry.Path), entry.Deleted)
+}
+
+// remoteTrashOf is how backend `inner` of remote `remote`, mounted at folder `root`, restores from its trash; nil when it can't.
+func remoteTrashOf(inner rfs.Fs, remote, root string) remoteTrash {
+	if u, ok := inner.(untrasher); ok {
+		return idTrash{u}
+	}
+	if _, err := nextcloudOptions(remote); err == nil {
+		return nextcloudTrash{remote, root}
+	}
+	return nil
 }
 
 // trashEntry is what Syncative notes on an entry of the trash's files/, in entries/<name>.json.
@@ -320,16 +357,13 @@ func (f *trashFs) dirID(ctx context.Context, remote string) string {
 	return ""
 }
 
-// untrash takes trash entry `entry` out of the remote's trash, when the remote can. Returns whether it did.
-func (f *trashFs) untrash(ctx context.Context, entry trashEntry) (bool, error) {
-	if u, ok := f.inner.(untrasher); ok && entry.ID != "" {
-		return true, u.Untrash(ctx, entry.ID)
+// untrash takes trash entry `entry` out of the remote's trash; errNotRestorable when the remote can't.
+func (f *trashFs) untrash(ctx context.Context, entry trashEntry) error {
+	t := remoteTrashOf(f.inner, f.remote, f.root)
+	if t == nil {
+		return errNotRestorable
 	}
-	err := NextcloudRestore(ctx, f.remote, path.Join(f.root, entry.Path), entry.Deleted)
-	if errors.Is(err, ErrNoFolderTags) {
-		return false, nil
-	}
-	return err == nil, err
+	return t.restore(ctx, entry)
 }
 
 // restoreFile restores trashed file `src` (at `rel` in the trash) to `remote`: from the remote's trash if it still has it, else by uploading the local copy.
@@ -356,12 +390,8 @@ func (f *trashFs) restoreFile(ctx context.Context, src *trashObject, rel, remote
 }
 
 func (f *trashFs) untrashFile(ctx context.Context, entry trashEntry, remote string) (rfs.Object, error) {
-	done, err := f.untrash(ctx, entry)
-	if err != nil {
+	if err := f.untrash(ctx, entry); err != nil {
 		return nil, err
-	}
-	if !done {
-		return nil, errors.New("the remote has no trash to restore from")
 	}
 	f.DirCacheFlush()
 	o, err := f.inner.NewObject(ctx, entry.Path)
@@ -399,12 +429,8 @@ func (f *trashFs) restoreDir(ctx context.Context, rel, remote string) error {
 }
 
 func (f *trashFs) untrashDir(ctx context.Context, entry trashEntry, remote string) error {
-	done, err := f.untrash(ctx, entry)
-	if err != nil {
+	if err := f.untrash(ctx, entry); err != nil {
 		return err
-	}
-	if !done {
-		return errors.New("the remote has no trash to restore from")
 	}
 	f.DirCacheFlush()
 	// Google Drive lists the files of a restored folder only after some seconds; the VFS lists it anew then.
