@@ -179,6 +179,37 @@ pub mod sync {
         }
     }
 
+    /// What [`remove_duplicates`] did: paths that had identical copies deleted, and paths whose files differ.
+    #[derive(Deserialize, Debug, Default)]
+    pub struct Duplicates {
+        #[serde(default)]
+        pub removed: Vec<String>,
+        #[serde(default)]
+        pub differing: Vec<String>,
+    }
+
+    /// On the Google Drive remote `remote_name`, delete for good the identical copies of files that share a path in folder `path` (and below it with `recursive`), keeping the oldest; see `src/go/rclone/duplicates`.
+    pub fn remove_duplicates(
+        remote_name: &str,
+        path: &str,
+        recursive: bool,
+        cancel: &Cancel,
+    ) -> Result<Duplicates, RcloneError> {
+        match run_cancellable(
+            "syncative/duplicates",
+            &json!({
+                "fs": fs(remote_name)?,
+                "remote": util::strip_slashes(path),
+                "recurse": recursive,
+            })
+            .to_string(),
+            cancel,
+        ) {
+            Ok(reply) => super::parse(&reply),
+            Err(reply) => Err(RcloneError::from_reply(&reply)),
+        }
+    }
+
     /// The hashes the backend of `remote_name` keeps of each file, by their rclone names.
     pub fn hash_names(remote_name: &str, cancel: &Cancel) -> Result<Vec<String>, RcloneError> {
         #[derive(Deserialize)]

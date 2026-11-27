@@ -10,5 +10,8 @@ package main
 // Turns on the HTTP/2 pings for rclone's transports.
 import _ "syncative/go/nethealth"
 
+// Removes identical copies on Google Drive.
+import _ "syncative/go/rclone/duplicates"
+
 // main is required by cgo for c-archive builds; body intentionally empty.
 func main() {}

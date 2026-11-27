@@ -111,6 +111,15 @@ fn map_item(item: BackendRemoteItem) -> RemoteItem {
     }
 }
 
+/// Whether two files in `items` share a path.
+fn has_duplicate_files(items: &[RemoteItem]) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    items
+        .iter()
+        .filter(|item| !item.is_dir)
+        .any(|item| !seen.insert(item.path.as_str()))
+}
+
 fn map_filter(filter: ListFilter) -> BackendListFilter {
     match filter {
         ListFilter::All => BackendListFilter::All,
@@ -169,11 +178,30 @@ impl BackendClient for LibrcloneClient {
         filter: ListFilter,
         cancel: &Cancel,
     ) -> Result<Vec<RemoteItem>, String> {
-        let items: Vec<RemoteItem> =
+        let list = || {
             rpc::sync::list(remote, path, recursive, map_filter(filter), cancel)
-                .map(|items| items.into_iter().map(map_item).collect())
-                .map_err(|err| err.error)?;
-        Ok(items)
+                .map(|items| items.into_iter().map(map_item).collect::<Vec<_>>())
+                .map_err(|err| err.error)
+        };
+        let items = list()?;
+        if !has_duplicate_files(&items) || self.remote_type(remote)?.as_deref() != Some("drive") {
+            return Ok(items);
+        }
+        // Google Drive keeps several files under one name, e.g. after an upload that rclone started again; the sync would see only one of them.
+        let duplicates = rpc::sync::remove_duplicates(remote, path, recursive, cancel)
+            .map_err(|err| err.error)?;
+        for removed in &duplicates.removed {
+            eprintln!(
+                "sync: deleted the identical copies of '{removed}' on {remote}, which kept several files under that name."
+            );
+        }
+        if !duplicates.differing.is_empty() {
+            return Err(tr::tr!(
+                "Google Drive holds several different files named '{}'. Keep one of them in Google Drive, then sync again.",
+                duplicates.differing.join("', '")
+            ));
+        }
+        list()
     }
 
     fn details(
@@ -392,6 +420,26 @@ mod tests {
 
     fn item(json: &str) -> BackendRemoteItem {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn only_two_files_of_one_path_are_duplicates() {
+        let at = |path: &str, is_dir: bool| RemoteItem {
+            is_dir,
+            path: path.to_owned(),
+            name: path.to_owned(),
+            mod_time: OffsetDateTime::UNIX_EPOCH,
+            id: None,
+            tag: None,
+        };
+        assert!(!has_duplicate_files(&[at("a", false), at("b", false)]));
+        assert!(has_duplicate_files(&[
+            at("a", false),
+            at("b", false),
+            at("a", false)
+        ]));
+        // Folders of one name are left alone.
+        assert!(!has_duplicate_files(&[at("d", true), at("d", true)]));
     }
 
     #[test]
