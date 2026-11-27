@@ -2,27 +2,21 @@
 
 use std::{io, path::PathBuf};
 
+const FLAG: &str = "autostart-off";
+
 /// Where the switch lives; shown when changing it fails.
 pub fn entry_path() -> PathBuf {
-    crate::util::get_data_dir().join("autostart-off")
+    crate::util::get_data_dir().join(FLAG)
 }
 
 /// Whether Syncative starts after booting.
 pub fn enabled() -> bool {
-    !entry_path().exists()
+    !crate::util::has_flag(FLAG)
 }
 
 /// Switch autostart on or off.
 pub fn set(enabled: bool) -> io::Result<()> {
-    let path = entry_path();
-    if enabled {
-        match std::fs::remove_file(&path) {
-            Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
-            _ => Ok(()),
-        }
-    } else {
-        std::fs::write(&path, "")
-    }
+    crate::util::set_flag(FLAG, !enabled)
 }
 
 /// Nothing to keep current on Android; the boot receiver is part of the app.

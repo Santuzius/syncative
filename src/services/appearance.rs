@@ -153,11 +153,8 @@ impl Appearance {
     /// From `key=value` lines; unknown keys and values fall back to the defaults.
     pub fn parse(content: &str) -> Self {
         let mut appearance = Self::default();
-        for line in content.lines() {
-            let Some((key, value)) = line.split_once('=') else {
-                continue;
-            };
-            match key.trim() {
+        for (key, value) in crate::util::conf_entries(content) {
+            match key {
                 "window" => appearance.window = ThemeChoice::parse(value).unwrap_or_default(),
                 "tray_icon" => {
                     appearance.tray_icon = TrayIconChoice::parse(value).unwrap_or_default()
@@ -170,10 +167,7 @@ impl Appearance {
     }
 
     pub fn save(&self, data_dir: &Path) -> io::Result<()> {
-        std::fs::create_dir_all(data_dir)?;
-        let tmp = data_dir.join(format!("{FILE_NAME}.tmp"));
-        std::fs::write(&tmp, self.to_conf())?;
-        std::fs::rename(&tmp, data_dir.join(FILE_NAME))
+        crate::util::save_file(data_dir, FILE_NAME, &self.to_conf())
     }
 
     /// As `key=value` lines, the form [`parse`](Self::parse) reads.
@@ -188,18 +182,16 @@ impl Appearance {
 }
 
 /// Marks that the tray icon's colour was explained once ([`crate::screens::preferences::tray_hint_dialog`]). Belongs to this computer, so it isn't part of `appearance.conf` and its export.
-fn tray_hint_path() -> std::path::PathBuf {
-    crate::util::get_data_dir().join("tray-hint-seen")
-}
+const TRAY_HINT_FLAG: &str = "tray-hint-seen";
 
 /// Whether the explanation of the tray icon's colour was closed before.
 pub fn tray_hint_seen() -> bool {
-    tray_hint_path().exists()
+    crate::util::has_flag(TRAY_HINT_FLAG)
 }
 
 /// Don't show the explanation again.
 pub fn mark_tray_hint_seen() -> io::Result<()> {
-    std::fs::write(tray_hint_path(), "")
+    crate::util::set_flag(TRAY_HINT_FLAG, true)
 }
 
 #[cfg(test)]

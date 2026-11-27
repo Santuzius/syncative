@@ -180,6 +180,39 @@ pub fn get_runtime_dir() -> Option<PathBuf> {
     }
 }
 
+/// Whether the flag file `name` exists in the data dir. A flag file holds a setting of this device by being there.
+pub fn has_flag(name: &str) -> bool {
+    get_data_dir().join(name).exists()
+}
+
+/// Create or remove the flag file `name` in the data dir.
+pub fn set_flag(name: &str, present: bool) -> std::io::Result<()> {
+    let path = get_data_dir().join(name);
+    if present {
+        return std::fs::write(&path, "");
+    }
+    match std::fs::remove_file(&path) {
+        Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err),
+        _ => Ok(()),
+    }
+}
+
+/// The `key=value` lines of a settings file, keys trimmed; other lines are skipped.
+pub fn conf_entries(content: &str) -> impl Iterator<Item = (&str, &str)> {
+    content
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .map(|(key, value)| (key.trim(), value))
+}
+
+/// Write `content` to file `name` in `dir` through a temporary file, so a crash leaves either the old or the new file.
+pub fn save_file(dir: &std::path::Path, name: &str, content: &str) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let tmp = dir.join(format!("{name}.tmp"));
+    std::fs::write(&tmp, content)?;
+    std::fs::rename(&tmp, dir.join(name))
+}
+
 /// `time` in whole seconds since 1970; None before 1970.
 pub fn unix_secs(time: std::time::SystemTime) -> Option<u64> {
     time.duration_since(std::time::UNIX_EPOCH)

@@ -124,11 +124,8 @@ impl PowerSettings {
     /// From `key=value` lines; unknown keys and values fall back to the defaults.
     pub fn parse(content: &str) -> Self {
         let mut settings = Self::default();
-        for line in content.lines() {
-            let Some((key, value)) = line.split_once('=') else {
-                continue;
-            };
-            match key.trim() {
+        for (key, value) in crate::util::conf_entries(content) {
+            match key {
                 "mode" => settings.mode = PowerMode::parse(value).unwrap_or_default(),
                 "sync_metered" => settings.sync_metered = value.trim() != "no",
                 "asked_battery" => settings.asked_battery = value.trim() == "yes",
@@ -139,10 +136,7 @@ impl PowerSettings {
     }
 
     pub fn save(&self, data_dir: &Path) -> io::Result<()> {
-        std::fs::create_dir_all(data_dir)?;
-        let tmp = data_dir.join(format!("{FILE_NAME}.tmp"));
-        std::fs::write(&tmp, self.to_conf())?;
-        std::fs::rename(&tmp, data_dir.join(FILE_NAME))
+        crate::util::save_file(data_dir, FILE_NAME, &self.to_conf())
     }
 
     /// As `key=value` lines, the form [`parse`](Self::parse) reads.
