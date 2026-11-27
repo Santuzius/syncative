@@ -13,7 +13,7 @@ use crate::{
         remote::RemoteId,
         sync::{ModeChange, Resolution, SyncDir, SyncDirId},
     },
-    infrastructure::{stderr_capture::CaptureHandle, translators::rclone::RATE_LIMIT_MARKERS},
+    infrastructure::{errors::RATE_LIMIT_MARKERS, stderr_capture::CaptureHandle},
     services::sync::Outcome,
 };
 
@@ -76,7 +76,7 @@ impl Pass {
         let sync_dirs = repo.list_sync_dirs(remote_id).await.unwrap_or_default();
         let all_sync_dirs = repo.list_all_sync_dirs().await.unwrap_or_default();
         tokio::task::spawn_blocking(move || {
-            // The stderr probe: only rclone-transport backends emit rate-limit warnings to stderr. Native Proton reports throttling via its own error paths. For rclone backends, any line matching the rclone translator's marker set flips the pass to Degraded.
+            // The stderr probe: rclone's own backends log rate-limit warnings to stderr while they retry; Syncative's Proton backend logs none. A line matching the markers flips the pass to Degraded.
             let use_stderr_probe = remote
                 .provider_kind
                 .is_none_or(|k| k.uses_rclone_transport());

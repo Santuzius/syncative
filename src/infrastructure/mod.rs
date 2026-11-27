@@ -3,6 +3,7 @@ pub mod android;
 pub mod client_router;
 #[cfg(not(target_os = "android"))]
 pub mod color_scheme;
+pub mod errors;
 #[cfg(not(target_os = "android"))]
 pub mod network_monitor;
 pub mod persistence;
@@ -12,5 +13,4 @@ pub mod proton;
 pub mod rclone;
 pub mod single_instance;
 pub mod stderr_capture;
-pub mod translators;
 pub mod tray;

@@ -319,7 +319,7 @@ impl BackendClient for LibrcloneClient {
         // One request for what changed since the last pass; a backend that can't answer makes the pass list the folder, unless the network is gone.
         let found = match syncative_go::changes_since(remote, path, cursor.unwrap_or(""), cancel) {
             Ok(found) => found,
-            Err(err) if crate::infrastructure::translators::is_offline(&err) => return Err(err),
+            Err(err) if crate::infrastructure::errors::is_offline(&err) => return Err(err),
             Err(err) => {
                 eprintln!("sync: no changes for '{path}' on {remote}: {err}");
                 return Ok(Changes::Unknown { cursor: None });

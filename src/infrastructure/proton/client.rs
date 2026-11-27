@@ -23,7 +23,7 @@ use crate::{
 /// The rclone type of Syncative's Proton backend, also the remote type the app shows.
 pub const PROTON_TYPE: &str = crate::domain::remote::ProviderKind::ProtonDrive.rclone_type();
 
-/// Sentence every reason for a new sign-in ends with. The Proton translator keys on it so these errors count as auth failures.
+/// Sentence every reason for a new sign-in ends with. [`crate::infrastructure::errors::is_auth_failure`] keys on it.
 pub const REAUTH_HINT: &str = "Open the remote in Syncative and click Sign in again.";
 
 /// Minimum gap between resume attempts. A failing pass calls into the client repeatedly; without it each call would dial Proton and read the keyring again.
@@ -142,9 +142,9 @@ fn resumed(remote: &str) -> Session {
         Ok(None) => Session::NeedsSignIn(format!(
             "Proton Drive session for '{remote}' not found in keyring. {REAUTH_HINT}"
         )),
-        Err(err) if crate::engine::is_auth_failure(&err) => Session::NeedsSignIn(format!(
-            "Proton Drive session for '{remote}' has expired ({err}). {REAUTH_HINT}"
-        )),
+        Err(err) if crate::infrastructure::errors::is_auth_failure(&err) => Session::NeedsSignIn(
+            format!("Proton Drive session for '{remote}' has expired ({err}). {REAUTH_HINT}"),
+        ),
         Err(err) => pending(err),
     }
 }

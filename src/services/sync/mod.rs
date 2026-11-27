@@ -139,7 +139,7 @@ where
                 emit_state(RunState::Synced);
                 Outcome::Synced
             }
-            Err(err) if crate::infrastructure::translators::is_offline(&err) => {
+            Err(err) if crate::infrastructure::errors::is_offline(&err) => {
                 eprintln!(
                     "sync: offline, network drive {}: {err}",
                     sync_dir.local_path
@@ -191,7 +191,7 @@ where
             emit_status(tr::tr!("Sync cancelled."));
             return Outcome::Aborted;
         }
-        Err(err) if crate::infrastructure::translators::is_offline(&err) => {
+        Err(err) if crate::infrastructure::errors::is_offline(&err) => {
             eprintln!("sync: offline, list failed for {}: {err}", remote.name);
             emit_status(tr::tr!(
                 "Offline — couldn't reach {}; trying again later.",

@@ -20,6 +20,7 @@ use crate::{
         run_state::{AppState, RunState, SyncActivity},
         sync::{Conflict, Resolution, SyncDir, SyncDirId, SyncError, SyncMode},
     },
+    infrastructure::errors::is_auth_failure,
     infrastructure::{
         stderr_capture::CaptureHandle,
         tray::{self, TrayStatus},
@@ -33,8 +34,7 @@ use crate::{
 
 use super::{
     CONFLICT_LINE_PREFIXES, Cadence, Command, Input, LINK_LINE_PREFIX, LogLine, Logs,
-    MAX_LOG_LINES, NESTED_LINE_PREFIX, PassEnd, PassVerdict, Snapshot, UploadStatus,
-    is_auth_failure, pass::Pass,
+    MAX_LOG_LINES, NESTED_LINE_PREFIX, PassEnd, PassVerdict, Snapshot, UploadStatus, pass::Pass,
 };
 
 /// Tries per shared file before it is given up, not counting those that failed for want of a connection or a sign-in.
@@ -197,7 +197,7 @@ impl Core {
             }
             Err(err) => {
                 // A remote without folders makes no other calls, so this is where a wrong password shows. Flagging it keeps the scheduler off the remote; otherwise every pass would try again, and servers such as Nextcloud throttle all logins from this address after a few failures.
-                if super::is_auth_failure(&err) {
+                if is_auth_failure(&err) {
                     self.state.auth_failure(id);
                 }
                 if self.usage_failed.insert(id) {
@@ -708,7 +708,7 @@ impl Core {
                 // HTTP 401 and the matching rclone phrasing mean the session is dead and only reauth fixes it. Flag the whole remote (the session is per remote) and stop the running pass. The flag alone keeps the scheduler off the remote; the user's Enabled setting stays, so a successful reauth resumes syncing without a detour through the settings.
                 let auth_failure =
                     matches!(&error, SyncError::General(_, msg) if is_auth_failure(msg));
-                let offline = matches!(&error, SyncError::General(_, msg) if crate::infrastructure::translators::is_offline(msg));
+                let offline = matches!(&error, SyncError::General(_, msg) if crate::infrastructure::errors::is_offline(msg));
                 // A call cut short because the pass was stopped (network gone, remote paused or deleted) says nothing about the file.
                 let stopped = self
                     .cancel_flags
@@ -1066,7 +1066,7 @@ impl Core {
             }) => {
                 job.name = chosen;
                 let auth = is_auth_failure(&err);
-                let offline = self.offline || crate::infrastructure::translators::is_offline(&err);
+                let offline = self.offline || crate::infrastructure::errors::is_offline(&err);
                 if auth {
                     self.state.auth_failure(remote_id);
                 }

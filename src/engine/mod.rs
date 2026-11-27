@@ -342,10 +342,3 @@ fn busy_changed(busy: bool) {
 
 #[cfg(not(target_os = "android"))]
 fn busy_changed(_busy: bool) {}
-
-/// True when an error message indicates an auth failure across any backend. Delegates to the per-backend translators so the classification lives exactly once.
-pub(crate) fn is_auth_failure(msg: &str) -> bool {
-    use crate::domain::backend_events::EventTranslator;
-    use crate::infrastructure::translators::{proton::ProtonTranslator, rclone::RcloneTranslator};
-    RcloneTranslator.is_auth_failure(msg) || ProtonTranslator.is_auth_failure(msg)
-}

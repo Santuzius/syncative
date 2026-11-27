@@ -48,10 +48,7 @@ impl ProviderKind {
         Interval::FifteenSeconds
     }
 
-    /// True when this provider uses rclone as its transport and therefore
-    /// can benefit from the stderr-tap rate-limit detection in the rclone
-    /// translator. ProtonDrive reports rate limits via its own error paths,
-    /// so it doesn't need the tap.
+    /// Whether the pass watches stderr for the rate-limit warnings rclone's own backends log ([`crate::infrastructure::errors::RATE_LIMIT_MARKERS`]); Syncative's Proton backend logs none of them.
     pub fn uses_rclone_transport(self) -> bool {
         !matches!(self, Self::ProtonDrive)
     }

@@ -4,7 +4,6 @@
 //! Infrastructure adapters map between these types and their external
 //! representations; services work only with these types.
 
-pub mod backend_events;
 pub mod events;
 pub mod ports;
 pub mod remote;
