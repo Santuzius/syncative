@@ -50,7 +50,7 @@ type davMultistatus struct {
 	} `xml:"response"`
 }
 
-// FolderTags returns the ETag of folder `dir` (a path from the remote's root, as in rclone's listings) and, with `depth` 1, those of the folders directly in it by path. A missing folder gives an error that says "directory not found".
+// FolderTags returns the ETag of folder `dir` (a path from the remote's root, as in rclone's listings) and, with `depth` 1, those of the folders directly in it by path. A missing folder gives fs.ErrorDirNotFound.
 func FolderTags(ctx context.Context, remote, dir string, depth int) (tag string, children map[string]string, err error) {
 	opt, err := Options(remote)
 	if err != nil {
