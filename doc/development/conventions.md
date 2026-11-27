@@ -47,7 +47,7 @@
 - Forks of iced, iced_android and android-activity: see [android/README.md](../../android/README.md) and [release.md](../packaging/release.md#the-android-forks).
 
 ## Layers
-The Rust code in `src/` is split into layers; each uses only those below it:
+The Rust code in `src/` is split into layers; each uses only the layers named in its row:
 
 | Layer | Holds | Uses |
 |---|---|---|
@@ -56,10 +56,12 @@ The Rust code in `src/` is split into layers; each uses only those below it:
 | `engine` | the sync thread: scheduling, one pass per remote, the network drives; `engine/folder` syncs one folder | `domain`, `infrastructure`; `engine/folder` only the port traits |
 | `services` | the features around the sync: sign-in, sharing, preferences, folder helpers | `domain`, `infrastructure`, `engine` |
 | `app`, `screens`, `widgets` | the window | everything below |
+| `inbound` | entry points through which the platform calls Syncative on its own: Android's JNI callbacks from the sync service, the network watch, shared files and the document provider | everything below `app` |
 
 - `engine/folder` reaches the remote and the database only through `BackendClient` and `Repository`, so its tests run it against the fakes in `test_support`. A unit test (`the_folder_sync_uses_no_adapter_directly`) fails once a file there names `infrastructure` or the Go library.
 - The window talks to the engine through its commands; only `engine::shutdown()`, which unmounts the network drives on quit, is called directly.
-- Platform callbacks in `infrastructure` (JNI entry points, D-Bus signals, files handed over by a second start) pass what they receive up to the service or the engine that handles it. The Proton client also calls into sign-in and the network drives until its session moves to Go ([todo.md](../todo.md)).
+- An adapter that reports on its own gets its handlers from whoever starts it: `lib.rs` hands the desktop portal's network monitor the functions of `services::network`, and the second-start socket yields requests that the window handles. JNI entry points that only answer a call Syncative made, such as a picked folder, stay with their adapter.
+- The one exception is the Proton client, which calls into sign-in, the network state and the network drives until its session moves to Go ([todo.md](../todo.md)).
 
 ## Code
 - Rust code follows `rustfmt` with its defaults (`rustfmt.toml` only pins the style edition): run `cargo fmt --all` before committing, and `cargo fmt --all --check` stays clean. Editors that format on save pick up `rustfmt.toml` by themselves.
