@@ -164,6 +164,53 @@ pub fn poll(remote: &str, remote_path: &str, folder_id: i32, reset: bool) -> Res
         .unwrap_or(0))
 }
 
+/// Files a network drive moves right now, outside a pass: downloads of what a file manager opened, uploads of what it saved.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DriveTransfers {
+    pub downloading: u64,
+    pub uploading: u64,
+}
+
+impl DriveTransfers {
+    /// What the drive does, as the folder's line says it.
+    pub fn text(self) -> String {
+        let files = |n: u64| {
+            if n == 1 {
+                tr::tr!("1 file")
+            } else {
+                tr::tr!("{} files", n)
+            }
+        };
+        match (self.downloading, self.uploading) {
+            (0, up) => tr::tr!("Uploading {}…", files(up)),
+            (down, 0) => tr::tr!("Downloading {}…", files(down)),
+            (down, up) => tr::tr!("Downloading {}, uploading {}…", files(down), files(up)),
+        }
+    }
+}
+
+/// The network drives among `drives` (each as [`mount_fs`] names it) that move files right now, by that name; empty when rclone can't say.
+pub fn transfers(drives: &[String]) -> HashMap<String, DriveTransfers> {
+    let input = serde_json::json!({ "fs": drives });
+    let Ok(reply) = syncative_go::rpc("syncative/drive-transfers", input.to_string()) else {
+        return HashMap::new();
+    };
+    let count = |v: &serde_json::Value, key: &str| v.get(key).and_then(serde_json::Value::as_u64);
+    serde_json::from_str::<serde_json::Value>(&reply)
+        .ok()
+        .and_then(|v| v.get("drives")?.as_object().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(fs, v)| {
+            let transfers = DriveTransfers {
+                downloading: count(&v, "downloading").unwrap_or(0),
+                uploading: count(&v, "uploading").unwrap_or(0),
+            };
+            (fs, transfers)
+        })
+        .collect()
+}
+
 /// The mount points rclone still serves, or `None` when it can't say.
 fn rclone_mounts() -> Option<Vec<String>> {
     let reply = syncative_go::rpc("mount/listmounts", "{}".to_owned()).ok()?;

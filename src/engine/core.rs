@@ -18,13 +18,16 @@ use crate::{
         ports::{BackendClient, Cancel, Repository, cancel_never},
         remote::{ProviderKind, Remote, RemoteId, RemoteUsage},
         run_state::{AppState, RunState, SyncActivity},
-        sync::{Conflict, Resolution, SyncDir, SyncDirId, SyncError},
+        sync::{Conflict, Resolution, SyncDir, SyncDirId, SyncError, SyncMode},
     },
     infrastructure::{
         stderr_capture::CaptureHandle,
         tray::{self, TrayStatus},
     },
-    services::share,
+    services::{
+        network_drive::{self, DriveTransfers},
+        share,
+    },
     util::fmt_home,
 };
 
@@ -39,6 +42,9 @@ pub(crate) const UPLOAD_TRIES: u32 = 3;
 /// Wait before a failed upload is tried again, times the tries so far.
 const UPLOAD_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
 /// Wait before a file that changed during its upload goes up again, so a save in progress can finish.
+/// How often the network drives are asked whether they move files, while there are any.
+const DRIVE_CHECK: std::time::Duration = std::time::Duration::from_secs(1);
+
 const UPLOAD_SETTLE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Why a shared file didn't go up.
@@ -119,6 +125,10 @@ pub(crate) struct Core {
     usage_failed: HashSet<RemoteId>,
     /// Shared files to upload, oldest first; one file per remote at a time.
     uploads: Vec<UploadJob>,
+    /// Network drives moving files outside a pass (see [`network_drive::transfers`]).
+    drive_transfers: HashMap<SyncDirId, DriveTransfers>,
+    /// When the network drives are asked next.
+    next_drive_check: Instant,
 }
 
 impl Core {
@@ -158,6 +168,8 @@ impl Core {
             usage: HashMap::new(),
             usage_failed: HashSet::new(),
             uploads: Vec::new(),
+            drive_transfers: HashMap::new(),
+            next_drive_check: Instant::now(),
         }
     }
 
@@ -461,7 +473,58 @@ impl Core {
     }
 
     /// Start every remote whose interval is up. Remotes inside a backoff window skip the turn instead: the counter goes down and the interval starts over.
+    /// Ask the network drives whether they move files, at most every [`DRIVE_CHECK`], and show it on their folders.
+    fn check_drives(&mut self, now: Instant) {
+        if now < self.next_drive_check {
+            return;
+        }
+        self.next_drive_check = now + DRIVE_CHECK;
+        let drives: Vec<(&SyncDir, &Remote, String)> = self
+            .sync_dirs
+            .iter()
+            .filter(|d| d.mode == SyncMode::NetworkDrive)
+            .filter_map(|d| {
+                let remote = self.remotes.iter().find(|r| r.id == d.remote_id)?;
+                Some((
+                    d,
+                    remote,
+                    network_drive::mount_fs(&remote.name, &d.remote_path, d.id.0),
+                ))
+            })
+            .collect();
+        let found = if drives.is_empty() {
+            HashMap::new()
+        } else {
+            let names: Vec<String> = drives.iter().map(|(_, _, fs)| fs.clone()).collect();
+            network_drive::transfers(&names)
+        };
+        let transfers: HashMap<SyncDirId, (RemoteId, DriveTransfers)> = drives
+            .iter()
+            .filter_map(|(d, r, fs)| Some((d.id, (r.id, *found.get(fs)?))))
+            .collect();
+        let current: HashMap<SyncDirId, DriveTransfers> =
+            transfers.iter().map(|(id, (_, t))| (*id, *t)).collect();
+        if current == self.drive_transfers {
+            return;
+        }
+        self.drive_transfers = current;
+        // Saving waits for its upload more than reading for its download, so an upload shows first.
+        let activities = transfers
+            .into_iter()
+            .map(|(id, (remote, t))| {
+                let activity = if t.uploading > 0 {
+                    SyncActivity::Uploading
+                } else {
+                    SyncActivity::Downloading
+                };
+                (id, (remote, activity))
+            })
+            .collect();
+        self.state.set_transfers(&activities);
+    }
+
     pub fn start_due(&mut self, now: Instant) {
+        self.check_drives(now);
         let candidates: Vec<(RemoteId, std::time::Duration)> = self
             .remotes
             .iter()
@@ -517,7 +580,12 @@ impl Core {
                 )
             })
             .min();
-        [pass, retry].into_iter().flatten().min()
+        let drives = self
+            .sync_dirs
+            .iter()
+            .any(|d| d.mode == SyncMode::NetworkDrive)
+            .then_some(self.next_drive_check);
+        [pass, retry, drives].into_iter().flatten().min()
     }
 
     /// Spawn a pass for one remote. No-op if one is running or the session is dead.
@@ -842,7 +910,9 @@ impl Core {
 
     /// Whether a pass or an upload of shared files is running.
     pub fn busy(&self) -> bool {
-        !self.syncing.is_empty() || self.uploads.iter().any(|j| j.active)
+        !self.syncing.is_empty()
+            || self.uploads.iter().any(|j| j.active)
+            || !self.drive_transfers.is_empty()
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -860,6 +930,7 @@ impl Core {
             offline: self.offline,
             usage: self.usage.clone(),
             uploads: self.upload_status(),
+            drive_transfers: self.drive_transfers.clone(),
         }
     }
 
@@ -1054,6 +1125,12 @@ impl Core {
                 .iter()
                 .filter(|j| j.active)
                 .map(|j| j.upload.remote_id),
+        );
+        syncing.extend(
+            self.sync_dirs
+                .iter()
+                .filter(|d| self.drive_transfers.contains_key(&d.id))
+                .map(|d| d.remote_id),
         );
         let status = tray::compute_status(&self.state, &self.remotes, &syncing, &self.last_sync_at);
         if self.last_status.as_ref() == Some(&status) {

@@ -199,6 +199,8 @@ pub struct Folder<'a> {
     pub state: RunState,
     /// Newest log line, shown under the paths while a pass runs.
     pub latest_line: Option<&'a str>,
+    /// What a network drive moves right now outside a pass, e.g. "Downloading 2 files…"; shown in place of the log line.
+    pub transfers: Option<String>,
     /// Newest problem line, shown while the folder is in Warning / Error.
     pub latest_problem: Option<&'a str>,
     /// `Some` while the activity log is expanded.
@@ -896,10 +898,12 @@ fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element<'a, Msg> {
         RunState::Held if pending => "Pending changes — held on a metered network".to_owned(),
         _ if pending => "Pending changes".to_owned(),
         _ if applying && !blocked => "Applying changes…".to_owned(),
-        RunState::Syncing(_) => folder
-            .latest_line
-            .unwrap_or(status_label(folder.state))
-            .to_owned(),
+        RunState::Syncing(_) => folder.transfers.clone().unwrap_or_else(|| {
+            folder
+                .latest_line
+                .unwrap_or(status_label(folder.state))
+                .to_owned()
+        }),
         _ if conflict_note.is_some() && links == folder.conflicts.len() => if links == 1 {
             "Decide what to do with the link"
         } else {

@@ -98,6 +98,8 @@ pub struct RemoteState {
     pub syncs_to_skip: u32,
     /// Dirs whose running pass hit a problem (a failed file, a conflict). They keep showing `Syncing` until the pass ends, then `Warning`: a triangle mid-pass looked like a finished pass that never came back.
     problems_in_pass: HashSet<SyncDirId>,
+    /// Network drives moving files outside a pass, as the file manager opened or saved them, and what they do; they show it over an idle state.
+    transfers: HashMap<SyncDirId, SyncActivity>,
 }
 
 impl RemoteState {
@@ -109,6 +111,7 @@ impl RemoteState {
             consecutive_degraded: 0,
             syncs_to_skip: 0,
             problems_in_pass: HashSet::new(),
+            transfers: HashMap::new(),
         }
     }
 
@@ -123,10 +126,21 @@ impl RemoteState {
         }
     }
 
+    /// `state` of dir `id` as shown: a network drive moving files shows that over an idle state, never over a problem.
+    fn with_transfers(&self, id: SyncDirId, state: RunState) -> RunState {
+        match (state, self.transfers.get(&id)) {
+            (RunState::Synced | RunState::Waiting, Some(activity)) => RunState::Syncing(*activity),
+            _ => state,
+        }
+    }
+
     /// Aggregate child dir states into a single `RunState` for this remote: a running pass shows as such, otherwise the most severe dir state.
     pub fn roll_up(&self) -> RunState {
         self.override_state().unwrap_or_else(|| {
-            let states = self.dirs.values().copied();
+            let states = self
+                .dirs
+                .iter()
+                .map(|(id, state)| self.with_transfers(*id, *state));
             states
                 .clone()
                 .find(|s| matches!(s, RunState::Syncing(_)))
@@ -137,8 +151,9 @@ impl RemoteState {
 
     /// The state to display for one dir.
     pub fn dir_display_state(&self, id: SyncDirId) -> RunState {
-        self.override_state()
-            .unwrap_or_else(|| self.dirs.get(&id).copied().unwrap_or(RunState::Waiting))
+        self.override_state().unwrap_or_else(|| {
+            self.with_transfers(id, self.dirs.get(&id).copied().unwrap_or(RunState::Waiting))
+        })
     }
 
     /// Transition dir `id` to `next`, respecting the stickiness rule. A problem noted during the pass turns its final `Synced` into `Warning`.
@@ -173,6 +188,7 @@ impl RemoteState {
     pub fn set_dirs(&mut self, ids: &[SyncDirId]) {
         self.dirs.retain(|id, _| ids.contains(id));
         self.problems_in_pass.retain(|id| ids.contains(id));
+        self.transfers.retain(|id, _| ids.contains(id));
         for id in ids {
             self.dirs.entry(*id).or_insert(RunState::Waiting);
         }
@@ -309,6 +325,17 @@ impl AppState {
     pub fn remote_went_offline(&mut self, remote_id: RemoteId) {
         if let Some(rs) = self.remotes.get_mut(&remote_id) {
             rs.went_offline();
+        }
+    }
+
+    /// The network drives that move files right now, and what they do (see [`RemoteState::with_transfers`]); every other drive is idle.
+    pub fn set_transfers(&mut self, transfers: &HashMap<SyncDirId, (RemoteId, SyncActivity)>) {
+        for (remote_id, rs) in &mut self.remotes {
+            rs.transfers = transfers
+                .iter()
+                .filter(|(_, (r, _))| r == remote_id)
+                .map(|(dir, (_, activity))| (*dir, *activity))
+                .collect();
         }
     }
 
@@ -487,6 +514,36 @@ mod tests {
         assert!(!rs.auth_needed);
         assert_eq!(rs.dirs[&dir(1)], RunState::Waiting);
         assert_eq!(rs.dirs[&dir(2)], RunState::Warning);
+    }
+
+    /// A network drive moving files shows it over an idle state, on the folder and on the remote, but a problem stays in front.
+    #[test]
+    fn drive_transfers_show_over_an_idle_state() {
+        let remote = RemoteId(1);
+        let mut state = AppState::default();
+        state.transition_dir(remote, dir(1), RunState::Synced);
+        state.transition_dir(remote, dir(2), RunState::Synced);
+        state.set_transfers(&HashMap::from([(
+            dir(1),
+            (remote, SyncActivity::Downloading),
+        )]));
+        assert_eq!(
+            state.dir_state(remote, dir(1)),
+            RunState::Syncing(SyncActivity::Downloading)
+        );
+        assert_eq!(state.dir_state(remote, dir(2)), RunState::Synced);
+        assert_eq!(
+            state.roll_up(remote),
+            Some(RunState::Syncing(SyncActivity::Downloading))
+        );
+
+        state.transition_dir(remote, dir(1), RunState::Error);
+        assert_eq!(state.dir_state(remote, dir(1)), RunState::Error);
+        state.transition_dir(remote, dir(1), RunState::Syncing(SyncActivity::Listing));
+        state.transition_dir(remote, dir(1), RunState::Synced);
+        state.set_transfers(&HashMap::new());
+        assert_eq!(state.dir_state(remote, dir(1)), RunState::Synced);
+        assert_eq!(state.roll_up(remote), Some(RunState::Synced));
     }
 
     #[test]
