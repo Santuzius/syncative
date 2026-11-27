@@ -86,7 +86,7 @@ pub(super) fn inspect_link(
 }
 
 /// `a/b/../c` as `a/c`, without asking the disk: a broken link's target can't be resolved there.
-pub(super) fn lexical(path: &Path) -> String {
+fn lexical(path: &Path) -> String {
     let mut out = std::path::PathBuf::new();
     for part in path.components() {
         match part {
@@ -156,7 +156,7 @@ pub(super) fn replace_link(local_path: &str) -> Result<String, String> {
 }
 
 /// A copy of a file with its modification time.
-pub(super) fn copy_file(from: &Path, to: &Path, meta: &fs::Metadata) -> std::io::Result<()> {
+fn copy_file(from: &Path, to: &Path, meta: &fs::Metadata) -> std::io::Result<()> {
     fs::copy(from, to)?;
     if let Ok(modified) = meta.modified() {
         fs::File::options()
@@ -168,7 +168,7 @@ pub(super) fn copy_file(from: &Path, to: &Path, meta: &fs::Metadata) -> std::io:
 }
 
 /// Copy the folder `from` to `to`, keeping modification times. Links inside stay links, so each turns into a question of its own.
-pub(super) fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
     fs::create_dir(to)?;
     for entry in fs::read_dir(from)? {
         let entry = entry?;

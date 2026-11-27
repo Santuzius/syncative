@@ -36,7 +36,7 @@ pub(in crate::services::sync) fn remove_synced_local(
 }
 
 /// Whether `dir` is gone; `removed` gets the files and folders removed below it.
-pub(super) fn remove_local_below(
+fn remove_local_below(
     dir: &Path,
     rows: &HashMap<&str, &SyncItem>,
     removed: &mut Vec<(String, String, bool)>,

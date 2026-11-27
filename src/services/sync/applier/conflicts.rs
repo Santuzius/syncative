@@ -100,11 +100,7 @@ pub(super) fn same_content(
 }
 
 /// The hash of local file `local_path`, `size` bytes, in the kind the remote copy's `details` name; None when they can't match: the remote has no hash or another size.
-pub(super) fn comparable_hash(
-    local_path: &str,
-    size: u64,
-    details: &FileDetails,
-) -> Option<ContentHash> {
+fn comparable_hash(local_path: &str, size: u64, details: &FileDetails) -> Option<ContentHash> {
     if details.size.is_some_and(|remote_size| remote_size != size) {
         return None;
     }
