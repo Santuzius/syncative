@@ -46,6 +46,14 @@ impl LibrcloneClient {
         }
     }
 
+    /// Whether the remote's backend keeps a SHA-1 of each file; Dropbox and OneDrive keep hashes of their own.
+    fn has_sha1(&self, remote: &str) -> bool {
+        let backend = self
+            .config(remote)
+            .and_then(|config| config.get("type")?.as_str().map(str::to_owned));
+        !matches!(backend.as_deref(), Some("dropbox" | "onedrive"))
+    }
+
     /// Push the current on-disk rclone config into the keyring. Logged
     /// on failure but not propagated — the user-visible operation has
     /// already succeeded; failing the whole call because the keyring
@@ -170,7 +178,8 @@ impl BackendClient for LibrcloneClient {
         path: &str,
         cancel: &Cancel,
     ) -> Result<Option<FileDetails>, String> {
-        let item = rpc::sync::details(remote, path, cancel).map_err(|err| err.error)?;
+        let item = rpc::sync::details(remote, path, self.has_sha1(remote), cancel)
+            .map_err(|err| err.error)?;
         Ok(item.filter(|item| !item.is_dir).map(file_details))
     }
 
