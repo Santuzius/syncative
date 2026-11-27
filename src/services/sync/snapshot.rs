@@ -6,7 +6,6 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::Path,
-    time::SystemTime,
 };
 
 use super::local_names;
@@ -434,8 +433,8 @@ fn walk_dir(
             .metadata()
             .ok()
             .and_then(|m| m.modified().ok())
-            .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
+            .and_then(crate::util::unix_secs)
+            .map(|secs| secs as i64)
             .unwrap_or(0);
         out.insert(
             remote_key.clone(),

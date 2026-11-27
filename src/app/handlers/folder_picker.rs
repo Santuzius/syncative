@@ -1,6 +1,6 @@
 //! Folder picker: open it over the selected remote or a sync folder on this device, answer its listing requests off the UI thread, and hand its answer to the field or setting it was opened for.
 
-use std::{path::Path, sync::atomic::Ordering, time::UNIX_EPOCH};
+use std::{path::Path, sync::atomic::Ordering};
 
 use iced::Task;
 use iced_fabi::{Entry, NodeId, Outcome};
@@ -356,10 +356,10 @@ fn local_folders(dir: &Path) -> Result<Vec<Entry>, String> {
                 .metadata()
                 .ok()
                 .and_then(|m| m.modified().ok())
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok());
+                .and_then(crate::util::unix_secs);
             let mut folder = Entry::folder(entry_name);
             if let Some(time) = modified {
-                folder = folder.modified(time.as_secs() as i64);
+                folder = folder.modified(time as i64);
             }
             if !has_subfolder(&entry.path()) {
                 folder = folder.empty();

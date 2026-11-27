@@ -180,6 +180,29 @@ pub fn get_runtime_dir() -> Option<PathBuf> {
     }
 }
 
+/// `time` in whole seconds since 1970; None before 1970.
+pub fn unix_secs(time: std::time::SystemTime) -> Option<u64> {
+    time.duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
+}
+
+/// Size and modification time of a file, to tell whether it changed in between.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileState {
+    pub size: u64,
+    pub modified: std::time::SystemTime,
+}
+
+/// The state of file `path`; None when it can't be read.
+pub fn file_state(path: &std::path::Path) -> Option<FileState> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some(FileState {
+        size: meta.len(),
+        modified: meta.modified().ok()?,
+    })
+}
+
 /// Whether `path` is `root` or lies below it: `a/b` is under `a`, `ab` is not.
 pub fn is_under(path: &str, root: &str) -> bool {
     path.strip_prefix(root)

@@ -2,7 +2,7 @@
 //!
 //! Only those are offered for deletion. Files added or edited after the exclusion have no unchanged DB record and stay untouched, so a deliberately local-only folder can't lose anything.
 
-use std::{collections::HashMap, fs, path::Path, time::SystemTime};
+use std::{collections::HashMap, fs, path::Path};
 
 use crate::domain::{
     ports::Repository,
@@ -62,21 +62,13 @@ fn under<'a>(items: &'a [SyncItem], root: &str) -> impl Iterator<Item = &'a Sync
         .filter(move |i| crate::util::is_under(&i.local_path, root))
 }
 
-fn mtime_secs(meta: &fs::Metadata) -> Option<i64> {
-    let at = meta
-        .modified()
-        .ok()?
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .ok()?;
-    Some(at.as_secs() as i64)
-}
-
 /// A tracked file that is still exactly what was synced.
 fn is_stale_copy(item: &SyncItem) -> bool {
     fs::symlink_metadata(&item.local_path)
         .ok()
         .filter(fs::Metadata::is_file)
-        .and_then(|m| mtime_secs(&m))
+        .and_then(|m| crate::util::unix_secs(m.modified().ok()?))
+        .map(|secs| secs as i64)
         .is_some_and(|secs| secs == item.last_local_timestamp)
 }
 

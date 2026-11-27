@@ -172,7 +172,7 @@ where
                             total,
                             util::fmt_home(&local_path)
                         ));
-                        let before = file_state(Path::new(&local_path));
+                        let before = util::file_state(Path::new(&local_path));
                         if let Err(err) =
                             client.copy_to_remote(&local_path, &remote.name, &remote_path, cancel)
                         {
@@ -193,12 +193,12 @@ where
                             break 'action;
                         }
                         // Recorded with the time from before the upload: a save during it leaves the file newer than its row, so the next pass uploads it again.
-                        if file_state(Path::new(&local_path)) != before {
+                        if util::file_state(Path::new(&local_path)) != before {
                             eprintln!(
                                 "sync: '{local_path}' changed during its upload; it is uploaded again in the next pass."
                             );
                         }
-                        let local_ts = before.and_then(|(_, modified)| timestamp(modified));
+                        let local_ts = before.and_then(|state| util::unix_secs(state.modified));
                         record_uploaded(
                             repo,
                             sync_dir,
@@ -804,7 +804,7 @@ fn inspect_link(
         Ok(m) => (LinkTarget::File, Some(m.len())),
         Err(_) => (LinkTarget::Missing, None),
     };
-    let local_stamp = meta.modified().ok().and_then(timestamp).unwrap_or(0) as i64;
+    let local_stamp = meta.modified().ok().and_then(util::unix_secs).unwrap_or(0) as i64;
     let (remote_details, remote_is_dir, remote_stamp) =
         match client.stat(&remote.name, remote_path, cancel) {
             Ok(Some(item)) => {
@@ -1288,19 +1288,7 @@ fn save_row(
 }
 
 pub(super) fn local_timestamp(path: &Path) -> Option<u64> {
-    timestamp(fs::metadata(path).ok()?.modified().ok()?)
-}
-
-fn timestamp(time: SystemTime) -> Option<u64> {
-    time.duration_since(SystemTime::UNIX_EPOCH)
-        .ok()
-        .map(|d| d.as_secs())
-}
-
-/// Size and modification time of a file, to tell whether it changed in between.
-fn file_state(path: &Path) -> Option<(u64, SystemTime)> {
-    let meta = fs::metadata(path).ok()?;
-    Some((meta.len(), meta.modified().ok()?))
+    util::unix_secs(fs::metadata(path).ok()?.modified().ok()?)
 }
 
 /// Whether a delete failed only because its target no longer exists. Providers word it differently: "object not found" and "directory not found" (rclone), "not found on remote" (native Proton client), "no such file or directory".

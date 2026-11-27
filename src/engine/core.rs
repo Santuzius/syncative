@@ -1173,14 +1173,14 @@ fn upload_shared(
     } else {
         format!("{folder}/{name}")
     };
-    let before = file_state(file);
+    let before = crate::util::file_state(file);
     if let Err(err) = backend.copy_to_remote(&file.to_string_lossy(), remote, &path, cancel) {
         // rclone stops reading a file that is written into while it reads.
         let changed = err.contains("source file is being updated");
         return Err(fail(Some(name), changed, err));
     }
     // Other backends read on regardless; size and time tell whether the file was saved meanwhile.
-    if file_state(file) != before {
+    if crate::util::file_state(file) != before {
         return Err(fail(
             Some(name),
             true,
@@ -1188,12 +1188,6 @@ fn upload_shared(
         ));
     }
     Ok(name)
-}
-
-/// Size and modification time, to notice a save during an upload.
-fn file_state(file: &Path) -> Option<(u64, std::time::SystemTime)> {
-    let meta = std::fs::metadata(file).ok()?;
-    Some((meta.len(), meta.modified().ok()?))
 }
 
 /// Tell the user that a shared file couldn't be saved; on Android as a notification, as nobody may be looking at the window.
