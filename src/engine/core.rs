@@ -908,11 +908,11 @@ impl Core {
         *self.log_versions.entry(sync_dir_id).or_default() += 1;
     }
 
-    /// Whether a pass or an upload of shared files is running.
+    /// Whether a pass, an upload of shared files or a network drive's transfer is running.
     pub fn busy(&self) -> bool {
         !self.syncing.is_empty()
             || self.uploads.iter().any(|j| j.active)
-            || !self.drive_transfers.is_empty()
+            || self.drive_transfers.values().any(|t| t.moving)
     }
 
     pub fn snapshot(&self) -> Snapshot {

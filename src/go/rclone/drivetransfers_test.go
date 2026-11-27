@@ -44,7 +44,7 @@ func TestDriveTransfersNameTheDrive(t *testing.T) {
 	}
 	tr := accounting.GlobalStats().NewTransfer(o, nil)
 	drives := transfers()
-	if got, ok := drives[dir].(rc.Params); !ok || got["downloading"] != 1 || got["uploading"] != 0 || len(drives) != 1 {
+	if got, ok := drives[dir].(rc.Params); !ok || got["downloading"] != 1 || got["uploading"] != 0 || got["moving"] != true || len(drives) != 1 {
 		t.Fatalf("downloading: %v", drives)
 	}
 	tr.Done(ctx, nil)

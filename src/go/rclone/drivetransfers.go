@@ -15,7 +15,7 @@ func init() {
 		Path:  "syncative/drive-transfers",
 		Fn:    rcDriveTransfers,
 		Title: "How many files the network drives download and upload right now.",
-		Help:  `Parameters: fs, the drives' "remote:path" as mounted, a list. Returns drives: per fs that moves files, downloading and uploading, how many files.`,
+		Help:  `Parameters: fs, the drives' "remote:path" as mounted, a list. Returns drives: per fs that moves files or has uploads waiting, downloading and uploading, how many files, and moving, whether a file moves now rather than only waiting in the upload queue (as when offline).`,
 	})
 }
 
@@ -42,15 +42,17 @@ func rcDriveTransfers(ctx context.Context, in rc.Params) (rc.Params, error) {
 			continue
 		}
 		down, up := driveTransfers(transferring, name)
+		moving := down > 0 || up > 0
 		if queued, err := rc.Calls.Get("vfs/stats").Fn(ctx, rc.Params{"fs": name}); err == nil {
 			if disk, ok := queued["diskCache"].(rc.Params); ok {
 				inProgress, _ := disk["uploadsInProgress"].(int)
 				waiting, _ := disk["uploadsQueued"].(int)
 				up = max(up, inProgress+waiting)
+				moving = moving || inProgress > 0
 			}
 		}
 		if down > 0 || up > 0 {
-			out[drive] = rc.Params{"downloading": down, "uploading": up}
+			out[drive] = rc.Params{"downloading": down, "uploading": up, "moving": moving}
 		}
 	}
 	return rc.Params{"drives": out}, nil

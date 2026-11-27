@@ -169,6 +169,8 @@ pub fn poll(remote: &str, remote_path: &str, folder_id: i32, reset: bool) -> Res
 pub struct DriveTransfers {
     pub downloading: u64,
     pub uploading: u64,
+    /// A file moves now. Uploads that only wait in the queue, for their delay or to retry after a failure such as being offline, don't count, so they don't keep Android awake.
+    pub moving: bool,
 }
 
 impl DriveTransfers {
@@ -205,6 +207,7 @@ pub fn transfers(drives: &[String]) -> HashMap<String, DriveTransfers> {
             let transfers = DriveTransfers {
                 downloading: count(&v, "downloading").unwrap_or(0),
                 uploading: count(&v, "uploading").unwrap_or(0),
+                moving: v.get("moving").and_then(serde_json::Value::as_bool).unwrap_or(false),
             };
             (fs, transfers)
         })
