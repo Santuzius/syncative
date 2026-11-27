@@ -423,7 +423,6 @@ where
                     local_path,
                     remote_path,
                     local_mtime,
-                    remote_mtime: _,
                 } => {
                     eprintln!(
                         "sync: RECORD '{remote_path}' — untracked so far; tracking it from now on."

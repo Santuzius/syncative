@@ -40,12 +40,11 @@ pub(super) enum Action {
         remote_path: String,
     },
     /// Present on both sides but not tracked yet (a folder created on both sides): only the DB row is missing. Without it, deleting the folder on one side would bring it back from the other.
-    /// The timestamps come from this pass's walk and listing, so recording needs no further call to the remote.
+    /// The local time comes from this pass's walk and the remote item from its listing, so recording needs no further call to the remote.
     RecordDbRow {
         local_path: String,
         remote_path: String,
         local_mtime: i64,
-        remote_mtime: i64,
     },
     /// A file exists on both sides and the planner can't tell which copy is right. The applier compares content first (identical copies just get a DB row) and otherwise asks the user — see [`ConflictKind`].
     Conflict {
@@ -365,7 +364,7 @@ fn plan_one(
         (None, None, None) => None,
         // Stale DB: both sides gone. Clean the row.
         (None, None, Some(_)) => Some(Action::ClearDbRow {
-            local_path: db_local_path(remote_path, sync_dir),
+            local_path: derive_local_path(remote_path, sync_dir),
             remote_path: remote_path.to_owned(),
         }),
         // New local, never seen — upload.
@@ -390,7 +389,6 @@ fn plan_one(
                     local_path: l.absolute_path.clone(),
                     remote_path: remote_path.to_owned(),
                     local_mtime: l.mtime_secs,
-                    remote_mtime: r.mod_time.unix_timestamp(),
                 });
             }
             Some(Action::Conflict {
@@ -511,7 +509,7 @@ fn plan_one_way(
     match (local, remote, db) {
         (None, None, None) => None,
         (None, None, Some(_)) => Some(Action::ClearDbRow {
-            local_path: db_local_path(remote_path, sync_dir),
+            local_path: derive_local_path(remote_path, sync_dir),
             remote_path: remote_path.to_owned(),
         }),
         (Some(l), None, None) if upload => Some(Action::Upload {
@@ -531,7 +529,6 @@ fn plan_one_way(
             local_path: derive_local_path(&r.path, sync_dir),
             remote_path: r.path.clone(),
             local_mtime: 0,
-            remote_mtime: r.mod_time.unix_timestamp(),
         }),
         (Some(l), Some(r), None) => {
             if l.is_dir && r.is_dir {
@@ -539,7 +536,6 @@ fn plan_one_way(
                     local_path: l.absolute_path.clone(),
                     remote_path: remote_path.to_owned(),
                     local_mtime: l.mtime_secs,
-                    remote_mtime: r.mod_time.unix_timestamp(),
                 });
             }
             // The applier records identical copies without a transfer and otherwise lets the source win.
@@ -578,7 +574,7 @@ fn plan_one_way(
         }
         // Deleted on the remote: the local backup keeps its copy, which is no longer synced.
         (Some(_), None, Some(_)) => Some(Action::ClearDbRow {
-            local_path: db_local_path(remote_path, sync_dir),
+            local_path: derive_local_path(remote_path, sync_dir),
             remote_path: remote_path.to_owned(),
         }),
         // Deleted here after it was synced, with deletions passed on: the cloud backup deletes its copy too. A row with no local time stands for a file only the cloud backup ever had (see above), which stays.
@@ -740,8 +736,4 @@ fn derive_local_path(remote_path: &str, sync_dir: &SyncDir) -> String {
             local_names::to_local(relative)
         )
     }
-}
-
-fn db_local_path(remote_path: &str, sync_dir: &SyncDir) -> String {
-    derive_local_path(remote_path, sync_dir)
 }
