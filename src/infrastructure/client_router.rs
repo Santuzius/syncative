@@ -126,6 +126,10 @@ impl BackendClient for ClientRouter {
     fn remote_type(&self, remote: &str) -> Result<Option<String>, String> {
         self.pick(remote).remote_type(remote)
     }
+    /// Both clients' messages go through the same check.
+    fn is_offline(&self, err: &str) -> bool {
+        crate::infrastructure::errors::is_offline(err)
+    }
     fn needs_reauth(&self, remote: &str) -> bool {
         self.pick(remote).needs_reauth(remote)
     }

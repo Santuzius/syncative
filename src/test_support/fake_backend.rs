@@ -257,6 +257,10 @@ impl BackendClient for FakeBackend {
     fn remote_type(&self, _remote: &str) -> Result<Option<String>, String> {
         Ok(None)
     }
+    /// The real check, so tests can fail a call with a message of an unreachable provider.
+    fn is_offline(&self, err: &str) -> bool {
+        crate::infrastructure::errors::is_offline(err)
+    }
     fn changes(
         &self,
         _remote: &str,

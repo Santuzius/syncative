@@ -49,6 +49,7 @@ fn run_resolving(
         |e| captured.lock().unwrap().push(e),
         &cancel,
         |_| false,
+        false,
     );
     let events = captured.lock().unwrap().clone();
     (outcome, events)
@@ -109,6 +110,7 @@ fn a_listing_stopped_by_a_pause_is_no_failure() {
         |e| captured.lock().unwrap().push(e),
         &cancel,
         |_| false,
+        false,
     );
 
     let events = captured.into_inner().unwrap();
@@ -1064,6 +1066,7 @@ fn rows_of_vanished_copies_under_a_nested_folder_are_forgotten() {
         |_| {},
         &cancel_never(),
         |_| false,
+        false,
     );
     assert_eq!(outcome, Outcome::Synced);
     assert!(!repo.has_item(
@@ -1116,6 +1119,7 @@ fn a_nested_folder_follows_its_filter() {
         |e| captured.lock().unwrap().push(e),
         &cancel_never(),
         |_| false,
+        false,
     );
     assert_eq!(outcome, Outcome::Synced);
     assert!(conflicts(&captured.lock().unwrap()).is_empty());
@@ -1580,6 +1584,7 @@ fn cancellation_between_snapshot_and_apply_stops_the_pass() {
         |e| captured.lock().unwrap().push(e),
         &cancel,
         |_| false,
+        false,
     );
 
     assert_eq!(outcome, Outcome::Aborted);
@@ -1628,6 +1633,7 @@ fn rate_limit_probe_short_circuits_to_degraded() {
         |e| captured.lock().unwrap().push(e),
         &cancel,
         |_| true,
+        false,
     );
 
     assert_eq!(outcome, Outcome::Degraded);
@@ -2087,6 +2093,7 @@ fn run_in_photos(
         |e| captured.lock().unwrap().push(e),
         &cancel_never(),
         |_| false,
+        false,
     );
     let events = captured.lock().unwrap().clone();
     (outcome, events, local, repo, tmp)
@@ -2201,6 +2208,7 @@ fn run_backup(
         |e| captured.lock().unwrap().push(e),
         &cancel_never(),
         |_| false,
+        false,
     );
     let events = captured.lock().unwrap().clone();
     (outcome, events)
@@ -2594,5 +2602,46 @@ fn switching_a_cloud_backup_to_sync_restores_what_it_kept() {
     assert_eq!(
         *repo.rows_mode.lock().unwrap(),
         Some((SyncDirId(1), SyncMode::TwoWay))
+    );
+}
+
+/// The folder sync reaches the remote and the database only through the port traits, which is what lets these tests run it against fakes: no code under `src/engine/folder/` names an adapter or the Go library directly.
+#[test]
+fn the_folder_sync_uses_no_adapter_directly() {
+    fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                rust_files(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    rust_files(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("src/engine/folder"),
+        &mut files,
+    );
+    // Split, so this file doesn't name them itself.
+    let forbidden = [concat!("infra", "structure"), concat!("syncative", "_go")];
+    let mut found = Vec::new();
+    for file in &files {
+        let text = fs::read_to_string(file).unwrap();
+        for (n, line) in text.lines().enumerate() {
+            let code = line.trim_start();
+            if code.starts_with("//") {
+                continue;
+            }
+            if forbidden.iter().any(|f| code.contains(f)) {
+                found.push(format!("{}:{}: {code}", file.display(), n + 1));
+            }
+        }
+    }
+    assert!(!files.is_empty());
+    assert!(
+        found.is_empty(),
+        "the folder sync names an adapter:\n{}",
+        found.join("\n")
     );
 }

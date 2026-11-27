@@ -238,6 +238,10 @@ impl BackendClient for ProtonClient {
         Ok(Some(PROTON_TYPE.to_owned()))
     }
 
+    fn is_offline(&self, err: &str) -> bool {
+        crate::infrastructure::errors::is_offline(err)
+    }
+
     /// From the volume's event log, which names items by link ID.
     fn changes(
         &self,

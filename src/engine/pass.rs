@@ -102,6 +102,7 @@ impl Pass {
                     }
                     break;
                 }
+                let detailed = crate::infrastructure::stderr_capture::detailed();
                 let run = |sd: &SyncDir| {
                     folder::run(
                         &remote,
@@ -113,6 +114,7 @@ impl Pass {
                         emit.clone(),
                         &cancel,
                         rate_limit_seen_since.clone(),
+                        detailed,
                     )
                 };
                 // A folder without rows hasn't synced anything in its current mode, so it owes that mode nothing.

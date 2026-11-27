@@ -311,6 +311,9 @@ pub trait BackendClient: Send + Sync {
         }
     }
 
+    /// Whether error message `err` of this backend says the provider couldn't be reached at all, so the folder shows Offline instead of an error.
+    fn is_offline(&self, err: &str) -> bool;
+
     /// `true` when the remote can't be used until the user signs in again: its session is gone, or its config lacks the token or password.
     fn needs_reauth(&self, _remote: &str) -> bool {
         false

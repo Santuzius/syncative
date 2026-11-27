@@ -224,9 +224,10 @@ pub(super) fn log_plan_summary(
     sync_dir: &SyncDir,
     snapshot: &Snapshot,
     actions: &[Action],
+    detailed: bool,
 ) {
     // A pass with nothing to do is the common case; only the detailed log keeps a line for it.
-    if actions.is_empty() && !crate::infrastructure::stderr_capture::detailed() {
+    if actions.is_empty() && !detailed {
         return;
     }
     let (mut uploads, mut downloads) = (0usize, 0usize);

@@ -77,6 +77,7 @@ pub fn run<FE, FD>(
     emit: FE,
     cancel: &Cancel,
     rate_limit_seen_since: FD,
+    detailed: bool,
 ) -> Outcome
 where
     FE: Fn(SyncEvent) + Clone,
@@ -137,7 +138,7 @@ where
                 emit_state(RunState::Synced);
                 Outcome::Synced
             }
-            Err(err) if crate::infrastructure::errors::is_offline(&err) => {
+            Err(err) if client.is_offline(&err) => {
                 eprintln!(
                     "sync: offline, network drive {}: {err}",
                     sync_dir.local_path
@@ -189,7 +190,7 @@ where
             emit_status(tr::tr!("Sync cancelled."));
             return Outcome::Aborted;
         }
-        Err(err) if crate::infrastructure::errors::is_offline(&err) => {
+        Err(err) if client.is_offline(&err) => {
             eprintln!("sync: offline, list failed for {}: {err}", remote.name);
             emit_status(tr::tr!(
                 "Offline — couldn't reach {}; trying again later.",
@@ -255,7 +256,7 @@ where
             sync_dir.remote_path
         );
     }
-    planner::log_plan_summary(remote, sync_dir, &snapshot, &actions);
+    planner::log_plan_summary(remote, sync_dir, &snapshot, &actions, detailed);
     // Replace the "Listing remote…" pending with a phase-level
     // description of what apply() is about to do. Without this, a
     // multi-hundred-action pass (e.g. first-ever sync of a large

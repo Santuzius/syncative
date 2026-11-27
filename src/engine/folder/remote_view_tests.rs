@@ -31,6 +31,7 @@ fn pass(tmp: &TempDir, repo: &FakeRepo, client: &FakeBackend) -> Outcome {
         |e| captured.lock().unwrap().push(e),
         &cancel,
         |_| false,
+        false,
     )
 }
 

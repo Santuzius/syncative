@@ -271,6 +271,10 @@ impl BackendClient for LibrcloneClient {
         }
     }
 
+    fn is_offline(&self, err: &str) -> bool {
+        crate::infrastructure::errors::is_offline(err)
+    }
+
     fn uses_shared_oauth_client(&self, remote: &str) -> bool {
         let Some(config) = self.config(remote) else {
             return false;

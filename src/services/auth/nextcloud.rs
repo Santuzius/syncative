@@ -416,6 +416,9 @@ mod tests {
         fn remote_type(&self, _r: &str) -> Result<Option<String>, String> {
             Ok(None)
         }
+        fn is_offline(&self, _err: &str) -> bool {
+            false
+        }
     }
 
     #[test]
