@@ -586,10 +586,14 @@ where
 
 /// Re-check an overwrite or delete against the live state. Turns
 /// - an upload over a remote copy that changed since the last sync into a conflict,
-/// - a download over a local copy that changed since the last sync into a conflict,
+/// - a download over a local copy that changed since the last sync into a conflict.
+///
+/// Syncing both ways, it also turns
 /// - a remote delete of a copy edited remotely into a download (the edit wins),
 /// - a local delete of a copy edited locally into an upload,
-/// - syncing both ways, an upload or download of a new file whose target turned up since the listing into a conflict.
+/// - an upload or download of a new file whose target turned up since the listing into a conflict.
+///
+/// A one-way folder's source wins, as when planning: the conflicts go its way, and a delete passed on stays a delete.
 fn preflight(
     action: Action,
     db: &HashMap<String, SyncItem>,
@@ -659,7 +663,7 @@ fn preflight(
             remote_path,
             is_dir: false,
         } => match db.get(&remote_path) {
-            Some(row) if remote_changed(&remote_path, row) => Action::Download {
+            Some(row) if two_way && remote_changed(&remote_path, row) => Action::Download {
                 local_path,
                 remote_path,
                 is_dir: false,
@@ -675,7 +679,7 @@ fn preflight(
             remote_path,
             is_dir: false,
         } => match db.get(&remote_path) {
-            Some(row) if local_changed(&local_path, row) => Action::Upload {
+            Some(row) if two_way && local_changed(&local_path, row) => Action::Upload {
                 local_path,
                 remote_path,
                 is_dir: false,

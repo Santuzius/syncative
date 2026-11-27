@@ -2429,6 +2429,74 @@ fn a_local_backup_passing_deletions_on_deletes_files_deleted_on_the_remote() {
     assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
 }
 
+/// A local backup passing deletions on deletes its copy also when it changed here after the walk: its source is the remote, so it never uploads.
+#[test]
+fn a_local_backup_never_uploads_a_copy_it_was_to_delete() {
+    let tmp = TempDir::new("download_sync_del_edited");
+    let repo = FakeRepo::new();
+    let local_path = synced_pair(&tmp, &repo, "gone.txt", 1_700_000_000);
+    touch_mtime(&tmp.write_file("gone.txt", b"mine"), 1_700_000_000);
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("keep.txt", false, 1_700_000_000),
+            remote_item("new.txt", false, 1_700_000_000),
+        ]),
+    );
+    // Edited while the pass downloads new.txt.
+    let edited = PathBuf::from(&local_path);
+    *client.during_copy_to_local.lock().unwrap() = Some(Box::new(move |_| {
+        touch_mtime(&edited, 1_700_000_500);
+    }));
+
+    let (outcome, events) = run_backup(
+        &tmp,
+        &repo,
+        &client,
+        SyncMode::Download,
+        SyncMode::Download,
+        true,
+    );
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
+    assert!(!Path::new(&local_path).exists());
+}
+
+/// A cloud backup passing deletions on deletes its remote copy also when it changed there after the listing: its source is here, so it never downloads.
+#[test]
+fn a_cloud_backup_never_downloads_a_copy_it_was_to_delete() {
+    let tmp = TempDir::new("upload_sync_del_edited");
+    let repo = FakeRepo::new();
+    synced_pair(&tmp, &repo, "gone.txt", 1_700_000_000);
+    let client = FakeBackend::default();
+    client.set_list(
+        "",
+        Ok(vec![
+            remote_item("keep.txt", false, 1_700_000_000),
+            remote_item("gone.txt", false, 1_700_000_000),
+        ]),
+    );
+    client.set_stat(
+        "gone.txt",
+        Ok(Some(remote_item("gone.txt", false, 1_700_000_500))),
+    );
+
+    let (outcome, events) = run_backup(
+        &tmp,
+        &repo,
+        &client,
+        SyncMode::Upload,
+        SyncMode::Upload,
+        true,
+    );
+    assert_eq!(outcome, Outcome::Synced);
+    assert!(errors(&events).is_empty());
+    assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
+    assert_eq!(*client.delete_file_calls.lock().unwrap(), ["gone.txt"]);
+}
+
 /// Back to two-way after a cloud backup: what the backup kept for files deleted here comes down instead of being deleted from the remote, and the rows count as two-way only once none of those is left.
 #[test]
 fn switching_a_cloud_backup_to_sync_restores_what_it_kept() {
