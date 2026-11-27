@@ -449,6 +449,23 @@ fn rclone_cache_dir() -> Option<std::path::PathBuf> {
 }
 
 /// Unmount every network drive, before the app quits; a mount left behind would fail every access until unmounted.
+/// Unmount the network drives of `remote`, e.g. when it signs in anew: a mount keeps the backend it was made with. The next pass mounts them again.
+pub fn unmount_remote(remote: &str) {
+    let Ok(mut mounts) = MOUNTS.lock() else {
+        return;
+    };
+    let paths: Vec<String> = mounts
+        .iter()
+        .filter(|(_, m)| m.remote == remote)
+        .map(|(p, _)| p.clone())
+        .collect();
+    for path in paths {
+        if let Err(err) = unmount_locked(&mut mounts, &path) {
+            eprintln!("syncative: couldn't unmount {path}: {err}");
+        }
+    }
+}
+
 pub fn unmount_all() {
     let Ok(mut mounts) = MOUNTS.lock() else {
         return;

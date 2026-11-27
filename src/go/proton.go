@@ -10,10 +10,12 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"time"
 
 	"syncative/go/proton/drive"
 	"syncative/go/proton/rclonefs"
 	"syncative/go/rclone/changes"
+	"syncative/go/rclone/netdrive"
 
 	"github.com/ProtonMail/go-proton-api"
 	"github.com/rclone/rclone/fs"
@@ -145,11 +147,13 @@ func ProtonDrive_BindRemote(paramsJSON *C.char) *C.char {
 	if err := os.Setenv(fs.ConfigToEnv(p.Remote, "type"), rclonefs.TypeName); err != nil {
 		return errResult(err)
 	}
-	if before := drive.BindRemote(p.Remote, p.UID); before != "" && before != p.UID {
-		// Another sign-in, possibly another account: its folder IDs start over.
-		dropBackend(p.Remote)
+	before := drive.BindRemote(p.Remote, p.UID)
+	if before == "" || before == p.UID {
+		return okResult(map[string]string{})
 	}
-	return okResult(nil)
+	// Another sign-in, possibly another account: its folder IDs start over. Network drives keep the backend they were mounted with, on the replaced session, until they are mounted again; the caller then ends that session (ProtonDrive_Logout).
+	dropBackend(p.Remote)
+	return okResult(map[string]string{"replaced": before})
 }
 
 // ProtonDrive_UnbindRemote undoes ProtonDrive_BindRemote, e.g. when the remote is removed. Input `{"remote":"..."}`.
@@ -162,16 +166,37 @@ func ProtonDrive_UnbindRemote(paramsJSON *C.char) *C.char {
 	if err := json.Unmarshal([]byte(C.GoString(paramsJSON)), &p); err != nil {
 		return errResult(err)
 	}
-	drive.UnbindRemote(p.Remote)
+	uid := drive.UnbindRemote(p.Remote)
 	dropBackend(p.Remote)
 	_ = os.Unsetenv(fs.ConfigToEnv(p.Remote, "type"))
+	// The remote is gone, so is its sign-in: revoke the session, as signing out does.
+	if uid != "" {
+		_ = logout(uid)
+	}
 	return okResult(nil)
 }
 
-// dropBackend removes `remote`'s backend from rclone's cache, so the next call creates it anew.
+// logoutTimeout bounds revoking a session on Proton's side; offline, it stays valid there until it expires.
+const logoutTimeout = 15 * time.Second
+
+// logout revokes the session `uid` on Proton's side and drops it here, also when revoking fails.
+func logout(uid string) error {
+	sess, err := drive.Lookup(uid)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), logoutTimeout)
+	defer cancel()
+	err = sess.Logout(ctx)
+	drive.Unregister(uid)
+	return err
+}
+
+// dropBackend removes `remote`'s backend from rclone's cache, with the network drive wrappers holding it, so the next call creates it anew.
 func dropBackend(remote string) {
 	changes.Forget(remote)
 	cache.ClearConfig(remote)
+	netdrive.ForgetBackends(remote)
 }
 
 // ProtonDrive_Logout revokes the session on Proton's side and tears
@@ -185,13 +210,7 @@ func ProtonDrive_Logout(paramsJSON *C.char) *C.char {
 	if err := json.Unmarshal([]byte(C.GoString(paramsJSON)), &p); err != nil {
 		return errResult(err)
 	}
-	sess, err := drive.Lookup(p.UID)
-	if err != nil {
-		return errResult(err)
-	}
-	err = sess.Logout(context.Background())
-	drive.Unregister(p.UID)
-	if err != nil {
+	if err := logout(p.UID); err != nil {
 		return errResult(err)
 	}
 	return okResult(nil)

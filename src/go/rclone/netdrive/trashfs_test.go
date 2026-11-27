@@ -291,3 +291,22 @@ func TestTrashFollowsRemoteSkipsPendingUploads(t *testing.T) {
 		t.Fatal("the pending upload is in the trash")
 	}
 }
+
+// TestForgetBackendsWrapsTheRemoteAnew: after ForgetBackends, a mount gets a wrapper around the remote's current backend, not the one cached before.
+func TestForgetBackendsWrapsTheRemoteAnew(t *testing.T) {
+	tt := newTrashTest(t)
+	fsString := fmt.Sprintf(`:%s,remote=%s,dir="%s":%s`, TrashBackend, "trashtestremote", tt.base, tt.remote)
+	again, err := cache.Get(tt.ctx, fsString)
+	if err != nil || again != fs.Fs(tt.f) {
+		t.Fatalf("the cache should hand out the same wrapper: %v", err)
+	}
+	cache.ClearConfig("trashtestremote")
+	ForgetBackends("trashtestremote")
+	fresh, err := cache.Get(tt.ctx, fsString)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh == fs.Fs(tt.f) || fresh.(*trashFs).inner == tt.f.inner {
+		t.Fatal("the wrapper made before still answers, with the backend it was made with")
+	}
+}

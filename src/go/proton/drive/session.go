@@ -604,11 +604,13 @@ func BindRemote(remote, uid string) string {
 	return before
 }
 
-// UnbindRemote drops the session of `remote`; the session itself stays registered.
-func UnbindRemote(remote string) {
+// UnbindRemote drops the session of `remote` and returns its UID ("" for none); the session itself stays registered.
+func UnbindRemote(remote string) string {
 	registryMu.Lock()
 	defer registryMu.Unlock()
+	uid := remotes[remote]
 	delete(remotes, remote)
+	return uid
 }
 
 // ErrRemoteNotSignedIn is the error of a Proton remote without a session, e.g. one not resumed yet.

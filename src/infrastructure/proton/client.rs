@@ -27,9 +27,16 @@ pub struct ProtonClient {
 }
 
 impl ProtonClient {
-    /// Bind the session `uid` (from a login or resume, registered on the Go side) to the rclone remote `remote`.
+    /// Bind the session `uid` (from a login or resume, registered on the Go side) to the rclone remote `remote`. A session it replaces (a new sign-in) is ended once the remote's network drives are unmounted; the next pass mounts them on the new one.
     pub fn new(uid: String, remote: &str) -> Result<Self, String> {
-        syncative_go::proton::bind_remote(&uid, remote)?;
+        if let Some(replaced) = syncative_go::proton::bind_remote(&uid, remote)? {
+            crate::services::network_drive::unmount_remote(remote);
+            if let Err(err) = syncative_go::proton::logout(&replaced) {
+                eprintln!(
+                    "syncative: couldn't end the replaced Proton session of '{remote}': {err}"
+                );
+            }
+        }
         Ok(Self {
             rclone: LibrcloneClient::for_backend_calls(),
         })

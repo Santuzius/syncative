@@ -78,6 +78,11 @@ type trashFs struct {
 	dropped map[string]time.Time
 }
 
+// ForgetBackends drops the trash wrappers of `remote` from rclone's cache, so the next mount wraps the remote's backend anew: a wrapper holds the backend it was made with.
+func ForgetBackends(remote string) {
+	cache.ClearConfig(remote + trashNameSuffix)
+}
+
 func newTrashFs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, error) {
 	opt := new(trashOptions)
 	if err := configstruct.Set(m, opt); err != nil {

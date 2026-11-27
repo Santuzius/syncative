@@ -341,16 +341,18 @@ pub mod proton {
         Ok(())
     }
 
-    /// Make the rclone remote `remote` reach Proton through the registered session `uid`, so rclone calls on it use that session.
-    pub fn bind_remote(uid: &str, remote: &str) -> Result<(), String> {
-        invoke_raw(
+    /// Make the rclone remote `remote` reach Proton through the registered session `uid`, so rclone calls on it use that session. Returns the UID of the session it replaces, which the caller ends with [`logout`] once nothing uses it.
+    pub fn bind_remote(uid: &str, remote: &str) -> Result<Option<String>, String> {
+        let data = invoke_raw(
             |payload| unsafe { ffi::ProtonDrive_BindRemote(payload) },
             &serde_json::json!({ "uid": uid, "remote": remote }),
         )?;
-        Ok(())
+        Ok(data
+            .and_then(|d| d.get("replaced")?.as_str().map(str::to_owned))
+            .filter(|uid| !uid.is_empty()))
     }
 
-    /// Undo [`bind_remote`], e.g. when the remote is removed.
+    /// Undo [`bind_remote`], e.g. when the remote is removed; its session is revoked on Proton's side.
     pub fn unbind_remote(remote: &str) {
         let _ = invoke_raw(
             |payload| unsafe { ffi::ProtonDrive_UnbindRemote(payload) },
