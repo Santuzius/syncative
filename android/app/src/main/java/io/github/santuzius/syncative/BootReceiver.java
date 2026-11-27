@@ -10,7 +10,7 @@ import java.io.File;
 public class BootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
-        // The switch src/services/autostart_android.rs writes: $XDG_DATA_HOME/syncative/autostart-off.
+        // The switch src/infrastructure/android/autostart.rs writes: $XDG_DATA_HOME/syncative/autostart-off.
         if (SyncService.backgroundOff(context) || new File(context.getFilesDir(), "syncative/autostart-off").exists()) {
             return;
         }

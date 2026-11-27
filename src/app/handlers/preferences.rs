@@ -3,10 +3,10 @@
 use iced::{Task, theme as iced_theme};
 
 use crate::{
+    infrastructure::autostart,
     screens::{about, preferences},
     services::{
         appearance::{Appearance, ThemeChoice},
-        autostart,
         power::{self, PowerSettings},
         settings_file,
     },

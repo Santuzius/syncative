@@ -9,8 +9,8 @@ use crate::{
         ports::Repository,
         remote::{ProviderKind, RemoteId, SyncPolicy},
     },
+    infrastructure::secrets,
     infrastructure::{client_router::ClientRouter, proton::client::ProtonClient},
-    services::secrets,
     util,
 };
 

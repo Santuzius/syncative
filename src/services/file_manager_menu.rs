@@ -170,7 +170,7 @@ pub fn set(enabled: bool, beta: bool) -> io::Result<()> {
     let home = data_home();
     let wanted = if enabled { installed(beta) } else { Vec::new() };
     let (exec, icon) = (
-        crate::services::autostart::exec_command(),
+        crate::infrastructure::autostart::exec_command(),
         icon_installed(&home),
     );
     Kind::ALL.iter().try_for_each(|kind| {

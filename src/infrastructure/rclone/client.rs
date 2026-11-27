@@ -19,7 +19,7 @@ use crate::domain::{
     remote::RemoteUsage,
     sync::{Changes, ContentHash, FileDetails, HashKind, ListFilter, RemoteChange, RemoteItem},
 };
-use crate::services::secrets;
+use crate::infrastructure::secrets;
 
 use super::rpc::{self, BackendListFilter, BackendRemoteItem, RcloneError};
 

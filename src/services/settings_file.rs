@@ -11,8 +11,8 @@ use crate::{
         remote::{Backend, Interval, SyncPolicy},
         sync::{ModeChange, NestedFilter, SyncDir, SyncMode},
     },
-    infrastructure::{client_router::ClientRouter, proton::client::ProtonClient},
-    services::{appearance::Appearance, autostart, power},
+    infrastructure::{autostart, client_router::ClientRouter, proton::client::ProtonClient},
+    services::{appearance::Appearance, power},
     util,
 };
 

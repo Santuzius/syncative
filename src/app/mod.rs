@@ -20,6 +20,7 @@ use crate::{
     },
     engine::{self, Snapshot},
     infrastructure::{
+        autostart,
         client_router::ClientRouter,
         tray::{self, TrayAction, TrayUpdate},
     },
@@ -29,7 +30,7 @@ use crate::{
     },
     services::{
         appearance::Appearance,
-        autostart, leftovers,
+        leftovers,
         power::{self, PowerSettings},
         settings_file,
     },
@@ -330,7 +331,7 @@ impl SyncativeApp {
             background: power::background_enabled(),
             background_allowed: true,
             background_dialog_open: false,
-            storage_access: crate::services::storage_access::granted(),
+            storage_access: crate::infrastructure::storage_access::granted(),
             system_scale: 1.0,
             detailed_log: crate::services::diagnostics::detailed_log(),
             beta: crate::services::beta::enabled(),

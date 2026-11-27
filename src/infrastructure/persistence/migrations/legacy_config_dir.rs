@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use crate::services::secrets;
+use crate::infrastructure::secrets;
 use crate::util;
 
 /// Move legacy state out of `~/.config/celeste/` (the previous home for

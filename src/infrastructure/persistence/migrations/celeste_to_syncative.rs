@@ -68,13 +68,13 @@ fn holds_instance_lock(dir: &Path) -> bool {
 /// Remove the autostart entry `celeste.desktop`; switched off there, Syncative's own entry starts switched off too. An AppImage updated in place keeps its path, so both entries would start it at login, and the second start would open the window.
 #[cfg(not(target_os = "android"))]
 pub fn move_autostart_entry() {
-    let new = crate::services::autostart::entry_path();
+    let new = crate::infrastructure::autostart::entry_path();
     move_autostart_entry_at(&new.with_file_name("celeste.desktop"), &new);
 }
 
 #[cfg(not(target_os = "android"))]
 fn move_autostart_entry_at(old: &Path, new: &Path) {
-    use crate::services::autostart;
+    use crate::infrastructure::autostart;
     if !old.exists() {
         return;
     }
@@ -99,7 +99,7 @@ pub fn take_celeste_key(account: &str) -> Result<Option<String>, String> {
         Err(keyring::Error::NoEntry) => return Ok(None),
         Err(e) => return Err(format!("keyring read failed: {e}")),
     };
-    crate::services::secrets::store(account, &value)?;
+    crate::infrastructure::secrets::store(account, &value)?;
     if let Err(err) = old.delete_credential() {
         eprintln!(
             "syncative: moved the keyring entry {account}, but couldn't delete it under {CELESTE_SERVICE}: {err}"
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn the_old_autostart_entry_goes_and_passes_on_off() {
-        use crate::services::autostart::{enabled_at, write_at};
+        use crate::infrastructure::autostart::{enabled_at, write_at};
         let root = temp_root("autostart");
         let (old, new) = (root.join("celeste.desktop"), root.join("syncative.desktop"));
         write_at(&old, false, true, "celeste").unwrap();

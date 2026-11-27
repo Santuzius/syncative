@@ -35,9 +35,8 @@ use crate::{
         },
         proton::client::ProtonClient,
         rclone::LibrcloneClient,
-        stderr_capture,
+        secrets, stderr_capture,
     },
-    services::secrets,
 };
 
 /// Entry point on Android, called by NativeActivity for the first activity of the process. With `iced_android` it keeps running after the activity is destroyed, so syncing goes on while the sync service keeps the process alive; later activities attach to it. `SyncativeApplication` has already set up the environment and logging.
@@ -133,7 +132,7 @@ fn set_up() -> Option<Services> {
     proton_listings_file::run(&data_dir);
     #[cfg(not(target_os = "android"))]
     celeste_to_syncative::move_autostart_entry();
-    services::autostart::refresh();
+    infrastructure::autostart::refresh();
     #[cfg(not(target_os = "android"))]
     services::file_manager_menu::refresh();
     fold_stale_rclone_into_keyring(&data_dir);

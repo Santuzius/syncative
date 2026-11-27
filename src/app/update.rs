@@ -4,12 +4,9 @@ use iced::Task;
 
 use crate::{
     domain::sync::SyncMode,
-    infrastructure::tray::TrayAction,
+    infrastructure::{autostart, tray::TrayAction},
     screens::{about, add_remote, folder_picker, main_page, remote_page},
-    services::{
-        autostart,
-        power::{self, PowerSettings},
-    },
+    services::power::{self, PowerSettings},
 };
 
 use super::{Message, SyncativeApp};
@@ -26,7 +23,7 @@ impl SyncativeApp {
             Message::Main(main_page::Msg::Selected(id)) => self.handle_remote_selected(id),
             Message::Main(main_page::Msg::RefreshAll) => self.handle_refresh_all(),
             Message::Main(main_page::Msg::AllowStorage) => {
-                crate::services::storage_access::ask();
+                crate::infrastructure::storage_access::ask();
                 Task::none()
             }
             Message::Main(main_page::Msg::AddRemote) => self.handle_open_add_remote(),
@@ -400,7 +397,7 @@ impl SyncativeApp {
     pub(in crate::app) fn refresh_storage_access(&mut self) -> Task<Message> {
         let was = std::mem::replace(
             &mut self.storage_access,
-            crate::services::storage_access::granted(),
+            crate::infrastructure::storage_access::granted(),
         );
         if self.storage_access && !was {
             self.handle_refresh_all()
