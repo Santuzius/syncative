@@ -6,7 +6,7 @@
 //!
 //! Each entry starts `syncative --save <files>`, which hands the files to the running Syncative (see [`crate::infrastructure::single_instance`]). The entries are the setting, off until the user switches them on in Preferences, and written only for the file managers that are installed; without any of them the switch stays off.
 //!
-//! The entry of a file manager is a beta feature while [`Kind::is_beta`] says so (see [`crate::services::beta`]): offered and written only with the beta features on, and taken out when they go off. Saving files handed over otherwise (`syncative --save`) isn't beta.
+//! The entry of a file manager is a beta feature while [`Kind::is_beta`] says so (see [`crate::services::preferences::beta`]): offered and written only with the beta features on, and taken out when they go off. Saving files handed over otherwise (`syncative --save`) isn't beta.
 
 use std::{
     io,
@@ -141,7 +141,7 @@ pub fn offer(beta: bool) -> Option<FileManagerMenu> {
     let supported: Vec<String> = Kind::ALL
         .into_iter()
         .filter(|kind| kind.offered(beta))
-        .map(|kind| super::beta::marked(kind.name(), kind.is_beta()))
+        .map(|kind| super::preferences::beta::marked(kind.name(), kind.is_beta()))
         .collect();
     (!supported.is_empty()).then(|| FileManagerMenu {
         on: enabled(),
@@ -190,7 +190,7 @@ pub fn set(enabled: bool, beta: bool) -> io::Result<()> {
 /// At startup: while switched on, keep the entries' command current (e.g. after the AppImage moved), add those of file managers installed since and take out those that are beta while the beta features are off.
 pub fn refresh() {
     if enabled()
-        && let Err(err) = set(true, super::beta::enabled())
+        && let Err(err) = set(true, super::preferences::beta::enabled())
     {
         eprintln!("syncative: could not update the file manager's context menu: {err}");
     }

@@ -472,7 +472,7 @@ fn folder_title(sync_dir: &SyncDir) -> String {
     } else {
         crate::util::fmt_home(&sync_dir.local_path)
     };
-    crate::services::beta::marked(&local, sync_dir.mode.is_beta())
+    crate::services::preferences::beta::marked(&local, sync_dir.mode.is_beta())
 }
 
 fn section_heading<'a>(label: &'a str) -> Element<'a, Msg> {

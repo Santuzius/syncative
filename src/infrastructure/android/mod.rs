@@ -16,7 +16,7 @@ use jni::{
     sys::{JNI_TRUE, jboolean},
 };
 
-use crate::services::power::Conditions;
+use crate::services::preferences::power::Conditions;
 
 /// The Java class with Syncative's static helpers.
 const BRIDGE: &str = "io.github.santuzius.syncative.Bridge";
@@ -79,12 +79,12 @@ static CONDITIONS: Mutex<Conditions> = Mutex::new(Conditions {
     metered: false,
 });
 
-/// What the power mode currently goes by, apart from a metered network ([`crate::services::power::conditions`] adds that).
+/// What the power mode currently goes by, apart from a metered network ([`crate::services::preferences::power::conditions`] adds that).
 pub fn conditions() -> Conditions {
     CONDITIONS.lock().map(|c| *c).unwrap_or_default()
 }
 
-/// Called by `SyncService` when the screen goes off or on, the charger is plugged in or out, or Android's battery saver toggles: the power mode decides how often to sync (see [`crate::services::power`]).
+/// Called by `SyncService` when the screen goes off or on, the charger is plugged in or out, or Android's battery saver toggles: the power mode decides how often to sync (see [`crate::services::preferences::power`]).
 #[unsafe(no_mangle)]
 extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeConditions(
     _: JNIEnv,
@@ -101,7 +101,7 @@ extern "system" fn Java_io_github_santuzius_syncative_SyncService_nativeConditio
             ..*conditions
         };
     }
-    crate::services::power::apply();
+    crate::services::preferences::power::apply();
 }
 
 /// Called by `Bridge.watchNetwork` in every process when the default network changes and whether it is metered: Preferences may hold syncing on metered networks.

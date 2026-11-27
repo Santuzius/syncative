@@ -70,7 +70,7 @@ public class SyncService extends Service {
         }
     }
 
-    /** The user turned off "Run in background": Syncative syncs only while it is open. The switch src/services/power.rs writes: $XDG_DATA_HOME/syncative/background-off. */
+    /** The user turned off "Run in background": Syncative syncs only while it is open. The switch src/services/preferences/power.rs writes: $XDG_DATA_HOME/syncative/background-off. */
     static boolean backgroundOff(Context context) {
         return new File(context.getFilesDir(), "syncative/background-off").exists();
     }

@@ -71,7 +71,7 @@ pub enum Command {
     },
     /// Add a line to a folder's log.
     Log(SyncDirId, String),
-    /// How often to sync to save battery, e.g. less often with the phone's screen off (see [`crate::services::power`]). A less restrictive cadence syncs everything right away.
+    /// How often to sync to save battery, e.g. less often with the phone's screen off (see [`crate::services::preferences::power`]). A less restrictive cadence syncs everything right away.
     Cadence(Cadence),
     /// Whether the device has a network that reaches the internet, as the platform reports it. While it hasn't, folders show Offline, and a remote that is due only makes the platform check again (see [`crate::services::network::recheck`]). Once it is back, everything syncs right away.
     Online(bool),
@@ -251,7 +251,7 @@ fn spawn(
         crate::services::network::online(),
     )));
     let _ = tx.send(Input::Command(Command::Cadence(
-        crate::services::power::current_cadence(),
+        crate::services::preferences::power::current_cadence(),
     )));
     // Shared files whose upload a quit or a killed process cut short.
     for upload in crate::services::share::pending(&crate::util::get_data_dir()) {

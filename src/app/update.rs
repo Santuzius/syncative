@@ -6,7 +6,7 @@ use crate::{
     domain::sync::SyncMode,
     infrastructure::{autostart, tray::TrayAction},
     screens::{about, add_remote, folder_picker, main_page, remote_page},
-    services::power::{self, PowerSettings},
+    services::preferences::power::{self, PowerSettings},
 };
 
 use super::{Message, SyncativeApp};

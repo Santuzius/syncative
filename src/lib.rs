@@ -98,7 +98,7 @@ fn set_up() -> Option<Services> {
     // if the platform can't hand us a pipe; sync keeps working, we just
     // lose rate-limit detection for the run.
     let stderr = stderr_capture::install();
-    services::diagnostics::apply();
+    services::preferences::diagnostics::apply();
 
     // SQLite DB lives under ${XDG_DATA_HOME:-~/.local/share}/syncative.
     // The rclone config file (which holds OAuth tokens librclone writes
@@ -191,7 +191,7 @@ fn set_up() -> Option<Services> {
     )
     .expect("failed to set rclone config path");
     encrypt_rclone_config(&rclone_config);
-    services::diagnostics::apply_to_rclone();
+    services::preferences::diagnostics::apply_to_rclone();
 
     let mut db_path = data_dir.clone();
     db_path.push("data.sqlite");
@@ -220,7 +220,7 @@ fn set_up() -> Option<Services> {
     infrastructure::network_monitor::start();
     resume_native_sessions(&*repo, &router);
     let engine = engine::start(repo.clone(), router.clone(), stderr).clone();
-    services::power::apply();
+    services::preferences::power::apply();
     Some(Services {
         repo,
         router,

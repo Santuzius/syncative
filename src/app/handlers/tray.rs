@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     infrastructure::tray::{self, TrayAction, TrayUpdate},
-    services::appearance::TrayIconChoice,
+    services::preferences::appearance::TrayIconChoice,
 };
 
 use super::super::{Message, SyncativeApp, main_window_settings};
@@ -21,7 +21,7 @@ impl SyncativeApp {
         tx: mpsc::Sender<TrayUpdate>,
     ) -> Task<Message> {
         self.tray_tx = Some(tx);
-        self.tray_hint_open = !crate::services::appearance::tray_hint_seen();
+        self.tray_hint_open = !crate::services::preferences::appearance::tray_hint_seen();
         self.last_tray_status = None;
         self.push_tray_theme();
         self.push_tray_status();
@@ -197,7 +197,7 @@ impl SyncativeApp {
     /// Close the explanation of the tray icon's colour for good.
     pub(in crate::app) fn close_tray_hint(&mut self) {
         self.tray_hint_open = false;
-        if let Err(err) = crate::services::appearance::mark_tray_hint_seen() {
+        if let Err(err) = crate::services::preferences::appearance::mark_tray_hint_seen() {
             eprintln!("syncative: could not remember that the tray hint was shown: {err}");
         }
     }

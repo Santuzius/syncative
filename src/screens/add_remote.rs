@@ -93,7 +93,7 @@ impl ProviderKind {
 
     /// The name in the window, with the beta mark where it applies.
     pub fn label(self) -> String {
-        crate::services::beta::marked(&self.to_string(), self.is_beta())
+        crate::services::preferences::beta::marked(&self.to_string(), self.is_beta())
     }
 }
 

@@ -46,7 +46,7 @@ pub fn set_metered(metered: bool) {
     log::info!("network {state}");
     #[cfg(not(target_os = "android"))]
     eprintln!("syncative: network {state}");
-    crate::services::power::apply();
+    crate::services::preferences::power::apply();
 }
 
 /// Ask the platform again while offline, in case it missed telling us that the network is back. The engine calls it whenever a remote would be due, so it follows the sync intervals and the power settings. Blocking; Android's callback is reliable, so there it does nothing.

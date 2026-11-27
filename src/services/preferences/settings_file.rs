@@ -12,7 +12,7 @@ use crate::{
         sync::{ModeChange, NestedFilter, SyncDir, SyncMode},
     },
     infrastructure::{autostart, client_router::ClientRouter, proton::client::ProtonClient},
-    services::{appearance::Appearance, power},
+    services::preferences::{appearance::Appearance, power},
     util,
 };
 

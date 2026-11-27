@@ -5,7 +5,7 @@ use iced::{Task, theme as iced_theme};
 use crate::{
     infrastructure::autostart,
     screens::{about, preferences},
-    services::{
+    services::preferences::{
         appearance::{Appearance, ThemeChoice},
         power::{self, PowerSettings},
         settings_file,
@@ -93,7 +93,7 @@ impl SyncativeApp {
                 Task::none()
             }
             preferences::Msg::DetailedLogToggled(on) => {
-                match crate::services::diagnostics::set_detailed_log(on) {
+                match crate::services::preferences::diagnostics::set_detailed_log(on) {
                     Ok(()) => self.detailed_log = on,
                     Err(err) => {
                         self.preferences_error =
@@ -235,7 +235,7 @@ impl SyncativeApp {
 
     /// Switch the beta features, and with them the context menu entries of beta file managers.
     pub(in crate::app) fn set_beta(&mut self, on: bool) {
-        if let Err(err) = crate::services::beta::set_enabled(on) {
+        if let Err(err) = crate::services::preferences::beta::set_enabled(on) {
             self.preferences_error = Some(format!("Could not change the beta features: {err}"));
             return;
         }

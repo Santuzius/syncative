@@ -29,10 +29,12 @@ use crate::{
         settings, share,
     },
     services::{
-        appearance::Appearance,
         leftovers,
-        power::{self, PowerSettings},
-        settings_file,
+        preferences::{
+            appearance::Appearance,
+            power::{self, PowerSettings},
+            settings_file,
+        },
     },
     theme,
 };
@@ -230,7 +232,7 @@ pub struct SyncativeApp {
     system_scale: f32,
     /// Every captured line goes to the system log, not only problems.
     detailed_log: bool,
-    /// The beta features are on (see `services::beta`).
+    /// The beta features are on (see `services::preferences::beta`).
     beta: bool,
     /// The file manager's context menu setting; `None` on Android and while no file manager is offered (see `services::file_manager_menu::offer`).
     file_manager_menu: Option<preferences::FileManagerMenu>,
@@ -333,12 +335,12 @@ impl SyncativeApp {
             background_dialog_open: false,
             storage_access: crate::infrastructure::storage_access::granted(),
             system_scale: 1.0,
-            detailed_log: crate::services::diagnostics::detailed_log(),
-            beta: crate::services::beta::enabled(),
+            detailed_log: crate::services::preferences::diagnostics::detailed_log(),
+            beta: crate::services::preferences::beta::enabled(),
             beta_dialog_open: false,
             #[cfg(not(target_os = "android"))]
             file_manager_menu: crate::services::file_manager_menu::offer(
-                crate::services::beta::enabled(),
+                crate::services::preferences::beta::enabled(),
             ),
             #[cfg(target_os = "android")]
             file_manager_menu: None,

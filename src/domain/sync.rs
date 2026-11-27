@@ -80,7 +80,7 @@ impl SyncMode {
         Self::NetworkDrive,
     ];
 
-    /// Offered only with the beta features on, see `services::beta`.
+    /// Offered only with the beta features on, see `services::preferences::beta`.
     pub fn is_beta(self) -> bool {
         self == Self::NetworkDrive
     }
@@ -122,7 +122,7 @@ impl SyncMode {
             Self::TwoWay => "Sync",
             Self::Upload => "Cloud backup",
             Self::Download => "Local backup",
-            // With the mark of `services::beta::MARK` while it is a beta feature, also when the beta features are off, as for other beta features in use.
+            // With the mark of `services::preferences::beta::MARK` while it is a beta feature, also when the beta features are off, as for other beta features in use.
             Self::NetworkDrive if self.is_beta() => "Network drive 🧪",
             Self::NetworkDrive => "Network drive",
         }

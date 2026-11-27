@@ -6,7 +6,7 @@ use iced::{
 };
 
 use crate::{
-    services::{
+    services::preferences::{
         appearance::{Appearance, SizeChoice, ThemeChoice, TrayIconChoice},
         power::PowerMode,
     },
@@ -310,7 +310,7 @@ fn beta_features() -> Vec<String> {
         .filter(|mode| mode.is_beta())
         .map(|mode| {
             mode.label()
-                .trim_end_matches(crate::services::beta::MARK)
+                .trim_end_matches(crate::services::preferences::beta::MARK)
                 .trim_end()
                 .to_owned()
         });
