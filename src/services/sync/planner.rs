@@ -629,27 +629,41 @@ fn delete_remote(
     snapshot: &Snapshot,
     db_by_parent: &HashMap<&str, Vec<&str>>,
 ) -> Option<Action> {
-    if ancestor_in_set(&r.path, &snapshot.walk_unreliable) {
-        eprintln!(
-            "sync: SKIP DeleteRemote for '{}' — local walk reported an error on this path or an ancestor; preserving remote copy.",
-            r.path,
-        );
-        return None;
-    }
     // A sub-folder the walk read without error and found empty was emptied on purpose, so its files go remotely too. The sync folder itself is never in the walk and keeps the stricter check: an empty root more likely means an unmounted disk.
-    if !local_absence_trusted(&r.path, snapshot, db_by_parent) {
-        eprintln!(
-            "sync: SKIP DeleteRemote for '{}' — walk found no entries under '{}' (likely concurrent-write race); preserving remote copy.",
-            r.path,
-            parent_of(&r.path),
-        );
-        return None;
-    }
-    Some(Action::DeleteRemote {
+    absence_checked(
+        &r.path,
+        snapshot,
+        db_by_parent,
+        "DeleteRemote, preserving the remote copy",
+    )
+    .then(|| Action::DeleteRemote {
         local_path: derive_local_path(&r.path, sync_dir),
         remote_path: r.path.clone(),
         is_dir: r.is_dir,
     })
+}
+
+/// Whether the walk can be trusted that `path` is gone here: it read the path's folders without error, and [`local_absence_trusted`]. Logs why not, naming the `skipped` action.
+fn absence_checked(
+    path: &str,
+    snapshot: &Snapshot,
+    db_by_parent: &HashMap<&str, Vec<&str>>,
+    skipped: &str,
+) -> bool {
+    if ancestor_in_set(path, &snapshot.walk_unreliable) {
+        eprintln!(
+            "sync: SKIP {skipped} for '{path}' — local walk reported an error on this path or an ancestor."
+        );
+        return false;
+    }
+    if !local_absence_trusted(path, snapshot, db_by_parent) {
+        eprintln!(
+            "sync: SKIP {skipped} for '{path}' — walk found no entries under '{}' (likely concurrent-write race).",
+            parent_of(path),
+        );
+        return false;
+    }
+    true
 }
 
 /// Whether an item the database knows is really gone here: the walk read its folder, found a synced sibling, or the item went with a folder of which one of these holds. An empty walk of a folder more likely means an unmounted disk or a concurrent writer.
@@ -694,22 +708,7 @@ fn restore_local(
     snapshot: &Snapshot,
     db_by_parent: &HashMap<&str, Vec<&str>>,
 ) -> Option<Action> {
-    if ancestor_in_set(&r.path, &snapshot.walk_unreliable) {
-        eprintln!(
-            "sync: SKIP restoring '{}' — local walk reported an error on this path or an ancestor.",
-            r.path,
-        );
-        return None;
-    }
-    if !local_absence_trusted(&r.path, snapshot, db_by_parent) {
-        eprintln!(
-            "sync: SKIP restoring '{}' — walk found no entries under '{}'.",
-            r.path,
-            parent_of(&r.path),
-        );
-        return None;
-    }
-    Some(Action::Download {
+    absence_checked(&r.path, snapshot, db_by_parent, "restoring").then(|| Action::Download {
         local_path: derive_local_path(&r.path, sync_dir),
         remote_path: r.path.clone(),
         is_dir: r.is_dir,
