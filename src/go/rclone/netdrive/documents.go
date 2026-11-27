@@ -46,11 +46,24 @@ func init() {
 	}
 }
 
-// docVFS returns the VFS for `remote:path`, starting it if needed, and whether it started now.
-func docVFS(ctx context.Context, fsString string) (*vfs.VFS, bool, error) {
+// starting serialises starting and stopping VFSes, so two calls for one folder start one VFS. docs stays free meanwhile for the open files: cache.Get may wait on the network (a Proton sign-in).
+var starting sync.Mutex
+
+// attachedVFS returns the VFS for `remote:path` when it runs.
+func attachedVFS(fsString string) *vfs.VFS {
 	docs.Lock()
 	defer docs.Unlock()
-	if v := docs.vfses[fsString]; v != nil {
+	return docs.vfses[fsString]
+}
+
+// docVFS returns the VFS for `remote:path`, starting it if needed, and whether it started now.
+func docVFS(ctx context.Context, fsString string) (*vfs.VFS, bool, error) {
+	if v := attachedVFS(fsString); v != nil {
+		return v, false, nil
+	}
+	starting.Lock()
+	defer starting.Unlock()
+	if v := attachedVFS(fsString); v != nil {
 		return v, false, nil
 	}
 	f, err := cache.Get(ctx, fsString)
@@ -64,9 +77,11 @@ func docVFS(ctx context.Context, fsString string) (*vfs.VFS, bool, error) {
 	// Files left unuploaded by an earlier process are queued when the VFS starts; with a write-back delay of 0 that would wait for their uploads here (as RSAF found, github.com/chenxiaolong/RSAF).
 	opt.WriteBack = fs.Duration(time.Millisecond)
 	v := vfs.New(context.Background(), f, &opt)
-	// From now on Close uploads before it returns, so the provider knows when a file is up (and the foreground service keeps the process alive meanwhile).
+	// From now on Close uploads before it returns, so the provider knows when a file is up (and the foreground service keeps the process alive meanwhile). An upload queued at the start that fails and is retried reads this value without a lock; either value only sets how soon the retry runs.
 	v.Opt.WriteBack = 0
+	docs.Lock()
 	docs.vfses[fsString] = v
+	docs.Unlock()
 	return v, true, nil
 }
 
@@ -97,14 +112,28 @@ func rcDocDetach(ctx context.Context, in rc.Params) (rc.Params, error) {
 	if err != nil {
 		return nil, err
 	}
+	starting.Lock()
+	defer starting.Unlock()
 	docs.Lock()
 	v := docs.vfses[fsString]
 	delete(docs.vfses, fsString)
-	docs.Unlock()
-	if v != nil {
-		v.Shutdown()
+	var open []vfs.Handle
+	for id, h := range docs.handles {
+		if v != nil && h.Node().VFS() == v {
+			open = append(open, h)
+			delete(docs.handles, id)
+		}
 	}
-	return rc.Params{}, nil
+	docs.Unlock()
+	if v == nil {
+		return rc.Params{}, nil
+	}
+	// Close uploads what was written; Shutdown alone would drop it with the cache.
+	for _, h := range open {
+		err = errors.Join(err, h.Close())
+	}
+	v.Shutdown()
+	return rc.Params{}, err
 }
 
 func entry(name string, info os.FileInfo) rc.Params {
