@@ -190,7 +190,7 @@ pub struct SyncDir {
     pub rows_mode: SyncMode,
     /// For [`SyncMode::Upload`] and [`SyncMode::Download`]: what was deleted on the source side after it was synced is deleted on the backup side too, also what was deleted before the switch was turned on. What only the backup side ever had stays.
     pub sync_deletions: bool,
-    /// The mode and switch the user applied, which take over after the folder's next successful pass in [`Self::mode`]. That pass finishes what the current mode owes (a local backup downloads files deleted here again, a cloud backup uploads files deleted on the remote again), so the new mode doesn't read those as deletions. Until then the folder can't be changed.
+    /// The mode and switch the user applied, which take over after the folder's next pass in [`Self::mode`] that ends without failures. That pass finishes what the current mode owes (a local backup downloads files deleted here again, a cloud backup uploads files deleted on the remote again), so the new mode doesn't read those as deletions. Until then the folder can't be changed.
     pub pending: Option<ModeChange>,
     /// Whether a pass checked once for files here that kept the time Proton lists, the upload's, as the time they were last modified: Syncative gave downloads that date up to 0.28 (issue 25). See `services::sync::dates`.
     pub dates_checked: bool,

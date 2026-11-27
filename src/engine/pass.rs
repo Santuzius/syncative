@@ -123,7 +123,7 @@ impl Pass {
                     sd = switch_mode(&*repo, sd, change, &emit);
                 }
                 let mut outcome = run(&sd);
-                // A new mode applies only after a pass in the current one went through, so what the current mode owes doesn't read as deletions to the new one; then the folder syncs again in the new mode. Otherwise the folder keeps its mode.
+                // A new mode applies only after a pass in the current one went through without failures, so what the current mode owes doesn't read as deletions to the new one; then the folder syncs again in the new mode. Otherwise the folder keeps its mode.
                 if let Some(change) = sd.pending {
                     if outcome == Outcome::Synced && !cancel.load(Ordering::Acquire) {
                         sd = switch_mode(&*repo, sd, change, &emit);
@@ -133,7 +133,7 @@ impl Pass {
                     }
                 }
                 match outcome {
-                    Outcome::Synced => {
+                    Outcome::Synced | Outcome::Incomplete => {
                         synced.insert(sd.id);
                     }
                     Outcome::Degraded => any_degraded = true,
@@ -287,6 +287,23 @@ mod tests {
             (dir.mode, dir.sync_deletions, dir.pending),
             (SyncMode::Upload, true, None)
         );
+    }
+
+    /// The same change, but the download of the file deleted here fails: the new mode would delete it from the remote, so the folder keeps its mode.
+    #[tokio::test]
+    async fn a_mode_change_waits_for_a_pass_without_failures() {
+        let tmp = TempDir::new("pass_mode_change_failed");
+        let change = ModeChange {
+            mode: SyncMode::Upload,
+            sync_deletions: true,
+        };
+        let (repo, backend) = local_backup_with_a_file_deleted_here(&tmp, change);
+        backend.set_copy_to_local(Err("network is unreachable".to_owned()));
+
+        run_pass(&repo, &backend).await;
+        assert!(backend.delete_file_calls.lock().unwrap().is_empty());
+        let dir = repo.sync_dirs.lock().unwrap()[0].clone();
+        assert_eq!((dir.mode, dir.pending), (SyncMode::Download, None));
     }
 
     const UPLOADED: i64 = 1_795_000_000;

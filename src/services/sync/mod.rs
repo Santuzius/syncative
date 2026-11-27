@@ -42,6 +42,7 @@ mod tests;
 /// Outcome of a single [`run`] call.
 ///
 /// - `Synced`: the plan was applied in full.
+/// - `Incomplete`: the plan was applied, but some of its actions failed; the next pass tries them again.
 /// - `Aborted`: the pass refused to act (cancelled, or list error).
 /// - `Degraded`: the pass detected provider rate-limiting (e.g. Proton
 ///   Drive's `status=429` retry warnings in stderr) and skipped the
@@ -50,6 +51,7 @@ mod tests;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     Synced,
+    Incomplete,
     Aborted,
     Degraded,
 }
@@ -329,7 +331,11 @@ where
         dates::check(remote, sync_dir, repo, client, cancel, emit_status);
     }
     emit_state(RunState::Synced);
-    Outcome::Synced
+    if failed == 0 {
+        Outcome::Synced
+    } else {
+        Outcome::Incomplete
+    }
 }
 
 /// Takes the pass's listing back from the backend when the pass ends, whichever way.
