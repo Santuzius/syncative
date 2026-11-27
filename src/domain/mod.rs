@@ -1,8 +1,4 @@
-//! Framework-agnostic domain types.
-//!
-//! Everything in this module is pure Rust — no GTK, no SeaORM, no Go FFI.
-//! Infrastructure adapters map between these types and their external
-//! representations; services work only with these types.
+//! The types the other layers share, and the port traits through which the engine reaches the database and the remotes. Pure Rust without I/O: no iced, no SeaORM, no Go library (layers: `doc/development/conventions.md`).
 
 pub mod events;
 pub mod ports;

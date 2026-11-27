@@ -46,6 +46,21 @@
 - rclone comes from Syncative's fork, which adds the one-off change-log query: see [release.md](../packaging/release.md#the-rclone-fork).
 - Forks of iced, iced_android and android-activity: see [android/README.md](../../android/README.md) and [release.md](../packaging/release.md#the-android-forks).
 
+## Layers
+The Rust code in `src/` is split into layers; each uses only those below it:
+
+| Layer | Holds | Uses |
+|---|---|---|
+| `domain` | types and port traits (`domain::ports`), no I/O | nothing |
+| `infrastructure` | adapters: database, rclone and Go, keyring, files outside sync folders, D-Bus, JNI | `domain` |
+| `engine` | the sync thread: scheduling, one pass per remote, the network drives; `engine/folder` syncs one folder | `domain`, `infrastructure`; `engine/folder` only the port traits |
+| `services` | the features around the sync: sign-in, sharing, preferences, folder helpers | `domain`, `infrastructure`, `engine` |
+| `app`, `screens`, `widgets` | the window | everything below |
+
+- `engine/folder` reaches the remote and the database only through `BackendClient` and `Repository`, so its tests run it against the fakes in `test_support`. A unit test (`the_folder_sync_uses_no_adapter_directly`) fails once a file there names `infrastructure` or the Go library.
+- The window talks to the engine through its commands; only `engine::shutdown()`, which unmounts the network drives on quit, is called directly.
+- Platform callbacks in `infrastructure` (JNI entry points, D-Bus signals, files handed over by a second start) pass what they receive up to the service or the engine that handles it. The Proton client also calls into sign-in and the network drives until its session moves to Go ([todo.md](../todo.md)).
+
 ## Code
 - Rust code follows `rustfmt` with its defaults (`rustfmt.toml` only pins the style edition): run `cargo fmt --all` before committing, and `cargo fmt --all --check` stays clean. Editors that format on save pick up `rustfmt.toml` by themselves.
 - `cargo clippy --workspace --all-targets` in `nix-shell` stays free of warnings. `shell.nix` brings the clippy that matches its rustc; another clippy, e.g. the system's, fails on the files rustc left in `target/` (E0514).

@@ -1,3 +1,5 @@
+//! Adapters to the world outside: the database, rclone and the Go library, the keyring, the desktop's D-Bus services and Android through JNI. They implement the port traits of [`crate::domain::ports`] where the engine needs them (layers: `doc/development/conventions.md`).
+
 #[cfg(target_os = "android")]
 pub mod android;
 #[cfg_attr(target_os = "android", path = "android/autostart.rs")]

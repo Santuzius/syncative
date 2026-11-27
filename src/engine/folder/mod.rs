@@ -1,4 +1,4 @@
-//! One sync folder's part of a pass: compares the folder with the remote and the database and brings them in line.
+//! One sync folder's part of a pass: compares the folder with the remote and the database and brings them in line. It reaches both only through the port traits [`BackendClient`] and [`Repository`], so its tests run it against fakes; a network drive's pass goes to [`super::network_drive`] instead.
 //!
 //! Three submodules cover the three phases of one pass:
 //!

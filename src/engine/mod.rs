@@ -1,5 +1,7 @@
 //! The sync engine: schedules and runs the sync passes, tracks their state and keeps the folder logs. It runs on its own thread with its own small tokio runtime, independent of the GUI, so syncing goes on without a window (tray only on the desktop, a background service on Android).
 //!
+//! [`folder`] syncs one folder of a pass, [`network_drive`] keeps the mounts of network drive folders.
+//!
 //! The GUI is a client: it sends [`Command`]s and watches [`Snapshot`]s. The engine itself only reads the database; the GUI writes it and then says [`Command::Reload`].
 
 use std::{
