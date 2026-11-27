@@ -2,7 +2,7 @@
 //! status / error events through the caller's `emit` callback; bails out
 //! between actions when the cancel token trips.
 
-use std::{collections::HashMap, fs, io::Read, path::Path, time::SystemTime};
+use std::{collections::HashMap, fs, path::Path, time::SystemTime};
 
 use time::OffsetDateTime;
 
@@ -13,10 +13,11 @@ use crate::{
         remote::Remote,
         run_state::{RunState, SyncActivity},
         sync::{
-            Conflict, ConflictChoice, ContentHash, FileDetails, HashKind, Link, LinkTarget,
-            RemoteItem, Resolution, SyncDir, SyncError, SyncItem, SyncMode,
+            Conflict, ConflictChoice, FileDetails, Link, LinkTarget, RemoteItem, Resolution,
+            SyncDir, SyncError, SyncItem, SyncMode,
         },
     },
+    services::content_hash,
     util,
 };
 
@@ -681,7 +682,7 @@ fn inspect_conflict(
         .hash
         .as_ref()
         .filter(|_| size_may_match)
-        .and_then(|remote_hash| local_hash(local_path, remote_hash.kind, client));
+        .and_then(|remote_hash| content_hash::of_file(Path::new(local_path), remote_hash.kind));
     if local_content.is_some() && local_content == remote_details.hash {
         return Inspected::Identical;
     }
@@ -895,7 +896,7 @@ fn same_content(
     if details.size.is_some_and(|size| size != meta.len()) {
         return None;
     }
-    (local_hash(local_path, remote_hash.kind, client).as_ref() == Some(remote_hash))
+    (content_hash::of_file(Path::new(local_path), remote_hash.kind).as_ref() == Some(remote_hash))
         .then_some(details)
 }
 
@@ -907,36 +908,6 @@ pub(super) fn set_mtime(path: &str, secs: i64) -> std::io::Result<()> {
         .write(true)
         .open(path)?
         .set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs))
-}
-
-/// The hash of kind `kind` of the local file at `local_path`; `None` when it can't be read.
-fn local_hash(local_path: &str, kind: HashKind, client: &dyn BackendClient) -> Option<ContentHash> {
-    let value = match kind {
-        HashKind::Sha1 => sha1_of(Path::new(local_path)),
-        _ => client.local_hash(local_path, kind),
-    }?;
-    Some(ContentHash { kind, value })
-}
-
-fn sha1_of(path: &Path) -> Option<String> {
-    use sha1::{Digest, Sha1};
-    let mut file = fs::File::open(path).ok()?;
-    let mut hasher = Sha1::new();
-    let mut buf = vec![0u8; 1 << 16];
-    loop {
-        let n = file.read(&mut buf).ok()?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Some(
-        hasher
-            .finalize()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect(),
-    )
 }
 
 /// The progress line every 16 actions, naming what the pass is doing.

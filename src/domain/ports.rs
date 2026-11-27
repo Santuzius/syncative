@@ -21,9 +21,9 @@ use std::{
 use super::{
     remote::{Remote, RemoteId, RemoteUsage, SyncPolicy},
     sync::{
-        Changes, FileDetails, HashKind, ListFilter, ModeChange, NestedFilter, RemoteCursor,
-        RemoteItem, RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem,
-        SyncItemId, SyncMode,
+        Changes, FileDetails, ListFilter, ModeChange, NestedFilter, RemoteCursor, RemoteItem,
+        RemoteMeta, SyncDir, SyncDirExclusion, SyncDirExclusionId, SyncDirId, SyncItem, SyncItemId,
+        SyncMode,
     },
 };
 
@@ -276,10 +276,6 @@ pub trait BackendClient: Send + Sync {
         filter: ListFilter,
         cancel: &Cancel,
     ) -> Result<Vec<RemoteItem>, String>;
-    /// The hash of kind `kind` of the local file at `local_path`, for a hash other than SHA-1 (which the sync computes itself); `None` when the client can't compute it or the file can't be read.
-    fn local_hash(&self, _local_path: &str, _kind: HashKind) -> Option<String> {
-        None
-    }
     /// Fresh (never cached) details of a file for conflict handling: size and content hash where the backend knows them. `Ok(None)` when the path doesn't exist or is a folder. The default only has the modification time from `stat`.
     fn details(
         &self,

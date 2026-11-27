@@ -82,6 +82,7 @@ pub mod sync {
         domain::{ports::Cancel, sync::HashKind},
         util,
     };
+    use serde::Deserialize;
     use serde_json::json;
 
     /// Get a remote name.
@@ -156,11 +157,30 @@ pub mod sync {
         }
     }
 
-    /// Like [`stat`], with the backend's metadata and the hash of kind `kind` of the content. Ask for the backend's own kind: rclone logs an error for each file of a backend without it.
+    /// The hashes the backend of `remote_name` keeps of each file, by their rclone names.
+    pub fn hash_names(remote_name: &str, cancel: &Cancel) -> Result<Vec<String>, RcloneError> {
+        #[derive(Deserialize)]
+        struct Info {
+            #[serde(rename = "Hashes", default)]
+            hashes: Vec<String>,
+        }
+        match run_cancellable(
+            "operations/fsinfo",
+            &json!({ "fs": get_remote_name(remote_name) }).to_string(),
+            cancel,
+        ) {
+            Ok(json_str) => Ok(serde_json::from_str::<Info>(&json_str)
+                .map(|info| info.hashes)
+                .unwrap_or_default()),
+            Err(json_str) => Err(serde_json::from_str(&json_str).unwrap()),
+        }
+    }
+
+    /// Like [`stat`], with the backend's metadata and the hash of kind `kind` of the content, if any. Ask for a kind the backend keeps ([`hash_names`]): rclone logs an error for each file of a backend without it.
     pub fn details(
         remote_name: &str,
         path: &str,
-        kind: HashKind,
+        kind: Option<HashKind>,
         cancel: &Cancel,
     ) -> Result<Option<BackendRemoteItem>, RcloneError> {
         let resp = run_cancellable(
@@ -168,7 +188,11 @@ pub mod sync {
             &json!({
                 "fs": get_remote_name(remote_name),
                 "remote": util::strip_slashes(path),
-                "opt": { "showHash": true, "hashTypes": [kind.rclone_name()], "metadata": true }
+                "opt": {
+                    "showHash": kind.is_some(),
+                    "hashTypes": kind.map(HashKind::rclone_name).into_iter().collect::<Vec<_>>(),
+                    "metadata": true
+                }
             })
             .to_string(),
             cancel,

@@ -9,6 +9,7 @@ pub mod auth;
 #[cfg_attr(target_os = "android", path = "autostart_android.rs")]
 pub mod autostart;
 pub mod beta;
+pub mod content_hash;
 pub mod diagnostics;
 pub mod editor_temp;
 #[cfg(not(target_os = "android"))]

@@ -8,9 +8,13 @@ use crate::{
     domain::{
         ports::{BackendClient, Cancel},
         remote::RemoteUsage,
-        sync::{Changes, FileDetails, HashKind, ListFilter, RemoteItem},
+        sync::{Changes, FileDetails, ListFilter, RemoteItem},
     },
-    infrastructure::rclone::{LibrcloneClient, client::file_details, rpc},
+    infrastructure::rclone::{
+        LibrcloneClient,
+        client::{file_details, hash_kind},
+        rpc,
+    },
 };
 
 /// The rclone type of Syncative's Proton backend, also the remote type the app shows.
@@ -59,14 +63,14 @@ impl BackendClient for ProtonClient {
         path: &str,
         cancel: &Cancel,
     ) -> Result<Option<FileDetails>, String> {
-        let item =
-            rpc::sync::details(remote, path, HashKind::Sha1, cancel).map_err(|err| err.error)?;
+        let kind = hash_kind(remote, cancel);
+        let item = rpc::sync::details(remote, path, kind, cancel).map_err(|err| err.error)?;
         match item.filter(|item| !item.is_dir) {
             // The backend gives every file's time as "mtime" and leaves it out when Proton didn't answer: the listed time, the upload's, would give the file a wrong date.
             Some(item) if !item.metadata.contains_key("mtime") => Err(format!(
                 "Proton didn't give the modification time of '{path}'; it is asked again in a later pass."
             )),
-            item => Ok(item.map(|item| file_details(item, HashKind::Sha1))),
+            item => Ok(item.map(|item| file_details(item, kind))),
         }
     }
 
