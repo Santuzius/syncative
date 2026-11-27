@@ -440,11 +440,8 @@ pub enum ListFilter {
 /// Errors surfaced to the user for a single sync-dir pass.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum SyncError {
-    /// Catch-all: `(path, message)`.
+    /// `(path, message)`; the path is empty for an error of the whole folder.
     General(String, String),
-    /// Local and remote copies both changed since the last sync; user must
-    /// pick a winner. `(local_path, remote_path)`.
-    BothMoreCurrent(String, String),
 }
 
 #[cfg(test)]

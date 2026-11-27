@@ -8,15 +8,6 @@ use super::{
 /// their native render calls.
 #[derive(Clone, Debug)]
 pub enum SyncEvent {
-    /// A remote's full sync pass has begun.
-    RemoteStarted { remote_id: RemoteId },
-    /// A remote's full sync pass finished successfully.
-    RemoteCompleted { remote_id: RemoteId, at_unix: i64 },
-    /// A remote's sync pass failed at the remote level (not a single file).
-    RemoteFailed {
-        remote_id: RemoteId,
-        message: String,
-    },
     /// Primary per-sync-dir status text (e.g. "Synchronizing '/foo'…" or
     /// "Files are synced."). Renders on the sync_dir's main row.
     SyncDirStatus {
@@ -57,17 +48,4 @@ pub enum SyncEvent {
         sync_dir_id: SyncDirId,
         state: RunState,
     },
-    /// Per-file progress (reserved for future streaming).
-    #[allow(dead_code)]
-    FileProgress {
-        remote_id: RemoteId,
-        sync_dir_id: SyncDirId,
-        file: String,
-        pct: f32,
-    },
-}
-
-#[derive(Clone, Debug)]
-pub enum FsEvent {
-    Changed { path: String },
 }

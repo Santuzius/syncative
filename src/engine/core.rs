@@ -688,13 +688,9 @@ impl Core {
             | SyncEvent::SyncDirPending { sync_dir_id, .. }
             | SyncEvent::SyncDirError { sync_dir_id, .. }
             | SyncEvent::SyncDirConflicts { sync_dir_id, .. }
-            | SyncEvent::SyncDirStateChanged { sync_dir_id, .. }
-            | SyncEvent::FileProgress { sync_dir_id, .. } => Some(*sync_dir_id),
-            SyncEvent::RemoteStarted { .. }
-            | SyncEvent::RemoteCompleted { .. }
-            | SyncEvent::RemoteFailed { .. } => None,
+            | SyncEvent::SyncDirStateChanged { sync_dir_id, .. } => *sync_dir_id,
         };
-        if dir.is_some_and(|id| !self.sync_dirs.iter().any(|d| d.id == id)) {
+        if !self.sync_dirs.iter().any(|d| d.id == dir) {
             return;
         }
         match event {
@@ -712,9 +708,6 @@ impl Core {
                 let line = match &error {
                     SyncError::General(path, msg) if path.is_empty() => format!("⚠ {msg}"),
                     SyncError::General(path, msg) => format!("⚠ {path}: {msg}"),
-                    SyncError::BothMoreCurrent(local, remote) => {
-                        format!("⚠ Conflict: '{local}' vs '{remote}'")
-                    }
                 };
                 // HTTP 401 and the matching rclone phrasing mean the session is dead and only reauth fixes it. Flag the whole remote (the session is per remote) and stop the running pass. The flag alone keeps the scheduler off the remote; the user's Enabled setting stays, so a successful reauth resumes syncing without a detour through the settings.
                 let auth_failure =
@@ -780,10 +773,6 @@ impl Core {
                 self.conflicts_reported(remote_id, sync_dir_id, conflicts, resolutions);
                 self.undecided_nested_reported(remote_id, sync_dir_id, undecided_nested);
             }
-            SyncEvent::RemoteStarted { .. }
-            | SyncEvent::RemoteCompleted { .. }
-            | SyncEvent::RemoteFailed { .. }
-            | SyncEvent::FileProgress { .. } => {}
         }
     }
 
