@@ -228,7 +228,7 @@ func ChangesSince(ctx context.Context, remote, dir, cursor string) (Changes, err
 // tagChangesSince is ChangesSince for Nextcloud: the cursor is the ETag of the folder at `dir`, which changes with everything below it. A missing folder gives no cursor; the listing tells what that means.
 func tagChangesSince(ctx context.Context, remote, dir, cursor string) (Changes, error) {
 	tag, _, err := nextcloud.FolderTags(ctx, remote, dir, 0)
-	if err != nil && strings.Contains(err.Error(), "directory not found") {
+	if errors.Is(err, fs.ErrorDirNotFound) {
 		return Changes{Supported: true}, nil
 	}
 	if err != nil {
