@@ -5,7 +5,8 @@ use iced::{
     widget::{column, container},
 };
 use iced_fabi::{
-    ActionButton, ActionPlacement, Browser, BuiltInColumn, BuiltInTool, Mode, Pick, Selection,
+    ActionButton, ActionPlacement, Browser, BuiltInTool, Column, Mode, ModifiedColumn, Pick,
+    Selection,
 };
 
 use crate::{
@@ -91,8 +92,9 @@ impl Picker {
             // Hidden folders may sit at any depth; the tree shows them all at once.
             browser.set_mode(Mode::Tree);
         }
-        // Folders carry no size.
-        browser.hide_column(BuiltInColumn::Size);
+        // Folders carry no size; their times in the local time zone.
+        browser
+            .set_columns([Box::new(ModifiedColumn::new().format(modified_at)) as Box<dyn Column>]);
         // `""` is the root: a hidden sync folder itself, ticked like any other.
         let preselected: Vec<String> = preselected
             .iter()
@@ -229,6 +231,22 @@ pub fn view(picker: &Picker, full_screen: bool) -> Element<'_, Msg> {
         .max_width(MAX_WIDTH)
         .style(theme::dialog)
         .into()
+}
+
+/// `Nov 7, 2026, 17:45` in the local time zone, as iced_fabi's own column shows it in UTC.
+fn modified_at(epoch: i64) -> String {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let tm = crate::util::local_time(epoch);
+    format!(
+        "{} {}, {}, {:02}:{:02}",
+        MONTHS[tm.tm_mon.rem_euclid(12) as usize],
+        tm.tm_mday,
+        tm.tm_year + 1900,
+        tm.tm_hour,
+        tm.tm_min
+    )
 }
 
 #[cfg(test)]

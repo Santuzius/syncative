@@ -517,13 +517,7 @@ fn fmt_date(at: OffsetDateTime) -> String {
         "November",
         "December",
     ];
-    let secs = at.unix_timestamp() as libc::time_t;
-    // SAFETY: `localtime_r` only writes into the zeroed `tm` we own.
-    let tm = unsafe {
-        let mut tm: libc::tm = std::mem::zeroed();
-        libc::localtime_r(&secs, &mut tm);
-        tm
-    };
+    let tm = crate::util::local_time(at.unix_timestamp());
     format!(
         "{}, {} {} {} {:02}:{:02}:{:02}",
         DAYS[tm.tm_wday.rem_euclid(7) as usize],

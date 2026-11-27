@@ -72,21 +72,27 @@ impl std::fmt::Display for ClockTime {
     }
 }
 
-/// Local wall-clock time for log prefixes. Uses libc's `localtime_r` because the `time` crate refuses local offsets in multi-threaded processes.
+/// Local wall-clock time for log prefixes.
 pub fn local_clock() -> ClockTime {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs()) as libc::time_t;
-    // SAFETY: `localtime_r` only writes into the zeroed `tm` we own.
-    let tm = unsafe {
-        let mut tm: libc::tm = std::mem::zeroed();
-        libc::localtime_r(&now, &mut tm);
-        tm
-    };
+        .map_or(0, |d| d.as_secs()) as i64;
+    let tm = local_time(now);
     ClockTime {
         hour: tm.tm_hour as u8,
         minute: tm.tm_min as u8,
         second: tm.tm_sec as u8,
+    }
+}
+
+/// Seconds since 1970 as date and time in the local time zone. Uses libc's `localtime_r` because the `time` crate refuses local offsets in multi-threaded processes.
+pub fn local_time(epoch: i64) -> libc::tm {
+    let secs = epoch as libc::time_t;
+    // SAFETY: `localtime_r` only writes into the zeroed `tm` we own.
+    unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&secs, &mut tm);
+        tm
     }
 }
 
