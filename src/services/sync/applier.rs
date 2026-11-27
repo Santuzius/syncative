@@ -13,8 +13,8 @@ use crate::{
         remote::Remote,
         run_state::{RunState, SyncActivity},
         sync::{
-            Conflict, ConflictChoice, FileDetails, Link, LinkTarget, ListFilter, RemoteItem,
-            Resolution, SyncDir, SyncError, SyncItem, SyncMode,
+            Conflict, ConflictChoice, ContentHash, FileDetails, Link, LinkTarget, ListFilter,
+            RemoteItem, Resolution, SyncDir, SyncError, SyncItem, SyncMode,
         },
     },
     services::content_hash,
@@ -748,17 +748,15 @@ fn inspect_conflict(
         Ok(None) => return Inspected::Gone,
         Err(err) => return Inspected::Failed(err),
     };
-    let size_may_match = remote_details.size.is_none_or(|size| size == meta.len());
-    let local_content = remote_details
-        .hash
-        .as_ref()
-        .filter(|_| size_may_match)
-        .and_then(|remote_hash| content_hash::of_file(Path::new(local_path), remote_hash.kind));
+    let local_content = comparable_hash(local_path, meta.len(), &remote_details);
     if local_content.is_some() && local_content == remote_details.hash {
         return Inspected::Identical;
     }
     // Without a digest on the remote, the same size and modification time stand for the same content, as in rsync: a download takes over the remote's time. Otherwise the first pass after a reinstall would download every such file again.
-    if remote_details.hash.is_none() && size_may_match && local_stamp as i64 == remote_stamp {
+    if remote_details.hash.is_none()
+        && remote_details.size.is_none_or(|size| size == meta.len())
+        && local_stamp as i64 == remote_stamp
+    {
         return Inspected::Identical;
     }
     Inspected::Differs(Box::new(Conflict {
@@ -963,12 +961,16 @@ fn same_content(
         .details(&remote.name, remote_path, cancel)
         .ok()
         .flatten()?;
-    let remote_hash = details.hash.as_ref()?;
-    if details.size.is_some_and(|size| size != meta.len()) {
+    let local_hash = comparable_hash(local_path, meta.len(), &details)?;
+    (details.hash.as_ref() == Some(&local_hash)).then_some(details)
+}
+
+/// The hash of local file `local_path`, `size` bytes, in the kind the remote copy's `details` name; None when they can't match: the remote has no hash or another size.
+fn comparable_hash(local_path: &str, size: u64, details: &FileDetails) -> Option<ContentHash> {
+    if details.size.is_some_and(|remote_size| remote_size != size) {
         return None;
     }
-    (content_hash::of_file(Path::new(local_path), remote_hash.kind).as_ref() == Some(remote_hash))
-        .then_some(details)
+    content_hash::of_file(Path::new(local_path), details.hash.as_ref()?.kind)
 }
 
 /// Sets a file's modification time to `secs` after 1970.
