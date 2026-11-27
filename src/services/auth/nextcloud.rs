@@ -5,7 +5,7 @@ use serde_json::json;
 use crate::{
     domain::{
         ports::{BackendClient, Repository, cancel_never},
-        remote::RemoteId,
+        remote::{ProviderKind, RemoteId},
         sync::ListFilter,
     },
     util,
@@ -74,7 +74,7 @@ fn config_payload(name: &str, url: &str, user: &str, pass: &str) -> String {
             "user": user,
             "pass": pass,
         },
-        "type": "webdav",
+        "type": ProviderKind::Nextcloud.rclone_type(),
         "opt": { "obscure": true },
     })
     .to_string()

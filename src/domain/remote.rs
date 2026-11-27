@@ -15,24 +15,32 @@ pub enum ProviderKind {
 }
 
 impl ProviderKind {
-    /// Map a backend type string to our domain enum. Accepts both
-    /// rclone backend names ("drive", "dropbox", …) and the native
-    /// backend sentinel ("native-proton"). Unrecognised strings return
-    /// `None` — treated as "no provider-specific quirks".
-    pub fn from_rclone_type(t: &str) -> Option<Self> {
-        match t {
-            "dropbox" => Some(Self::Dropbox),
-            "drive" => Some(Self::GDrive),
-            "alias" => Some(Self::Local),
-            "onedrive" => Some(Self::OneDrive),
-            // Only the native client reports Proton now; rclone's
-            // `protondrive` backend is no longer compiled into the
-            // Go archive (see src/go/wrapper.go).
-            "native-proton" => Some(Self::ProtonDrive),
+    pub const ALL: [Self; 6] = [
+        Self::Dropbox,
+        Self::GDrive,
+        Self::Local,
+        Self::Nextcloud,
+        Self::OneDrive,
+        Self::ProtonDrive,
+    ];
+
+    /// The rclone backend type of a remote of this kind.
+    pub const fn rclone_type(self) -> &'static str {
+        match self {
+            Self::Dropbox => "dropbox",
+            Self::GDrive => "drive",
+            Self::Local => "alias",
+            // Syncative's own Proton backend (src/go/proton/rclonefs).
+            Self::ProtonDrive => "native-proton",
             // Nextcloud is the WebDAV remote Syncative sets up.
-            "webdav" => Some(Self::Nextcloud),
-            _ => None,
+            Self::Nextcloud => "webdav",
+            Self::OneDrive => "onedrive",
         }
+    }
+
+    /// The kind of a remote of rclone backend type `t`. Unrecognised types return `None`, treated as "no provider-specific quirks".
+    pub fn from_rclone_type(t: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.rclone_type() == t)
     }
 
     /// Interval a fresh remote of this kind should be created with.
@@ -282,6 +290,12 @@ mod tests {
             Some(ProviderKind::Nextcloud)
         );
         assert_eq!(ProviderKind::from_rclone_type("bogus"), None);
+        for kind in ProviderKind::ALL {
+            assert_eq!(
+                ProviderKind::from_rclone_type(kind.rclone_type()),
+                Some(kind)
+            );
+        }
     }
 
     #[test]

@@ -606,11 +606,9 @@ impl SyncativeApp {
             ..Default::default()
         };
         // Nextcloud: where and as whom stay as they were; only the password is asked for again.
-        if let Some(config) = self
-            .rclone
-            .config(&name)
-            .filter(|c| c.get("type").and_then(|v| v.as_str()) == Some("webdav"))
-        {
+        if let Some(config) = self.rclone.config(&name).filter(|c| {
+            c.get("type").and_then(|v| v.as_str()) == Some(ProviderKind::Nextcloud.rclone_type())
+        }) {
             let field = |key: &str| {
                 config
                     .get(key)

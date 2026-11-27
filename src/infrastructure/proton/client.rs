@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// The rclone type of Syncative's Proton backend, also the remote type the app shows.
-pub const PROTON_TYPE: &str = "native-proton";
+pub const PROTON_TYPE: &str = crate::domain::remote::ProviderKind::ProtonDrive.rclone_type();
 
 /// Sentence every reason for a new sign-in ends with. The Proton translator keys on it so these errors count as auth failures.
 pub const REAUTH_HINT: &str = "Open the remote in Syncative and click Sign in again.";

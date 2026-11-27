@@ -5,7 +5,7 @@ use serde_json::json;
 use crate::{
     domain::{
         ports::{BackendClient, Repository},
-        remote::RemoteId,
+        remote::{ProviderKind, RemoteId},
     },
     util,
 };
@@ -37,7 +37,7 @@ pub fn change_local_folder(
 /// The folder a Local folder remote points at, from its rclone config.
 pub fn local_folder(client: &dyn BackendClient, name: &str) -> Option<String> {
     let config = client.config(name)?;
-    if config.get("type")?.as_str()? != "alias" {
+    if config.get("type")?.as_str()? != ProviderKind::Local.rclone_type() {
         return None;
     }
     Some(config.get("remote")?.as_str()?.to_owned())
@@ -64,7 +64,7 @@ fn config_payload(name: &str, folder: &str) -> String {
     json!({
         "name": name,
         "parameters": { "remote": folder },
-        "type": "alias",
+        "type": ProviderKind::Local.rclone_type(),
     })
     .to_string()
 }

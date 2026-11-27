@@ -27,7 +27,7 @@ const VERSION: u32 = 1;
 const KEPT_PARAMETERS: &[(&str, &[&str])] = &[("webdav", &["url", "vendor", "user"])];
 
 /// The rclone type the file uses for Syncative's own Proton client.
-const NATIVE_PROTON: &str = "native-proton";
+const NATIVE_PROTON: &str = crate::domain::remote::ProviderKind::ProtonDrive.rclone_type();
 
 #[derive(Serialize, Deserialize)]
 struct File {

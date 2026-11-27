@@ -12,7 +12,7 @@ use serde_json::json;
 
 use crate::domain::{
     ports::{BackendClient, Repository},
-    remote::RemoteId,
+    remote::{ProviderKind, RemoteId},
 };
 use crate::util;
 
@@ -27,10 +27,11 @@ pub enum OAuthProvider {
 impl OAuthProvider {
     pub(super) fn rclone_type(self) -> &'static str {
         match self {
-            OAuthProvider::Dropbox => "dropbox",
-            OAuthProvider::GDrive => "drive",
-            OAuthProvider::OneDrive => "onedrive",
+            OAuthProvider::Dropbox => ProviderKind::Dropbox,
+            OAuthProvider::GDrive => ProviderKind::GDrive,
+            OAuthProvider::OneDrive => ProviderKind::OneDrive,
         }
+        .rclone_type()
     }
 }
 
