@@ -41,7 +41,7 @@ import java.util.concurrent.TimeoutException;
 /**
  * Shows Syncative's network drive folders to other apps: in the system's Files app and in every app's Open and Save dialog. Each folder is a root; a document's ID is the folder's ID, a slash and the path below it ("14/Photos/a.jpg"; "14" for the folder itself).
  *
- * The work happens in rclone's VFS (src/go/rclone/documents.go), reached through the native library (src/infrastructure/android/provider.rs). Open files are proxy file descriptors whose reads and writes go to the VFS; a written file is uploaded when it is closed.
+ * The work happens in rclone's VFS (src/go/rclone/netdrive/documents.go), reached through the native library (src/infrastructure/android/provider.rs). Open files are proxy file descriptors whose reads and writes go to the VFS; a written file is uploaded when it is closed.
  */
 public final class NetworkDriveProvider extends DocumentsProvider {
     static final String AUTHORITY = "io.github.santuzius.syncative.networkdrive";

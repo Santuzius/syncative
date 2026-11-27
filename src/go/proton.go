@@ -13,7 +13,7 @@ import (
 
 	"syncative/go/proton/drive"
 	"syncative/go/proton/rclonefs"
-	"syncative/go/rclone"
+	"syncative/go/rclone/changes"
 
 	"github.com/ProtonMail/go-proton-api"
 	"github.com/rclone/rclone/fs"
@@ -170,7 +170,7 @@ func ProtonDrive_UnbindRemote(paramsJSON *C.char) *C.char {
 
 // dropBackend removes `remote`'s backend from rclone's cache, so the next call creates it anew.
 func dropBackend(remote string) {
-	rclone.Forget(remote)
+	changes.Forget(remote)
 	cache.ClearConfig(remote)
 }
 

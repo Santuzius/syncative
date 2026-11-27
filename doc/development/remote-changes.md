@@ -20,21 +20,21 @@ A sync pass needs the remote state of its folder. Listing it costs one request p
 
 ## Change sources
 
-A pass asks `syncative::changes_since`, one call for every backend; `sourceOf` in `src/go/rclone/changes.go` picks the backend's source, and network drives (`src/go/rclone/networkdrive.go`) take theirs from it too. A backend whose source fails is listed, unless the network is gone.
+A pass asks `syncative::changes_since`, one call for every backend; `SourceOf` in `src/go/rclone/changes/changes.go` picks the backend's source, and network drives (`src/go/rclone/netdrive/poll.go`) take theirs from it too. A backend whose source fails is listed, unless the network is gone.
 
 | Backend | Cursor | Changes | After a restart |
 |---|---|---|---|
 | Proton | last event of the volume's event log and the sync folder's link ID, asked through Syncative's Proton backend for rclone (`src/go/proton/rclonefs`) | the changed links with their decrypted names, placed by ID | kept |
-| Nextcloud | the sync folder's ETag, which the server renews with every change below it | a walk into the subfolders whose ETag changed (`src/go/rclone/davtags.go`) | kept |
-| OneDrive | the delta token of the drive's change log and the sync folder's item ID, asked through Syncative's rclone fork (`backend/onedrive/syncative.go`, `src/go/rclone/onedrive.go`) | the changed items with their names, placed by ID: the delta listing gives no paths | kept |
-| Google Drive, Dropbox | the provider's change-log token, asked once per pass through Syncative's rclone fork | the folders holding the paths it reported (`src/go/rclone/changes.go`) | one full listing: rclone names Drive's changes through the folders its backend has listed in this run |
+| Nextcloud | the sync folder's ETag, which the server renews with every change below it | a walk into the subfolders whose ETag changed (`src/go/rclone/nextcloud/tags.go`) | kept |
+| OneDrive | the delta token of the drive's change log and the sync folder's item ID, asked through Syncative's rclone fork (`backend/onedrive/syncative.go`, `src/go/rclone/changes/onedrive.go`) | the changed items with their names, placed by ID: the delta listing gives no paths | kept |
+| Google Drive, Dropbox | the provider's change-log token, asked once per pass through Syncative's rclone fork | the folders holding the paths it reported (`src/go/rclone/changes/changes.go`) | one full listing: rclone names Drive's changes through the folders its backend has listed in this run |
 | Other rclone backends | none | | every pass lists |
 
 One answer per remote:
 
-- The sync folders of a remote ask one after the other in a pass and share one answer: an answer up to 3 s old stands in for the request (`reuseFor` in `src/go/rclone/changes.go`). The window is shorter than the shortest interval (5 s), so every pass asks at least once.
+- The sync folders of a remote ask one after the other in a pass and share one answer: an answer up to 3 s old stands in for the request (`AnswerReuse` in `src/go/rclone/call.go`). The window is shorter than the shortest interval (5 s), so every pass asks at least once.
 - Proton, OneDrive, Google Drive, Dropbox: the change log covers the whole remote, so a quiet pass makes one request for all folders. A folder whose cursor stayed behind gets the kept answers since its cursor.
-- Nextcloud: the server renews the root's ETag with every change below it, also for a change by the owner of a folder shared with the user (tested on Nextcloud 34). A pass asks the root's ETag once; a folder whose ETag was read under the root's current ETag skips its own request (`tagGate` in `src/go/rclone/davtags.go`). A quiet pass makes one request, a pass with changes one more than without the gate.
+- Nextcloud: the server renews the root's ETag with every change below it, also for a change by the owner of a folder shared with the user (tested on Nextcloud 34). A pass asks the root's ETag once; a folder whose ETag was read under the root's current ETag skips its own request (`tagGate` in `src/go/rclone/nextcloud/tags.go`). A quiet pass makes one request, a pass with changes one more than without the gate.
 - Every ETag request goes through one HTTP client, so its connection stays open between passes.
 
 Google Drive and Dropbox:
@@ -55,7 +55,7 @@ Proton addresses items by link ID, and rclone by path. Syncative's Proton backen
 
 ## Times
 
-Proton lists a file with the time its active revision was uploaded, which never drifts, and keeps the time the file was last modified before the upload in the revision's encrypted extended attributes. The sync compares the listed time (rclone's `ModTime`); downloads and the conflict dialog take the other one, which the Proton backend gives as the metadata `mtime`. Proton downloads copy with rclone's `Metadata` option, so the file gets that time from the copy, and `details` asks for it. When Proton doesn't answer for the attributes, the copy and `details` fail and the next pass tries again: the listed time would give old files today's date and reorder galleries sorted by date (issue 25). A network drive shows that time as well (`ModifiedTime` of the Proton backend, `src/go/rclone/modtime.go`): the Linux mount through its wrapper's files, Android's documents provider for files the VFS holds as the remote has them; a file written on the drive shows the VFS's own time until it is listed again.
+Proton lists a file with the time its active revision was uploaded, which never drifts, and keeps the time the file was last modified before the upload in the revision's encrypted extended attributes. The sync compares the listed time (rclone's `ModTime`); downloads and the conflict dialog take the other one, which the Proton backend gives as the metadata `mtime`. Proton downloads copy with rclone's `Metadata` option, so the file gets that time from the copy, and `details` asks for it. When Proton doesn't answer for the attributes, the copy and `details` fail and the next pass tries again: the listed time would give old files today's date and reorder galleries sorted by date (issue 25). A network drive shows that time as well (`ModifiedTime` of the Proton backend, `src/go/rclone/netdrive/modtime.go`): the Linux mount through its wrapper's files, Android's documents provider for files the VFS holds as the remote has them; a file written on the drive shows the VFS's own time until it is listed again.
 
 Up to 0.28, downloads from Proton and files whose time alone changed there could get the listed time. Such a file still has it to the second, in the file and in both times of its row; at the end of the first pass that syncs a Proton folder, before the pass reports the folder synced, `services::sync::dates` gives each one the time from `details` and records the check in `sync_dirs.dates_checked`, so it runs once per folder. A pass that can't ask for a time leaves the flag for the next one.
 

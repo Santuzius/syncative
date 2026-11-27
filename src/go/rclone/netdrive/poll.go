@@ -1,6 +1,6 @@
-package rclone
+package netdrive
 
-// networkdrive.go: a network drive folder's pass asks what changed on the remote since the previous pass and has the mount's VFS forget those paths, so the mount follows the remote's sync interval and pause like a synced folder. rclone's own poll timer stays off (vfsOpt PollInterval 0). Backends with a change log (Google Drive, Dropbox, OneDrive, Proton) answer from it; on Nextcloud the folder ETags (davtags.go) lead down to the folders that changed.
+// poll.go: a network drive folder's pass asks what changed on the remote since the previous pass and has the mount's VFS forget those paths, so the mount follows the remote's sync interval and pause like a synced folder. rclone's own poll timer stays off (vfsOpt PollInterval 0). Backends with a change log (Google Drive, Dropbox, OneDrive, Proton) answer from it; on Nextcloud the folder ETags (nextcloud/tags.go) lead down to the folders that changed.
 
 import (
 	"context"
@@ -9,6 +9,9 @@ import (
 	"path"
 	"strings"
 	"sync"
+
+	"syncative/go/rclone/changes"
+	"syncative/go/rclone/nextcloud"
 
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/cache"
@@ -81,10 +84,10 @@ func rcMountPoll(ctx context.Context, in rc.Params) (rc.Params, error) {
 		remote, root = trash.remote, trash.root
 	}
 	// The VFS names what it forgets by path, so a mount follows a log by path even where the sync follows one by ID.
-	src := sourceOf(f, remote)
-	log := src.paths
+	src := changes.SourceOf(f, remote)
+	log := src.Paths
 	if log == nil {
-		if !src.tags {
+		if !src.Tags {
 			return rc.Params{"supported": false, "changes": 0}, nil
 		}
 		n, dirs, err := pollFolderTags(ctx, forget, fsString, remote, strings.Trim(root, "/"), state)
@@ -162,7 +165,7 @@ func pollFolderTags(ctx context.Context, forget *rc.Call, fsString, remote, root
 	var dirs []string
 	var walk func(dir, tag string) error
 	walk = func(dir, known string) error {
-		tag, children, err := FolderTags(ctx, remote, dir, 1)
+		tag, children, err := nextcloud.FolderTags(ctx, remote, dir, 1)
 		if err != nil {
 			if dir != root && strings.Contains(err.Error(), "directory not found") {
 				// Gone since its parent was read; the parent's new listing shows that.

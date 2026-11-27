@@ -1,4 +1,4 @@
-package rclone
+package netdrive
 
 // trashfs.go: the backend a Linux network drive is mounted through, type "syncativetrash". It passes everything to the remote except the folder `.Trash-<uid>` at the mount's top, which a file manager following the freedesktop.org trash specification (Dolphin, through KIO) creates there to trash a file on the mount. That folder lives in a folder on this computer instead, so it never reaches the cloud, and a move into it trashes the file on the remote (trashbin.go). The remote's own `.Trash-*` folders, left by mounts before this backend, are hidden.
 //

@@ -1,4 +1,4 @@
-//! The network drive mode ([`SyncMode::NetworkDrive`]): nothing is synced; rclone's VFS shows the remote folder, fetching a file when it is opened and keeping recently used ones in its cache. On Linux the folder's local path is a FUSE mount (`src/go/mount_linux.go`), which needs `fusermount3` (fuse3). On Android the folder has no local path, only [`android_path`] to tell folders apart; Syncative's document provider shows it to other apps (`src/go/rclone/documents.go`, `DocumentsProvider.java`).
+//! The network drive mode ([`SyncMode::NetworkDrive`]): nothing is synced; rclone's VFS shows the remote folder, fetching a file when it is opened and keeping recently used ones in its cache. On Linux the folder's local path is a FUSE mount (`src/go/mount_linux.go`), which needs `fusermount3` (fuse3). On Android the folder has no local path, only [`android_path`] to tell folders apart; Syncative's document provider shows it to other apps (`src/go/rclone/netdrive/documents.go`, `DocumentsProvider.java`).
 
 use std::{
     collections::HashMap,
@@ -24,7 +24,7 @@ struct Mount {
     folder_id: i32,
 }
 
-/// What rclone mounts for network drive folder `folder_id`, `remote_path` on `remote`. On Linux the remote goes through Syncative's trash wrapper (`src/go/rclone/trashfs.go`): a file manager's trash on the mount, `.Trash-<uid>`, stays in [`trash_dir`] on this computer, and trashing there trashes the file on the remote. Android's document provider has no trash folder and shows the remote as it is.
+/// What rclone mounts for network drive folder `folder_id`, `remote_path` on `remote`. On Linux the remote goes through Syncative's trash wrapper (`src/go/rclone/netdrive/trashfs.go`): a file manager's trash on the mount, `.Trash-<uid>`, stays in [`trash_dir`] on this computer, and trashing there trashes the file on the remote. Android's document provider has no trash folder and shows the remote as it is.
 pub fn mount_fs(remote: &str, remote_path: &str, folder_id: i32) -> String {
     if cfg!(target_os = "android") {
         return format!("{remote}:{remote_path}");

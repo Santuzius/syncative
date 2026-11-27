@@ -1,4 +1,4 @@
-package rclone
+package netdrive
 
 // documents.go: the network drive on Android. Android has no FUSE for apps, so Syncative's document provider (android/…/DocumentsProvider.java) shows the remote folder to other apps and works on the same kind of VFS a Linux mount uses, through the rc calls below and DocRead/DocWrite for the bytes. Each network drive folder has one VFS, by `remote:path`; syncative/mount-poll keeps its listings fresh as on Linux.
 

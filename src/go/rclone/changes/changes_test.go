@@ -1,10 +1,12 @@
-package rclone
+package changes
 
 import (
 	"context"
 	"strings"
 	"testing"
 	"time"
+
+	"syncative/go/rclone"
 
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/cache"
@@ -149,8 +151,8 @@ func (f *itemLog) ItemChangesSince(_ context.Context, event string) (ItemChanges
 
 func TestChangesByIDKeepTheFolderInTheCursor(t *testing.T) {
 	// Each query stands for a pass of its own.
-	defer func(d time.Duration) { reuseFor = d }(reuseFor)
-	reuseFor = 0
+	defer func(d time.Duration) { rclone.AnswerReuse = d }(rclone.AnswerReuse)
+	rclone.AnswerReuse = 0
 	log := &itemLog{}
 	cache.Put("items:", log)
 	ctx := context.Background()
@@ -198,8 +200,8 @@ func TestFoldersOfAPassShareOneRequestByID(t *testing.T) {
 		t.Fatalf("older cursor, asked %d times: %+v", log.asked, again)
 	}
 	// Once the answer is older than a pass, the provider is asked for what came after it.
-	defer func(d time.Duration) { reuseFor = d }(reuseFor)
-	reuseFor = 0
+	defer func(d time.Duration) { rclone.AnswerReuse = d }(rclone.AnswerReuse)
+	rclone.AnswerReuse = 0
 	log.events = append(log.events, ItemChange{ID: "b", ParentID: "id-Notes", Name: "b.md"})
 	later, _ := ChangesSince(ctx, "volume", "Photos", "e id-Photos")
 	if log.asked != 2 || len(later.Items) != 2 || later.Cursor != "eee id-Photos" {
@@ -223,8 +225,8 @@ func TestFoldersOfAPassShareOneRequestByPath(t *testing.T) {
 		t.Fatalf("quiet, asked %d times: %+v", log.asked, quiet)
 	}
 	// Once the answer is older than a pass, the provider is asked again.
-	defer func(d time.Duration) { reuseFor = d }(reuseFor)
-	reuseFor = 0
+	defer func(d time.Duration) { rclone.AnswerReuse = d }(rclone.AnswerReuse)
+	rclone.AnswerReuse = 0
 	log.changes = append(log.changes, "Taxes/b.pdf")
 	later, _ := ChangesSince(ctx, "paths", "Taxes", taxes.Cursor)
 	if log.asked != 2 || len(later.Changes) != 1 || later.Changes[0].Path != "Taxes/b.pdf" {

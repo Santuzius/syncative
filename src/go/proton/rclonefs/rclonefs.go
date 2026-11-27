@@ -2,7 +2,7 @@
 //
 // The backend holds no credentials: the session is signed in and resumed by Syncative (src/services/auth/proton.rs), which binds it to the remote's name with drive.BindRemote. Every call looks the session up anew, so a new sign-in takes effect without recreating the backend.
 //
-// Paths become link IDs through rclone's directory cache for folders, and by listing the folder for files. The volume's event log answers Syncative's change query (src/go/rclone/changes.go) by link ID, so the sync places each change by the IDs it recorded.
+// Paths become link IDs through rclone's directory cache for folders, and by listing the folder for files. The volume's event log answers Syncative's change query (src/go/rclone/changes/changes.go) by link ID, so the sync places each change by the IDs it recorded.
 package rclonefs
 
 import (
@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"syncative/go/proton/drive"
-	"syncative/go/rclone"
+	"syncative/go/rclone/changes"
 
 	"github.com/rclone/rclone/backend/overview"
 	"github.com/rclone/rclone/fs"
@@ -526,7 +526,7 @@ func (o *Object) Metadata(ctx context.Context) (fs.Metadata, error) {
 	return fs.Metadata{"mtime": attrs.ModTime.UTC().Format(time.RFC3339Nano)}, nil
 }
 
-// ModifiedTime is the time the file was last modified before its upload, which a network drive shows (src/go/rclone/modtime.go); the revision's time when the attributes couldn't be fetched.
+// ModifiedTime is the time the file was last modified before its upload, which a network drive shows (src/go/rclone/netdrive/modtime.go); the revision's time when the attributes couldn't be fetched.
 func (o *Object) ModifiedTime(ctx context.Context) time.Time {
 	if attrs, err := o.fileAttrs(ctx); err == nil {
 		return attrs.ModTime
@@ -653,7 +653,7 @@ func (o *Object) Remove(ctx context.Context) error {
 	return err
 }
 
-// Untrash takes link `id` out of Proton's trash, back where it was, for the network drive's trash (src/go/rclone/trashbin.go).
+// Untrash takes link `id` out of Proton's trash, back where it was, for the network drive's trash (src/go/rclone/netdrive/trashbin.go).
 func (f *Fs) Untrash(ctx context.Context, id string) error {
 	sess, err := f.session()
 	if err != nil {
@@ -680,14 +680,14 @@ func (f *Fs) LatestItemEvent(ctx context.Context) (string, error) {
 }
 
 // ItemChangesSince returns the links that changed after `event`.
-func (f *Fs) ItemChangesSince(ctx context.Context, event string) (rclone.ItemChanges, error) {
+func (f *Fs) ItemChangesSince(ctx context.Context, event string) (changes.ItemChanges, error) {
 	found, err := f.changesSince(ctx, event, nil)
 	if err != nil {
-		return rclone.ItemChanges{}, err
+		return changes.ItemChanges{}, err
 	}
-	out := rclone.ItemChanges{Next: found.Cursor, Relist: found.Relist}
+	out := changes.ItemChanges{Next: found.Cursor, Relist: found.Relist}
 	for _, c := range found.Changes {
-		out.Items = append(out.Items, rclone.ItemChange{
+		out.Items = append(out.Items, changes.ItemChange{
 			ID:          c.LinkID,
 			ParentID:    c.ParentLinkID,
 			Name:        f.opt.Enc.ToStandardName(c.Name),
@@ -764,7 +764,7 @@ func (f *Fs) ChangesStartToken(ctx context.Context) (string, error) {
 	return f.LatestItemEvent(ctx)
 }
 
-// ChangesSince calls notify with the paths below the root that changed after event `token` and returns the event after them; "" when the log can't be followed from `token`. A network drive's pass asks it, for the mount to forget those paths (src/go/rclone/networkdrive.go).
+// ChangesSince calls notify with the paths below the root that changed after event `token` and returns the event after them; "" when the log can't be followed from `token`. A network drive's pass asks it, for the mount to forget those paths (src/go/rclone/netdrive/poll.go).
 func (f *Fs) ChangesSince(ctx context.Context, notify func(string, fs.EntryType), token string) (string, error) {
 	found, err := f.changesSince(ctx, token, notify)
 	if err != nil {

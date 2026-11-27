@@ -1,4 +1,4 @@
-package rclone
+package netdrive
 
 import (
 	"fmt"
@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"syncative/go/rclone/nextcloud"
 
 	"github.com/rclone/rclone/fs/config/obscure"
 	"github.com/rclone/rclone/fs/operations"
@@ -49,7 +51,7 @@ func TestTrashRestoresFromNextcloud(t *testing.T) {
 		t.Fatalf("restored size = %d", got)
 	}
 	// Restored from the trash bin, not uploaded: the trash bin no longer holds it.
-	if err := NextcloudRestore(tt.ctx, "trashtestnc", root+"/note.txt", time.Now()); err == nil || !strings.Contains(err.Error(), "holds no") {
+	if err := nextcloud.Restore(tt.ctx, "trashtestnc", root+"/note.txt", time.Now()); err == nil || !strings.Contains(err.Error(), "holds no") {
 		t.Fatalf("the trash bin still held the file: %v", err)
 	}
 }

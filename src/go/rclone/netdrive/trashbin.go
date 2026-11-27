@@ -1,10 +1,10 @@
-package rclone
+package netdrive
 
 // trashbin.go: what the network drive's trash folder (trashfs.go) does with files moved in and out of it.
 //
 // - Trashed in the file manager: the file goes to the remote's own trash (Google Drive, Nextcloud and Proton delete into it). A copy the VFS cache holds in full is linked into the local trash, so the file manager's trash shows it and can restore it; a file not held in full leaves nothing here, and its .trashinfo is dropped. Nothing is downloaded for the trash.
 // - Restored in the file manager: the remote takes the file out of its trash, keeping its history (Google Drive and Proton by the ID noted at trashing, Nextcloud by its trash bin's entry); when that fails, the local copy is uploaded.
-// - Trashed or deleted on the remote: a mount poll (networkdrive.go) that sees a file in full in the cache gone from the remote links that copy into the local trash, with a .trashinfo. Restored there, the local entry is dropped.
+// - Trashed or deleted on the remote: a mount poll (poll.go) that sees a file in full in the cache gone from the remote links that copy into the local trash, with a .trashinfo. Restored there, the local entry is dropped.
 //
 // Emptying the trash or deleting from it in the file manager deletes only here; the remote's trash empties itself after its own time.
 
@@ -21,6 +21,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"syncative/go/rclone/nextcloud"
 
 	rfs "github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config"
@@ -55,11 +57,11 @@ func (t idTrash) restore(ctx context.Context, entry trashEntry) error {
 	return t.Untrash(ctx, entry.ID)
 }
 
-// nextcloudTrash restores from Nextcloud's trash bin by where the entry was and when it went (nextcloudtrash.go); root is the mount's folder on the remote.
+// nextcloudTrash restores from Nextcloud's trash bin by where the entry was and when it went (nextcloud/trash.go); root is the mount's folder on the remote.
 type nextcloudTrash struct{ remote, root string }
 
 func (t nextcloudTrash) restore(ctx context.Context, entry trashEntry) error {
-	return NextcloudRestore(ctx, t.remote, path.Join(t.root, entry.Path), entry.Deleted)
+	return nextcloud.Restore(ctx, t.remote, path.Join(t.root, entry.Path), entry.Deleted)
 }
 
 // remoteTrashOf is how backend `inner` of remote `remote`, mounted at folder `root`, restores from its trash; nil when it can't.
@@ -67,7 +69,7 @@ func remoteTrashOf(inner rfs.Fs, remote, root string) remoteTrash {
 	if u, ok := inner.(untrasher); ok {
 		return idTrash{u}
 	}
-	if _, err := nextcloudOptions(remote); err == nil {
+	if _, err := nextcloud.Options(remote); err == nil {
 		return nextcloudTrash{remote, root}
 	}
 	return nil

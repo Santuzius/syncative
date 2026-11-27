@@ -1,4 +1,4 @@
-package rclone
+package nextcloud
 
 import (
 	"context"

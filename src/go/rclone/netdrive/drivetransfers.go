@@ -1,4 +1,4 @@
-package rclone
+package netdrive
 
 // drivetransfers.go tells which network drives move files right now, so their folders show it like a synced folder's pass. A drive downloads what the file manager opens and uploads what it saved, both inside rclone's VFS, outside any pass: rclone's transfer list names the files on their way and the VFS's write-back queue those waiting for their upload.
 

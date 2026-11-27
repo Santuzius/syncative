@@ -1,6 +1,6 @@
-package rclone
+package changes
 
-// onedrive.go: OneDrive's change log (its delta listing) names items by ID, like Proton's. The fork's onedrive backend answers the query (github.com/Santuzius/rclone, backend/onedrive/syncative.go); this turns its answer into the itemChangeLog the sync asks (changes.go). A mount asks the backend's path-based ChangesSince directly (networkdrive.go).
+// onedrive.go: OneDrive's change log (its delta listing) names items by ID, like Proton's. The fork's onedrive backend answers the query (github.com/Santuzius/rclone, backend/onedrive/syncative.go); this turns its answer into the ItemLog the sync asks (changes.go). A mount asks the backend's path-based ChangesSince directly (netdrive/poll.go).
 
 import (
 	"context"
@@ -39,10 +39,10 @@ func (l onedriveLog) ItemChangesSince(ctx context.Context, event string) (ItemCh
 }
 
 // itemLogOf is f's change log by ID, if it has one.
-func itemLogOf(f fs.Fs) (itemChangeLog, bool) {
+func itemLogOf(f fs.Fs) (ItemLog, bool) {
 	if od, ok := f.(*onedrive.Fs); ok {
 		return onedriveLog{od}, true
 	}
-	log, ok := f.(itemChangeLog)
+	log, ok := f.(ItemLog)
 	return log, ok
 }

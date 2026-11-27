@@ -15,6 +15,8 @@ import (
 	"unsafe"
 
 	"syncative/go/rclone"
+	"syncative/go/rclone/changes"
+	"syncative/go/rclone/nextcloud"
 
 	"github.com/rclone/rclone/librclone/librclone"
 
@@ -72,13 +74,13 @@ func RcloneRPCCancellable(method *C.char, input *C.char, cancelled *C.uchar) (re
 	return result
 }
 
-// RcloneChanges asks the change log of the rclone remote `remote` (name without colon) what changed after `cursor` ("" for none) for the sync folder at `dir`; see rclone.ChangesSince. Returns JSON, `{"supported":…,"known":…,"cursor":…,"changes":[{"path":…,"is_dir":…}]}` (with `by_id`, `root_id` and `items` for Proton) or `{"error":…}`. Free the result with RcloneFreeString.
+// RcloneChanges asks the change log of the rclone remote `remote` (name without colon) what changed after `cursor` ("" for none) for the sync folder at `dir`; see changes.ChangesSince. Returns JSON, `{"supported":…,"known":…,"cursor":…,"changes":[{"path":…,"is_dir":…}]}` (with `by_id`, `root_id` and `items` for Proton) or `{"error":…}`. Free the result with RcloneFreeString.
 //
 //export RcloneChanges
 func RcloneChanges(remote *C.char, dir *C.char, cursor *C.char, cancelled *C.uchar) *C.char {
 	ctx, stop := rclone.CancelledBy((*uint8)(unsafe.Pointer(cancelled)))
 	defer stop()
-	changes, err := rclone.ChangesSince(ctx, C.GoString(remote), C.GoString(dir), C.GoString(cursor))
+	changes, err := changes.ChangesSince(ctx, C.GoString(remote), C.GoString(dir), C.GoString(cursor))
 	var out []byte
 	if err != nil {
 		out, _ = json.Marshal(map[string]string{"error": err.Error()})
@@ -88,13 +90,13 @@ func RcloneChanges(remote *C.char, dir *C.char, cursor *C.char, cancelled *C.uch
 	return C.CString(string(out))
 }
 
-// RcloneFolderTags reads the change tags (ETags) of folder `path` and, with `depth` 1, of its subfolders on the WebDAV remote `remote`; see rclone.FolderTags. Returns JSON, `{"tag":…,"children":{path:tag}}` or `{"error":…}`. Free the result with RcloneFreeString.
+// RcloneFolderTags reads the change tags (ETags) of folder `path` and, with `depth` 1, of its subfolders on the WebDAV remote `remote`; see nextcloud.FolderTags. Returns JSON, `{"tag":…,"children":{path:tag}}` or `{"error":…}`. Free the result with RcloneFreeString.
 //
 //export RcloneFolderTags
 func RcloneFolderTags(remote *C.char, path *C.char, depth C.int, cancelled *C.uchar) *C.char {
 	ctx, stop := rclone.CancelledBy((*uint8)(unsafe.Pointer(cancelled)))
 	defer stop()
-	tag, children, err := rclone.FolderTags(ctx, C.GoString(remote), C.GoString(path), int(depth))
+	tag, children, err := nextcloud.FolderTags(ctx, C.GoString(remote), C.GoString(path), int(depth))
 	var out []byte
 	if err != nil {
 		out, _ = json.Marshal(map[string]string{"error": err.Error()})
@@ -108,11 +110,11 @@ func RcloneFolderTags(remote *C.char, path *C.char, depth C.int, cancelled *C.uc
 	return C.CString(string(out))
 }
 
-// RcloneForgetRemote drops the backend kept for `remote`'s change log; see rclone.Forget.
+// RcloneForgetRemote drops the backend kept for `remote`'s change log; see changes.Forget.
 //
 //export RcloneForgetRemote
 func RcloneForgetRemote(remote *C.char) {
-	rclone.Forget(C.GoString(remote))
+	changes.Forget(C.GoString(remote))
 }
 
 //export RcloneFreeString

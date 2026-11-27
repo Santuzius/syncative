@@ -1,4 +1,4 @@
-//! The native half of `NetworkDriveProvider`, the document provider that shows network drive folders ([`crate::services::network_drive`]) to other apps. The Java side turns Android's document calls into the RPC calls of src/go/rclone/documents.go; file contents go through [`syncative_go::doc_read`] and [`syncative_go::doc_write`].
+//! The native half of `NetworkDriveProvider`, the document provider that shows network drive folders ([`crate::services::network_drive`]) to other apps. The Java side turns Android's document calls into the RPC calls of src/go/rclone/netdrive/documents.go; file contents go through [`syncative_go::doc_read`] and [`syncative_go::doc_write`].
 
 use jni::{
     JNIEnv,

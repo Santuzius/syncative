@@ -216,7 +216,7 @@ pub struct Changes {
     pub items: Option<Vec<ItemChange>>,
 }
 
-/// One change of a log by ID, see [`Changes::by_id`]: the item as it is now (`rclone.ItemChange` in src/go/rclone/changes.go).
+/// One change of a log by ID, see [`Changes::by_id`]: the item as it is now (`rclone.ItemChange` in src/go/rclone/changes/changes.go).
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ItemChange {
     pub id: String,
@@ -295,7 +295,7 @@ pub fn folder_tags(
     }
 }
 
-/// `rclone.ErrNotNextcloud` in src/go/rclone/davtags.go.
+/// `rclone.ErrNotNextcloud` in src/go/rclone/nextcloud/tags.go.
 const NOT_NEXTCLOUD: &str = "the remote is no Nextcloud remote";
 
 /// Drop the backend kept for `remote`'s change log, e.g. after its config was replaced or deleted.
@@ -305,7 +305,7 @@ pub fn forget_remote(remote: &str) {
     }
 }
 
-/// Read up to `buf.len()` bytes at `offset` of the open network drive file `handle` (from the RPC call `syncative/doc-open`, src/go/rclone/documents.go). Returns how many, 0 at the end of the file; `None` on an error.
+/// Read up to `buf.len()` bytes at `offset` of the open network drive file `handle` (from the RPC call `syncative/doc-open`, src/go/rclone/netdrive/documents.go). Returns how many, 0 at the end of the file; `None` on an error.
 pub fn doc_read(handle: i64, offset: i64, buf: &mut [u8]) -> Option<usize> {
     let size = i32::try_from(buf.len()).ok()?;
     let n = unsafe { ffi::SyncativeDocRead(handle, offset, buf.as_mut_ptr().cast(), size) };

@@ -1,6 +1,6 @@
-package rclone
+package nextcloud
 
-// davtags.go reads the ETags Nextcloud keeps on folders. The server gives a folder a new ETag whenever anything below it changes, up to the root, so one PROPFIND on a sync folder tells whether anything in it changed, and the ETags of its subfolders tell which branch. rclone's WebDAV backend doesn't read ETags, so the request is made here, with the remote's own options and rclone's HTTP client; the paths are built exactly as the backend builds them, so they match its listings.
+// tags.go reads the ETags Nextcloud keeps on folders. The server gives a folder a new ETag whenever anything below it changes, up to the root, so one PROPFIND on a sync folder tells whether anything in it changed, and the ETags of its subfolders tell which branch. rclone's WebDAV backend doesn't read ETags, so the request is made here, with the remote's own options and rclone's HTTP client; the paths are built exactly as the backend builds them, so they match its listings.
 
 import (
 	"bytes"
@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"syncative/go/rclone"
 
 	"github.com/rclone/rclone/backend/webdav"
 	"github.com/rclone/rclone/fs"
@@ -50,7 +52,7 @@ type davMultistatus struct {
 
 // FolderTags returns the ETag of folder `dir` (a path from the remote's root, as in rclone's listings) and, with `depth` 1, those of the folders directly in it by path. A missing folder gives an error that says "directory not found".
 func FolderTags(ctx context.Context, remote, dir string, depth int) (tag string, children map[string]string, err error) {
-	opt, err := nextcloudOptions(remote)
+	opt, err := Options(remote)
 	if err != nil {
 		return "", nil, err
 	}
@@ -64,7 +66,7 @@ func FolderTags(ctx context.Context, remote, dir string, depth int) (tag string,
 	return tag, nil, err
 }
 
-// tagGate spares a remote's sync folders their own ETag request while nothing changed: the server gives the remote's root a new ETag with every change below it, received shares included, so a folder whose ETag was read under the root's current ETag still has it. A quiet pass then costs one request for all folders, a pass with changes one more than without the gate. The root's answer is shared like a change log's, for reuseFor.
+// tagGate spares a remote's sync folders their own ETag request while nothing changed: the server gives the remote's root a new ETag with every change below it, received shares included, so a folder whose ETag was read under the root's current ETag still has it. A quiet pass then costs one request for all folders, a pass with changes one more than without the gate. The root's answer is shared like a change log's, for rclone.AnswerReuse.
 type tagGate struct {
 	sync.Mutex
 	root   string
@@ -91,8 +93,8 @@ func gateOf(remote string) *tagGate {
 	return g
 }
 
-// forgetGate drops what `remote`'s gate knows, e.g. after its config changed.
-func forgetGate(remote string) {
+// Forget drops what `remote`'s gate knows, e.g. after its config changed.
+func Forget(remote string) {
 	gatesMu.Lock()
 	defer gatesMu.Unlock()
 	delete(gates, remote)
@@ -102,7 +104,7 @@ func forgetGate(remote string) {
 func (g *tagGate) folderTag(dir string, ask func(string) (string, error)) (string, error) {
 	g.Lock()
 	defer g.Unlock()
-	if dir == "" || time.Since(g.rootAt) >= reuseFor {
+	if dir == "" || time.Since(g.rootAt) >= rclone.AnswerReuse {
 		root, err := ask("")
 		if err != nil {
 			return "", err
@@ -125,8 +127,8 @@ func (g *tagGate) folderTag(dir string, ask func(string) (string, error)) (strin
 	return tag, nil
 }
 
-// nextcloudOptions reads the options of Nextcloud remote `remote`, with the password revealed; ErrNotNextcloud when it is no Nextcloud remote.
-func nextcloudOptions(remote string) (*webdav.Options, error) {
+// Options reads the options of Nextcloud remote `remote`, with the password revealed; ErrNotNextcloud when it is no Nextcloud remote.
+func Options(remote string) (*webdav.Options, error) {
 	info, err := fs.Find("webdav")
 	if err != nil {
 		return nil, err

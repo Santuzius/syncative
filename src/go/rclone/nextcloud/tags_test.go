@@ -1,4 +1,4 @@
-package rclone
+package nextcloud
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"syncative/go/rclone"
 
 	"github.com/rclone/rclone/fs/cache"
 	"github.com/rclone/rclone/fs/config/obscure"
@@ -41,20 +43,20 @@ func TestQuietFoldersShareTheRootsETag(t *testing.T) {
 		taxes, _ = g.folderTag("Taxes", srv.ask)
 		return
 	}
-	defer func(d time.Duration) { reuseFor = d }(reuseFor)
+	defer func(d time.Duration) { rclone.AnswerReuse = d }(rclone.AnswerReuse)
 
 	pass()
 	if len(srv.asked) != 3 {
 		t.Fatalf("first pass asked %v", srv.asked)
 	}
 	// A later quiet pass asks only the root.
-	reuseFor = 0
+	rclone.AnswerReuse = 0
 	srv.asked = nil
 	if n, tx := pass(); n != "n" || tx != "t" || len(srv.asked) != 2 || srv.asked[0] != "" || srv.asked[1] != "" {
 		t.Fatalf("quiet pass asked %v: %s %s", srv.asked, n, tx)
 	}
 	// Within one pass the root is asked once.
-	reuseFor = time.Minute
+	rclone.AnswerReuse = time.Minute
 	g.rootAt = time.Time{}
 	srv.asked = nil
 	pass()
@@ -62,7 +64,7 @@ func TestQuietFoldersShareTheRootsETag(t *testing.T) {
 		t.Fatalf("one pass asked %v", srv.asked)
 	}
 	// A change below Taxes: the root and Taxes change, both are asked, Notes keeps its ETag.
-	reuseFor = 0
+	rclone.AnswerReuse = 0
 	srv.change("Taxes", "")
 	srv.asked = nil
 	if n, tx := pass(); n != "n" || tx != "t'" {
@@ -89,8 +91,8 @@ func TestFolderTagsOnNextcloud(t *testing.T) {
 	t.Setenv("RCLONE_CONFIG_TAGTESTNC_VENDOR", "nextcloud")
 	t.Setenv("RCLONE_CONFIG_TAGTESTNC_USER", user)
 	t.Setenv("RCLONE_CONFIG_TAGTESTNC_PASS", obscure.MustObscure(pass))
-	defer func(d time.Duration) { reuseFor = d }(reuseFor)
-	reuseFor = 0
+	defer func(d time.Duration) { rclone.AnswerReuse = d }(rclone.AnswerReuse)
+	rclone.AnswerReuse = 0
 	dials := 0
 	ctx := httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{GotConn: func(c httptrace.GotConnInfo) {
 		if !c.Reused {
@@ -132,50 +134,5 @@ func TestFolderTagsOnNextcloud(t *testing.T) {
 	}
 	if dials > 1 {
 		t.Fatalf("%d new connections for the ETag requests", dials)
-	}
-}
-
-// TestChangesSinceFollowsNextcloudTags: on a Nextcloud server, given as for TestTrashRestoresFromNextcloud, the sync's change query takes the folder's ETag for its cursor and names the folder once something below it changed.
-func TestChangesSinceFollowsNextcloudTags(t *testing.T) {
-	url, user, pass := os.Getenv("SYNCATIVE_NEXTCLOUD_URL"), os.Getenv("SYNCATIVE_NEXTCLOUD_USER"), os.Getenv("SYNCATIVE_NEXTCLOUD_PASS")
-	if url == "" || user == "" || pass == "" {
-		t.Skip("no Nextcloud server given")
-	}
-	t.Setenv("RCLONE_CONFIG_CHANGETESTNC_TYPE", "webdav")
-	t.Setenv("RCLONE_CONFIG_CHANGETESTNC_URL", url)
-	t.Setenv("RCLONE_CONFIG_CHANGETESTNC_VENDOR", "nextcloud")
-	t.Setenv("RCLONE_CONFIG_CHANGETESTNC_USER", user)
-	t.Setenv("RCLONE_CONFIG_CHANGETESTNC_PASS", obscure.MustObscure(pass))
-	defer func(d time.Duration) { reuseFor = d }(reuseFor)
-	reuseFor = 0
-	ctx := context.Background()
-	f, err := cache.Get(ctx, "changetestnc:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := fmt.Sprintf("SyncativeChangeTest-%d", time.Now().UnixNano())
-	t.Cleanup(func() { _ = operations.Purge(context.Background(), f, dir) })
-	if err := f.Mkdir(ctx, dir); err != nil {
-		t.Fatal(err)
-	}
-
-	first, err := ChangesSince(ctx, "changetestnc", dir, "")
-	if err != nil || !first.Supported || first.Known || first.Cursor == "" {
-		t.Fatalf("first: %+v, %v", first, err)
-	}
-	quiet, err := ChangesSince(ctx, "changetestnc", dir, first.Cursor)
-	if err != nil || !quiet.Known || quiet.Cursor != first.Cursor || len(quiet.Folders) != 0 {
-		t.Fatalf("quiet: %+v, %v", quiet, err)
-	}
-	if _, err := operations.Rcat(ctx, f, dir+"/a.txt", io.NopCloser(strings.NewReader("a")), time.Now(), nil); err != nil {
-		t.Fatal(err)
-	}
-	changed, err := ChangesSince(ctx, "changetestnc", dir, first.Cursor)
-	if err != nil || !changed.Known || changed.Cursor == first.Cursor || len(changed.Folders) != 1 || changed.Folders[0] != dir {
-		t.Fatalf("changed: %+v, %v", changed, err)
-	}
-	missing, err := ChangesSince(ctx, "changetestnc", dir+"/missing", "")
-	if err != nil || !missing.Supported || missing.Cursor != "" {
-		t.Fatalf("missing: %+v, %v", missing, err)
 	}
 }

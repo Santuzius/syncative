@@ -90,3 +90,6 @@ func rpcError(path string, in rc.Params, err error, status int) (string, int) {
 	}
 	return w.String(), status
 }
+
+// AnswerReuse is how long the change log's latest answer stands in for the provider. A remote's log covers all its sync folders, so the folders of one pass, which ask right after each other, need only one request. It is shorter than the shortest interval between passes (5 s), so each pass still asks at least once.
+var AnswerReuse = 3 * time.Second
