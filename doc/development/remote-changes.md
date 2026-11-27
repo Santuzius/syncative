@@ -23,7 +23,7 @@ A sync pass needs the remote state of its folder. Listing it costs one request p
 | Backend | Cursor | Changes | After a restart |
 |---|---|---|---|
 | Proton | last event of the volume's event log and the sync folder's link ID, asked through Syncative's Proton backend for rclone (`src/go/proton/rclonefs`) | the changed links with their decrypted names, placed by ID | kept |
-| Nextcloud, ownCloud | the sync folder's ETag, which the server renews with every change below it | a walk into the subfolders whose ETag changed (`src/go/rclone/davtags.go`) | kept |
+| Nextcloud | the sync folder's ETag, which the server renews with every change below it | a walk into the subfolders whose ETag changed (`src/go/rclone/davtags.go`) | kept |
 | OneDrive | the delta token of the drive's change log and the sync folder's item ID, asked through Syncative's rclone fork (`backend/onedrive/syncative.go`, `src/go/rclone/onedrive.go`) | the changed items with their names, placed by ID: the delta listing gives no paths | kept |
 | Google Drive, Dropbox | the provider's change-log token, asked once per pass through Syncative's rclone fork | the folders holding the paths it reported (`src/go/rclone/changes.go`) | one full listing: rclone names Drive's changes through the folders its backend has listed in this run |
 | Other rclone backends | none | | every pass lists |
@@ -32,7 +32,7 @@ One answer per remote:
 
 - The sync folders of a remote ask one after the other in a pass and share one answer: an answer up to 3 s old stands in for the request (`reuseFor` in `src/go/rclone/changes.go`). The window is shorter than the shortest interval (5 s), so every pass asks at least once.
 - Proton, OneDrive, Google Drive, Dropbox: the change log covers the whole remote, so a quiet pass makes one request for all folders. A folder whose cursor stayed behind gets the kept answers since its cursor.
-- Nextcloud, ownCloud: the server renews the root's ETag with every change below it, also for a change by the owner of a folder shared with the user (tested on Nextcloud 34). A pass asks the root's ETag once; a folder whose ETag was read under the root's current ETag skips its own request (`tagGate` in `src/go/rclone/davtags.go`). A quiet pass makes one request, a pass with changes one more than without the gate.
+- Nextcloud: the server renews the root's ETag with every change below it, also for a change by the owner of a folder shared with the user (tested on Nextcloud 34). A pass asks the root's ETag once; a folder whose ETag was read under the root's current ETag skips its own request (`tagGate` in `src/go/rclone/davtags.go`). A quiet pass makes one request, a pass with changes one more than without the gate.
 - Every ETag request goes through one HTTP client, so its connection stays open between passes.
 
 Google Drive and Dropbox:

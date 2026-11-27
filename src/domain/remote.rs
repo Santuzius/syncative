@@ -11,10 +11,7 @@ pub enum ProviderKind {
     Local,
     Nextcloud,
     OneDrive,
-    Owncloud,
-    PCloud,
     ProtonDrive,
-    WebDav,
 }
 
 impl ProviderKind {
@@ -28,26 +25,13 @@ impl ProviderKind {
             "drive" => Some(Self::GDrive),
             "alias" => Some(Self::Local),
             "onedrive" => Some(Self::OneDrive),
-            "pcloud" => Some(Self::PCloud),
             // Only the native client reports Proton now; rclone's
             // `protondrive` backend is no longer compiled into the
             // Go archive (see src/go/wrapper.go).
             "native-proton" => Some(Self::ProtonDrive),
-            // WebDAV-family all use rclone's "webdav" backend; the
-            // vendor sub-selector picks Nextcloud / Owncloud / plain
-            // WebDAV. Can't tell them apart from `type` alone, so
-            // collapse to WebDav — the UI hints apply equally.
-            "webdav" => Some(Self::WebDav),
+            // Nextcloud is the WebDAV remote Syncative sets up.
+            "webdav" => Some(Self::Nextcloud),
             _ => None,
-        }
-    }
-
-    /// A WebDAV remote's kind from the `vendor` of its rclone section, which tells the WebDAV vendors apart where the backend type can't.
-    pub fn from_webdav_vendor(vendor: &str) -> Self {
-        match vendor {
-            "nextcloud" => Self::Nextcloud,
-            "owncloud" => Self::Owncloud,
-            _ => Self::WebDav,
         }
     }
 
@@ -276,7 +260,7 @@ mod tests {
             Interval::FifteenSeconds,
         );
         assert_eq!(
-            ProviderKind::WebDav.default_interval(),
+            ProviderKind::Nextcloud.default_interval(),
             Interval::FifteenSeconds,
         );
     }
@@ -315,7 +299,7 @@ mod tests {
         );
         assert_eq!(
             ProviderKind::from_rclone_type("webdav"),
-            Some(ProviderKind::WebDav)
+            Some(ProviderKind::Nextcloud)
         );
         assert_eq!(ProviderKind::from_rclone_type("bogus"), None);
     }

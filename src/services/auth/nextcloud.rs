@@ -1,4 +1,4 @@
-//! WebDAV / Nextcloud / Owncloud remote provisioning.
+//! Nextcloud remote provisioning: rclone's WebDAV backend with the vendor `nextcloud`.
 
 use serde_json::json;
 
@@ -11,34 +11,16 @@ use crate::{
     util,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WebDavVendor {
-    WebDav,
-    Nextcloud,
-    Owncloud,
-}
-
-impl WebDavVendor {
-    pub(super) fn rclone_vendor(self) -> &'static str {
-        match self {
-            WebDavVendor::WebDav => "webdav",
-            WebDavVendor::Nextcloud => "nextcloud",
-            WebDavVendor::Owncloud => "owncloud",
-        }
-    }
-}
-
-/// Add a new WebDAV-family remote: create the rclone config, check that it signs in, insert the DB row, and return the new `RemoteId`. A config that can't sign in is removed again.
-pub fn add_webdav_remote(
+/// Add a new Nextcloud remote: create the rclone config, check that it signs in, insert the DB row, and return the new `RemoteId`. A config that can't sign in is removed again.
+pub fn add_nextcloud_remote(
     name: &str,
     url: &str,
     user: &str,
     pass: &str,
-    vendor: WebDavVendor,
     repo: &dyn Repository,
     client: &dyn BackendClient,
 ) -> Result<RemoteId, String> {
-    client.create_config(config_payload(name, url, user, pass, vendor))?;
+    client.create_config(config_payload(name, url, user, pass))?;
     if let Err(err) = check_sign_in(name, client) {
         let _ = client.delete_config(name);
         return Err(err);
@@ -46,18 +28,17 @@ pub fn add_webdav_remote(
     util::await_future(repo.insert_remote(name.to_owned())).map_err(|e| e.to_string())
 }
 
-/// Sign in to an existing WebDAV-family remote again, e.g. one imported without its password: replace its rclone config under the same name and keep the DB row with its folders.
-pub fn reauth_webdav_remote(
+/// Sign in to an existing Nextcloud remote again, e.g. one imported without its password: replace its rclone config under the same name and keep the DB row with its folders.
+pub fn reauth_nextcloud_remote(
     name: &str,
     url: &str,
     user: &str,
     pass: &str,
-    vendor: WebDavVendor,
     client: &dyn BackendClient,
 ) -> Result<(), String> {
     // rclone's `config/create` rejects a name that already exists.
     let _ = client.delete_config(name);
-    client.create_config(config_payload(name, url, user, pass, vendor))?;
+    client.create_config(config_payload(name, url, user, pass))?;
     check_sign_in(name, client)
 }
 
@@ -74,34 +55,22 @@ fn check_sign_in(name: &str, client: &dyn BackendClient) -> Result<(), String> {
     })
 }
 
-/// The URL the form takes back from a stored config: Nextcloud and Owncloud get their WebDAV path appended again on saving.
-pub fn form_url(stored_url: &str, user: &str, vendor: WebDavVendor) -> String {
-    match vendor {
-        WebDavVendor::Nextcloud | WebDavVendor::Owncloud => stored_url
-            .strip_suffix(&format!("/remote.php/dav/files/{user}"))
-            .unwrap_or(stored_url)
-            .to_owned(),
-        WebDavVendor::WebDav => stored_url.to_owned(),
-    }
+/// The URL the form takes back from a stored config: Nextcloud's WebDAV path is appended again on saving.
+pub fn form_url(stored_url: &str, user: &str) -> String {
+    stored_url
+        .strip_suffix(&format!("/remote.php/dav/files/{user}"))
+        .unwrap_or(stored_url)
+        .to_owned()
 }
 
-fn config_payload(name: &str, url: &str, user: &str, pass: &str, vendor: WebDavVendor) -> String {
-    // For Nextcloud/Owncloud the GTK flow reformats the URL to include
-    // `/remote.php/dav/files/<user>`; mirror that here so configs the
-    // Iced UI creates line up with configs the GTK UI creates.
-    let effective_url = match vendor {
-        WebDavVendor::Nextcloud | WebDavVendor::Owncloud => {
-            let trimmed = url.trim_end_matches('/');
-            format!("{trimmed}/remote.php/dav/files/{user}")
-        }
-        WebDavVendor::WebDav => url.to_owned(),
-    };
-
+/// The rclone config of a Nextcloud remote: the form takes the server's address, rclone wants the user's WebDAV folder on it.
+fn config_payload(name: &str, url: &str, user: &str, pass: &str) -> String {
+    let webdav_url = format!("{}/remote.php/dav/files/{user}", url.trim_end_matches('/'));
     json!({
         "name": name,
         "parameters": {
-            "url": effective_url,
-            "vendor": vendor.rclone_vendor(),
+            "url": webdav_url,
+            "vendor": "nextcloud",
             "user": user,
             "pass": pass,
         },
@@ -477,51 +446,31 @@ mod tests {
     }
 
     #[test]
-    fn webdav_creates_rclone_config_and_inserts_row() {
-        let repo = FakeRepo::default();
-        let client = FakeRclone::default();
-
-        let id = add_webdav_remote(
-            "Home NAS",
-            "https://nas.example.org/webdav",
-            "alex",
-            "hunter2",
-            WebDavVendor::WebDav,
-            &repo,
-            &client,
-        )
-        .expect("add should succeed against fakes");
-
-        assert_eq!(id.0, 1);
-        assert_eq!(
-            repo.inserted.lock().unwrap().as_slice(),
-            &["Home NAS".to_owned()]
-        );
-        let created = client.created.lock().unwrap();
-        assert_eq!(created.len(), 1);
-        assert!(created[0].contains("\"vendor\":\"webdav\""));
-        assert!(created[0].contains("\"user\":\"alex\""));
-    }
-
-    #[test]
     fn nextcloud_reformats_the_url() {
         let repo = FakeRepo::default();
         let client = FakeRclone::default();
 
-        add_webdav_remote(
+        let id = add_nextcloud_remote(
             "Work Nextcloud",
-            "https://cloud.example.org",
+            "https://cloud.example.org/",
             "alex",
             "hunter2",
-            WebDavVendor::Nextcloud,
             &repo,
             &client,
         )
         .unwrap();
 
+        assert_eq!(id.0, 1);
+        assert_eq!(
+            repo.inserted.lock().unwrap().as_slice(),
+            &["Work Nextcloud".to_owned()]
+        );
         let created = client.created.lock().unwrap();
+        assert_eq!(created.len(), 1);
+        assert!(created[0].contains("\"vendor\":\"nextcloud\""));
+        assert!(created[0].contains("\"user\":\"alex\""));
         assert!(
-            created[0].contains("/remote.php/dav/files/alex"),
+            created[0].contains("\"https://cloud.example.org/remote.php/dav/files/alex\""),
             "expected Nextcloud URL to be rewritten, got: {}",
             created[0]
         );

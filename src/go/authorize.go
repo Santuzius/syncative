@@ -38,7 +38,7 @@ func init() {
 	}
 }
 
-// SyncativeAuthorize runs rclone's OAuth flow for the backend `typ` ("drive", "dropbox", "onedrive", "pcloud"), with the given client ID and secret unless empty, and returns `{"token": "…", "params": {…}}` or `{"error": "…"}`. params holds what else the remote's config needs, see driveParams. Blocks until the browser returns to rclone's local web server, or SyncativeAuthorizeCancel. Free the result with RcloneFreeString.
+// SyncativeAuthorize runs rclone's OAuth flow for the backend `typ` ("drive", "dropbox", "onedrive"), with the given client ID and secret unless empty, and returns `{"token": "…", "params": {…}}` or `{"error": "…"}`. params holds what else the remote's config needs, see driveParams. Blocks until the browser returns to rclone's local web server, or SyncativeAuthorizeCancel. Free the result with RcloneFreeString.
 //
 //export SyncativeAuthorize
 func SyncativeAuthorize(typ, clientID, clientSecret *C.char) *C.char {

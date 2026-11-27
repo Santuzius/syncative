@@ -1,4 +1,4 @@
-//! OAuth2 remote provisioning via rclone's `authorize` flow, run in-process (Dropbox, Google Drive, OneDrive, pCloud).
+//! OAuth2 remote provisioning via rclone's `authorize` flow, run in-process (Dropbox, Google Drive, OneDrive).
 
 use std::{
     sync::{
@@ -22,7 +22,6 @@ pub enum OAuthProvider {
     Dropbox,
     GDrive,
     OneDrive,
-    PCloud,
 }
 
 impl OAuthProvider {
@@ -31,7 +30,6 @@ impl OAuthProvider {
             OAuthProvider::Dropbox => "dropbox",
             OAuthProvider::GDrive => "drive",
             OAuthProvider::OneDrive => "onedrive",
-            OAuthProvider::PCloud => "pcloud",
         }
     }
 }
@@ -78,7 +76,7 @@ pub fn add_oauth_remote(
 }
 
 /// Reauthenticate an existing OAuth-backed remote (Dropbox / Google
-/// Drive / OneDrive / pCloud). Re-runs the authorization for fresh tokens, then
+/// Drive / OneDrive). Re-runs the authorization for fresh tokens, then
 /// replaces the rclone config entry under the same name so the new
 /// token takes effect. Leaves the DB row untouched — same id, same
 /// name, same sync_dirs — so the user's configuration survives the

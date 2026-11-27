@@ -109,7 +109,7 @@ pub struct Authorized {
     pub params: std::collections::HashMap<String, String>,
 }
 
-/// Run rclone's OAuth flow for the backend `kind` (`drive`, `dropbox`, `onedrive`, `pcloud`) in-process, like `rclone authorize`, with the given client ID and secret unless empty. Blocks until the browser has come back to rclone's local web server or [`authorize_cancel`] is called. Instead of opening a browser, rclone leaves the link to [`authorize_url`].
+/// Run rclone's OAuth flow for the backend `kind` (`drive`, `dropbox`, `onedrive`) in-process, like `rclone authorize`, with the given client ID and secret unless empty. Blocks until the browser has come back to rclone's local web server or [`authorize_cancel`] is called. Instead of opening a browser, rclone leaves the link to [`authorize_url`].
 pub fn authorize(kind: &str, client_id: &str, client_secret: &str) -> Result<Authorized, String> {
     #[derive(Deserialize)]
     struct Reply {
@@ -253,7 +253,7 @@ pub fn changes_since(
     serde_json::from_value(reply).map_err(|e| format!("changes: {e}"))
 }
 
-/// The change tags (ETags) of a Nextcloud or ownCloud folder, see [`folder_tags`].
+/// The change tags (ETags) of a Nextcloud folder, see [`folder_tags`].
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct FolderTags {
     /// The folder's own.
@@ -263,7 +263,7 @@ pub struct FolderTags {
     pub children: std::collections::HashMap<String, String>,
 }
 
-/// The ETag of folder `path` on the WebDAV remote `remote` and, with `depth` 1, those of its subfolders. `Ok(None)` when the remote isn't a Nextcloud or ownCloud remote, whose folders get a new ETag with every change below them.
+/// The ETag of folder `path` on the WebDAV remote `remote` and, with `depth` 1, those of its subfolders. `Ok(None)` when the remote isn't a Nextcloud remote, whose folders get a new ETag with every change below them.
 pub fn folder_tags(
     remote: &str,
     path: &str,

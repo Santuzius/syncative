@@ -1,6 +1,6 @@
 package rclone
 
-// davtags.go reads the ETags Nextcloud and ownCloud keep on folders. Their server gives a folder a new ETag whenever anything below it changes, up to the root, so one PROPFIND on a sync folder tells whether anything in it changed, and the ETags of its subfolders tell which branch. rclone's WebDAV backend doesn't read ETags, so the request is made here, with the remote's own options and rclone's HTTP client; the paths are built exactly as the backend builds them, so they match its listings.
+// davtags.go reads the ETags Nextcloud keeps on folders. The server gives a folder a new ETag whenever anything below it changes, up to the root, so one PROPFIND on a sync folder tells whether anything in it changed, and the ETags of its subfolders tell which branch. rclone's WebDAV backend doesn't read ETags, so the request is made here, with the remote's own options and rclone's HTTP client; the paths are built exactly as the backend builds them, so they match its listings.
 
 import (
 	"bytes"
@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -51,7 +50,7 @@ type davMultistatus struct {
 
 // FolderTags returns the ETag of folder `dir` (a path from the remote's root, as in rclone's listings) and, with `depth` 1, those of the folders directly in it by path. A missing folder gives an error that says "directory not found".
 func FolderTags(ctx context.Context, remote, dir string, depth int) (tag string, children map[string]string, err error) {
-	opt, err := davOptions(remote, "nextcloud", "owncloud")
+	opt, err := nextcloudOptions(remote)
 	if err != nil {
 		return "", nil, err
 	}
@@ -126,8 +125,8 @@ func (g *tagGate) folderTag(dir string, ask func(string) (string, error)) (strin
 	return tag, nil
 }
 
-// davOptions reads the options of WebDAV remote `remote`, with the password revealed, when its vendor is one of `vendors`; else ErrNoFolderTags.
-func davOptions(remote string, vendors ...string) (*webdav.Options, error) {
+// nextcloudOptions reads the options of Nextcloud remote `remote`, with the password revealed; ErrNoFolderTags when it is no Nextcloud remote.
+func nextcloudOptions(remote string) (*webdav.Options, error) {
 	info, err := fs.Find("webdav")
 	if err != nil {
 		return nil, err
@@ -140,7 +139,7 @@ func davOptions(remote string, vendors ...string) (*webdav.Options, error) {
 	if err := configstruct.Set(m, opt); err != nil {
 		return nil, err
 	}
-	if !slices.Contains(vendors, opt.Vendor) {
+	if opt.Vendor != "nextcloud" {
 		return nil, ErrNoFolderTags
 	}
 	if !strings.HasSuffix(opt.URL, "/") {

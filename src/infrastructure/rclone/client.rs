@@ -305,7 +305,7 @@ impl BackendClient for LibrcloneClient {
                 .is_none_or(str::is_empty)
         };
         match config.get("type").and_then(|v| v.as_str()) {
-            Some("drive" | "dropbox" | "onedrive" | "pcloud") => missing("token"),
+            Some("drive" | "dropbox" | "onedrive") => missing("token"),
             Some("webdav") => missing("pass"),
             _ => false,
         }
@@ -327,7 +327,7 @@ impl BackendClient for LibrcloneClient {
         cursor: Option<&str>,
         cancel: &Cancel,
     ) -> Result<Changes, String> {
-        // Nextcloud and ownCloud: the folder's ETag changes with everything below it, and those of its subfolders show which branch changed.
+        // Nextcloud: the folder's ETag changes with everything below it, and those of its subfolders show which branch changed.
         match syncative_go::folder_tags(remote, path, 0, cancel) {
             Ok(Some(tags)) => {
                 return Ok(match cursor {

@@ -30,17 +30,6 @@ impl SyncativeApp {
             if let Ok(Some(t)) = self.rclone.remote_type(&r.name) {
                 r.provider_kind = ProviderKind::from_rclone_type(&t);
             }
-            // The type alone can't tell the WebDAV vendors apart; the config's `vendor` can.
-            if r.provider_kind == Some(ProviderKind::WebDav)
-                && let Some(vendor) = self
-                    .rclone
-                    .config(&r.name)
-                    .as_ref()
-                    .and_then(|c| c.get("vendor"))
-                    .and_then(|v| v.as_str())
-            {
-                r.provider_kind = Some(ProviderKind::from_webdav_vendor(vendor));
-            }
         }
         self.remotes = remotes;
         self.shared_oauth_client = self
@@ -222,7 +211,7 @@ impl SyncativeApp {
                 let rclone = self.rclone.clone();
                 draft.error = None;
 
-                if let Some(vendor) = kind.webdav_vendor() {
+                if kind.is_nextcloud() {
                     if draft.url.trim().is_empty() || draft.user.trim().is_empty() {
                         draft.error = Some("URL and username are required.".to_owned());
                         return Task::none();
@@ -238,8 +227,8 @@ impl SyncativeApp {
                         return Task::perform(
                             async move {
                                 tokio::task::spawn_blocking(move || {
-                                    crate::services::auth::reauth_webdav_remote(
-                                        &name, &url, &user, &pass, vendor, &*rclone,
+                                    crate::services::auth::reauth_nextcloud_remote(
+                                        &name, &url, &user, &pass, &*rclone,
                                     )?;
                                     existing_id
                                         .ok_or_else(|| "Remote not found after reauth.".to_owned())
@@ -253,8 +242,8 @@ impl SyncativeApp {
                     return Task::perform(
                         async move {
                             tokio::task::spawn_blocking(move || {
-                                crate::services::auth::add_webdav_remote(
-                                    &name, &url, &user, &pass, vendor, &*repo, &*rclone,
+                                crate::services::auth::add_nextcloud_remote(
+                                    &name, &url, &user, &pass, &*repo, &*rclone,
                                 )
                             })
                             .await
@@ -619,7 +608,7 @@ impl SyncativeApp {
             provider,
             ..Default::default()
         };
-        // WebDAV: where and as whom stay as they were; only the password is asked for again.
+        // Nextcloud: where and as whom stay as they were; only the password is asked for again.
         if let Some(config) = self
             .rclone
             .config(&name)
@@ -632,13 +621,9 @@ impl SyncativeApp {
                     .unwrap_or_default()
                     .to_owned()
             };
-            let kind = ProviderKind::from_webdav_vendor(&field("vendor"));
             draft.user = field("user");
-            if let Some(vendor) = kind.webdav_vendor() {
-                draft.url =
-                    crate::services::auth::webdav::form_url(&field("url"), &draft.user, vendor);
-            }
-            draft.provider = Some(kind);
+            draft.url = crate::services::auth::nextcloud::form_url(&field("url"), &draft.user);
+            draft.provider = Some(ProviderKind::Nextcloud);
         }
         if let Some(folder) = crate::services::auth::local_folder(&*self.rclone, &name) {
             draft.folder = folder;

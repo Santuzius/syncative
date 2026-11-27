@@ -59,7 +59,7 @@ pub(super) enum Action {
 pub(super) enum ConflictKind {
     /// Both copies changed since the last sync.
     BothChanged,
-    /// Both copies existed before the first sync. Without a content digest to compare (pCloud, WebDAV, Dropbox) the newer one wins as before, so a first sync of two large trees doesn't turn into hundreds of questions.
+    /// Both copies existed before the first sync. Without a content digest to compare (Nextcloud, Local folder) the newer one wins as before, so a first sync of two large trees doesn't turn into hundreds of questions.
     BothNew,
     /// The local path is a symbolic link, which can't be synced as it is (see `Snapshot::local_links`).
     Link,

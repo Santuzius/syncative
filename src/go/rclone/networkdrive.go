@@ -1,6 +1,6 @@
 package rclone
 
-// networkdrive.go: a network drive folder's pass asks what changed on the remote since the previous pass and has the mount's VFS forget those paths, so the mount follows the remote's sync interval and pause like a synced folder. rclone's own poll timer stays off (vfsOpt PollInterval 0). Backends with a change log (Google Drive, Dropbox, OneDrive, Proton) answer from it; on Nextcloud and ownCloud the folder ETags (davtags.go) lead down to the folders that changed.
+// networkdrive.go: a network drive folder's pass asks what changed on the remote since the previous pass and has the mount's VFS forget those paths, so the mount follows the remote's sync interval and pause like a synced folder. rclone's own poll timer stays off (vfsOpt PollInterval 0). Backends with a change log (Google Drive, Dropbox, OneDrive, Proton) answer from it; on Nextcloud the folder ETags (davtags.go) lead down to the folders that changed.
 
 import (
 	"context"
@@ -145,7 +145,7 @@ func rcMountPoll(ctx context.Context, in rc.Params) (rc.Params, error) {
 	return rc.Params{"supported": true, "changes": len(paths)}, nil
 }
 
-// pollFolderTags follows the folder ETags of a Nextcloud or ownCloud mount of folder `root` down to the folders that changed since the previous poll and has the VFS list those again; one request when nothing changed. Returns how many folders changed, and those and the folders new since then by their path in the mount. The first poll only notes the tags.
+// pollFolderTags follows the folder ETags of a Nextcloud mount of folder `root` down to the folders that changed since the previous poll and has the VFS list those again; one request when nothing changed. Returns how many folders changed, and those and the folders new since then by their path in the mount. The first poll only notes the tags.
 func pollFolderTags(ctx context.Context, forget *rc.Call, fsString, remote, root string, state *mountState) (int, []string, error) {
 	params := rc.Params{"fs": fsString}
 	// The VFS path of a folder, from the mount's root.

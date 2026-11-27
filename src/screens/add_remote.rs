@@ -1,9 +1,9 @@
 //! Add-remote flow for every provider Syncative supports:
 //!
-//! - WebDAV / Nextcloud / Owncloud — raw username + password
+//! - Nextcloud — username + password
 //! - Proton Drive — username + password + optional mailbox password and TOTP
 //! - Local folder (beta) — a folder on this device
-//! - Dropbox / Google Drive / OneDrive / pCloud — OAuth2 via `rclone authorize`
+//! - Dropbox / Google Drive / OneDrive — OAuth2 via `rclone authorize`
 //!   (launches the default browser; the user confirms, rclone prints
 //!   the token, we pass it to config/create)
 
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use syncative_go::proton::HumanVerification;
 
 use crate::{
-    services::auth::{AuthorizeHandle, OAuthProvider, WebDavVendor},
+    services::auth::{AuthorizeHandle, OAuthProvider},
     theme::{self, CAPTION, HEADING, ROW_SPACING, TEXT},
     widgets::{bullet, icon::accent_icon, text},
 };
@@ -55,32 +55,22 @@ pub const GDRIVE_CLIENT_ID_GUIDE: &str = "https://rclone.org/drive/#making-your-
 /// Syncative's privacy policy, usable as privacy policy link in the Google consent screen's branding.
 pub const PRIVACY_POLICY: &str = "https://github.com/Santuzius/syncative/blob/main/PRIVACY.md";
 
-/// The backends the auth code can set up, the same kinds a remote has. The picker offers Proton and Google, which the sync algorithm has been exercised against, and Dropbox, OneDrive and Nextcloud as beta features (see [`OFFERED`]). WebDAV / Owncloud / pCloud stay out of it: the snapshot algorithm is backend-agnostic so they should work, but none of them have been tested; the auth / RPC code paths for them stay.
+/// The backends the auth code can set up, the same kinds a remote has. The picker offers Proton and Google, which the sync algorithm has been exercised against, and Dropbox, OneDrive, Nextcloud and a local folder as beta features (see [`OFFERED`]).
 pub use crate::domain::remote::ProviderKind;
 
 /// What the add-remote dialog needs to know about a provider.
 impl ProviderKind {
-    pub fn webdav_vendor(self) -> Option<WebDavVendor> {
-        match self {
-            ProviderKind::WebDav => Some(WebDavVendor::WebDav),
-            ProviderKind::Nextcloud => Some(WebDavVendor::Nextcloud),
-            ProviderKind::Owncloud => Some(WebDavVendor::Owncloud),
-            _ => None,
-        }
-    }
-
     pub fn oauth_provider(self) -> Option<OAuthProvider> {
         match self {
             ProviderKind::Dropbox => Some(OAuthProvider::Dropbox),
             ProviderKind::GDrive => Some(OAuthProvider::GDrive),
             ProviderKind::OneDrive => Some(OAuthProvider::OneDrive),
-            ProviderKind::PCloud => Some(OAuthProvider::PCloud),
             _ => None,
         }
     }
 
-    pub fn is_webdav_family(self) -> bool {
-        self.webdav_vendor().is_some()
+    pub fn is_nextcloud(self) -> bool {
+        matches!(self, ProviderKind::Nextcloud)
     }
 
     pub fn is_oauth(self) -> bool {
@@ -152,14 +142,11 @@ pub fn beta_providers() -> impl Iterator<Item = String> {
 impl std::fmt::Display for ProviderKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let label = match self {
-            ProviderKind::WebDav => "Generic WebDAV",
             ProviderKind::Nextcloud => "Nextcloud",
-            ProviderKind::Owncloud => "Owncloud",
             ProviderKind::ProtonDrive => "Proton Drive",
             ProviderKind::Dropbox => "Dropbox",
             ProviderKind::GDrive => "Google Drive",
             ProviderKind::OneDrive => "OneDrive",
-            ProviderKind::PCloud => "pCloud",
             ProviderKind::Local => "Local",
         };
         f.write_str(label)
@@ -307,7 +294,7 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
     }
 
     match draft.provider {
-        Some(p) if p.is_webdav_family() => {
+        Some(p) if p.is_nextcloud() => {
             body = body.push(field(
                 "URL",
                 input("https://cloud.example.org", &draft.url, Msg::UrlChanged),
