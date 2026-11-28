@@ -854,7 +854,7 @@ async fn a_shared_file_saved_during_its_upload_goes_up_again_under_the_same_name
     assert!(!dir.exists());
 }
 
-/// A network drive's transfers go into its log as a synced folder's pass logs them: a line per file on its way, a problem line with the error for a failed transfer, and the count once the drive is idle again. What ended before the drive was first asked stays out.
+/// A network drive's transfers go into its log as a synced folder's pass logs its progress: how many files per direction are done, a problem line with the error for a failed transfer, and the count once the drive is idle again. What ended before the drive was first asked stays out.
 #[tokio::test]
 async fn a_network_drive_logs_its_transfers_like_a_pass() {
     use super::network_drive::{DriveFile, DriveReport, FinishedFile};
@@ -932,11 +932,10 @@ async fn a_network_drive_logs_its_transfers_like_a_pass() {
     assert_eq!(
         rig.log(D1),
         [
-            format!("Uploading '{}'…", path("a.txt")),
-            format!("Downloading '{}'…", path("b.jpg")),
+            "[0/1] Uploading…".to_owned(),
+            "[0/1] Downloading…".to_owned(),
             format!("⚠ {}: quota exceeded", path("a.txt")),
             format!("⚠ {}: connection reset", path("b.jpg")),
-            format!("Downloading '{}'…", path("c.png")),
             "Done — 2 of 3 changes synced, 1 failed.".to_owned(),
         ]
     );
