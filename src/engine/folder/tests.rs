@@ -2658,3 +2658,46 @@ fn the_folder_sync_uses_no_adapter_directly() {
         found.join("\n")
     );
 }
+
+/// Every transfer names what it moves, a folder with a slash, as the progress of the pass; the closing line stays a status of its own.
+#[test]
+fn transfers_name_their_files_and_folders_as_progress() {
+    let tmp = TempDir::new("sync_progress_lines");
+    fs::create_dir_all(tmp.path.join("docs")).unwrap();
+    let local = tmp.write_file("docs/a.txt", b"hi");
+    touch_mtime(&local, 1_700_000_000);
+    let repo = FakeRepo::new();
+    let client = FakeBackend::default();
+    client.set_list("", Ok(vec![]));
+    client.set_stat("docs", Ok(Some(remote_item("docs", true, 1_700_000_000))));
+    // Not there before the upload, there after it.
+    client.set_stat_sequence(
+        "docs/a.txt",
+        vec![
+            Ok(None),
+            Ok(Some(remote_item("docs/a.txt", false, 1_700_000_000))),
+        ],
+    );
+
+    let (outcome, events) = run_full(&tmp, &repo, &client);
+    assert_eq!(outcome, Outcome::Synced);
+    let progress: Vec<String> = events
+        .iter()
+        .filter_map(|e| match e {
+            SyncEvent::SyncDirProgress { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    let shown = |name: &str| crate::util::fmt_home(&format!("{}/{name}", tmp.as_str()));
+    assert_eq!(
+        progress,
+        [
+            format!("[1/2] Uploading '{}/'…", shown("docs")),
+            format!("[2/2] Uploading '{}'…", shown("docs/a.txt")),
+        ]
+    );
+    assert_eq!(
+        done_line(&events).as_deref(),
+        Some("Done — 2 changes synced.")
+    );
+}

@@ -126,6 +126,8 @@ pub(crate) struct Core {
     next_drive_check: Instant,
     /// What each network drive moved since it was last idle, for its log (see [`Core::log_drive`]).
     drive_logs: HashMap<SyncDirId, DriveLog>,
+    /// Whether the detailed log is on, which keeps every action's line in the log; a function so tests choose without the global switch.
+    pub(super) detailed_log: fn() -> bool,
 }
 
 /// A network drive's transfers since it was last idle, for its log (see [`Core::log_drive`]).
@@ -180,6 +182,7 @@ impl Core {
             uploads: Vec::new(),
             next_drive_check: Instant::now(),
             drive_logs: HashMap::new(),
+            detailed_log: crate::infrastructure::stderr_capture::detailed,
         }
     }
 
@@ -524,7 +527,7 @@ impl Core {
         }
     }
 
-    /// Log what network drive `sync_dir` moves as a synced folder's pass logs its progress: a line per file that sets off, with how many files of its direction are done ("[3/10] Downloading '~/Drive/a.txt'…"), a problem line with the error when a transfer failed, and when the drive is idle again, how many went through.
+    /// Log what network drive `sync_dir` moves as a synced folder's pass logs its progress: with the detailed log a line per file that sets off, with how many files of its direction are done ("[3/10] Downloading '~/Drive/a.txt'…"); a problem line with the error when a transfer failed, and when the drive is idle again, how many went through.
     pub(super) fn log_drive(
         &mut self,
         sync_dir: &SyncDir,
@@ -568,8 +571,13 @@ impl Core {
                 .count()
         };
         let done = [done(false), done(true)];
+        // The files themselves show in the drive's transfers; the log names them only with the detailed log.
+        let detailed = (self.detailed_log)();
         for file in started {
             log.seen.insert(file.clone());
+            if !detailed {
+                continue;
+            }
             let total = log.seen.iter().filter(|f| f.upload == file.upload).count();
             let finished = done[usize::from(file.upload)];
             let shown = network_drive::file_display(sync_dir, &file.name);
@@ -761,6 +769,7 @@ impl Core {
         let dir = match &event {
             SyncEvent::SyncDirStatus { sync_dir_id, .. }
             | SyncEvent::SyncDirPending { sync_dir_id, .. }
+            | SyncEvent::SyncDirProgress { sync_dir_id, .. }
             | SyncEvent::SyncDirError { sync_dir_id, .. }
             | SyncEvent::SyncDirConflicts { sync_dir_id, .. }
             | SyncEvent::SyncDirStateChanged { sync_dir_id, .. } => *sync_dir_id,
@@ -775,6 +784,15 @@ impl Core {
             SyncEvent::SyncDirPending {
                 sync_dir_id, text, ..
             } => self.push_log_line(sync_dir_id, text),
+            SyncEvent::SyncDirProgress {
+                sync_dir_id, text, ..
+            } => {
+                if (self.detailed_log)() {
+                    self.push_log_line(sync_dir_id, text);
+                } else {
+                    self.pass_lines.insert(sync_dir_id, text);
+                }
+            }
             SyncEvent::SyncDirError {
                 remote_id,
                 sync_dir_id,

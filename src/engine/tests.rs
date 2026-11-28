@@ -854,11 +854,18 @@ async fn a_shared_file_saved_during_its_upload_goes_up_again_under_the_same_name
     assert!(!dir.exists());
 }
 
-/// A network drive's transfers go into its log as a synced folder's pass logs its progress: a line per file that sets off, with how many files of its direction are done, a problem line with the error for a failed transfer, and the count once the drive is idle again. What ended before the drive was first asked stays out.
+/// A network drive's transfers go into its log as a synced folder's pass logs its progress: with the detailed log a line per file that sets off, with how many files of its direction are done; a problem line with the error for a failed transfer, and the count once the drive is idle again. What ended before the drive was first asked stays out.
 #[tokio::test]
 async fn a_network_drive_logs_its_transfers_like_a_pass() {
+    for detailed in [true, false] {
+        drive_log_names_files_only_when_detailed(detailed).await;
+    }
+}
+
+async fn drive_log_names_files_only_when_detailed(detailed: bool) {
     use super::network_drive::{DriveFile, DriveReport, FinishedFile};
     let mut rig = rig().await;
+    rig.core.detailed_log = if detailed { || true } else { || false };
     let dir = rig.repo.sync_dirs.lock().unwrap()[0].clone();
     let file = |name: &str, upload: bool| DriveFile {
         name: name.to_owned(),
@@ -929,14 +936,15 @@ async fn a_network_drive_logs_its_transfers_like_a_pass() {
     rig.core
         .log_drive(&dir, R1, &report(vec![], vec![second_try]));
 
-    assert_eq!(
-        rig.log(D1),
-        [
-            format!("[0/1] Uploading '{}'…", path("a.txt")),
-            format!("[0/1] Downloading '{}'…", path("b.jpg")),
-            format!("⚠ {}: quota exceeded", path("a.txt")),
-            format!("⚠ {}: connection reset", path("b.jpg")),
-            "Done — 2 of 3 changes synced, 1 failed.".to_owned(),
-        ]
-    );
+    let names = [
+        format!("[0/1] Uploading '{}'…", path("a.txt")),
+        format!("[0/1] Downloading '{}'…", path("b.jpg")),
+    ];
+    let mut expected = if detailed { names.to_vec() } else { vec![] };
+    expected.extend([
+        format!("⚠ {}: quota exceeded", path("a.txt")),
+        format!("⚠ {}: connection reset", path("b.jpg")),
+        "Done — 2 of 3 changes synced, 1 failed.".to_owned(),
+    ]);
+    assert_eq!(rig.log(D1), expected);
 }

@@ -69,6 +69,7 @@ where
         cancel,
         failures: 0,
         skipped: 0,
+        named: false,
         conflicts: Vec::new(),
         pos: 0,
         total: actions.len(),
@@ -93,17 +94,12 @@ where
                 state: RunState::Syncing(activity),
             });
         }
-        // Refresh the phase-pending line roughly every 16 actions so a
-        // long apply (e.g. 1800+ downloads on first sync of a large
-        // remote) reports progress even when the per-action status is
-        // changing faster than the eye can follow. Cheap — one event
-        // per batch, same channel as everything else.
+        // Every 16 actions, the count for a stretch whose actions named nothing (skipped uploads, times taken over), so a long apply still shows that it moves.
         if idx > 0 && idx.is_multiple_of(16) {
-            emit(SyncEvent::SyncDirPending {
-                remote_id: remote.id,
-                sync_dir_id: sync_dir.id,
-                text: progress_text(current_activity, idx, run.total),
-            });
+            if !run.named {
+                run.progress(progress_text(current_activity, idx, run.total));
+            }
+            run.named = false;
         }
         run.pos = idx + 1;
         // A resolved conflict turns into a transfer, which runs next.
@@ -127,6 +123,8 @@ struct Run<'a, FE> {
     cancel: &'a Cancel,
     failures: usize,
     skipped: usize,
+    /// Whether an action named its file or folder since the last count.
+    named: bool,
     conflicts: Vec<Conflict>,
     /// The number of the action being run, of `total`, for the status line.
     pos: usize,
@@ -148,6 +146,16 @@ where
 
     fn status(&self, text: String) {
         (self.emit)(SyncEvent::SyncDirStatus {
+            remote_id: self.remote.id,
+            sync_dir_id: self.sync_dir.id,
+            text,
+        });
+    }
+
+    /// The action under way, named with its number: the folder's state, and a log line with the detailed log.
+    fn progress(&mut self, text: String) {
+        self.named = true;
+        (self.emit)(SyncEvent::SyncDirProgress {
             remote_id: self.remote.id,
             sync_dir_id: self.sync_dir.id,
             text,
@@ -235,6 +243,12 @@ where
             return;
         }
         if is_dir {
+            self.progress(tr::tr!(
+                "[{}/{}] Uploading '{}'…",
+                self.pos,
+                self.total,
+                shown(local_path, true)
+            ));
             match client.mkdir(&remote.name, remote_path, cancel) {
                 Ok(()) => self.record(local_path, remote_path),
                 Err(err) => self.error(SyncError::General(remote_path.to_owned(), err)),
@@ -268,11 +282,11 @@ where
             }
             return;
         }
-        self.status(tr::tr!(
+        self.progress(tr::tr!(
             "[{}/{}] Uploading '{}'…",
             self.pos,
             self.total,
-            util::fmt_home(local_path)
+            shown(local_path, false)
         ));
         let before = util::file_state(Path::new(local_path));
         if let Err(err) = client.copy_to_remote(local_path, &remote.name, remote_path, cancel) {
@@ -329,6 +343,12 @@ where
                     kind: ConflictKind::FileAndFolder,
                 });
             }
+            self.progress(tr::tr!(
+                "[{}/{}] Downloading '{}'…",
+                self.pos,
+                self.total,
+                shown(&local_path, true)
+            ));
             match fs::create_dir_all(&local_path) {
                 Ok(()) => self.record(&local_path, &remote_path),
                 Err(err) => self.error(SyncError::General(local_path, err.to_string())),
@@ -371,11 +391,11 @@ where
         if let Some(parent) = Path::new(&local_path).parent() {
             let _ = fs::create_dir_all(parent);
         }
-        self.status(tr::tr!(
+        self.progress(tr::tr!(
             "[{}/{}] Downloading '{}'…",
             self.pos,
             self.total,
-            util::fmt_home(&local_path)
+            shown(&local_path, false)
         ));
         if let Err(err) = client.copy_to_local(&local_path, &remote.name, &remote_path, cancel) {
             self.error(SyncError::General(remote_path, err));
@@ -398,11 +418,11 @@ where
             "sync: DELETE mirror-local remote={} path={}",
             self.remote.name, remote_path
         );
-        self.status(tr::tr!(
+        self.progress(tr::tr!(
             "[{}/{}] Removing '{}' locally…",
             self.pos,
             self.total,
-            util::fmt_home(local_path)
+            shown(local_path, is_dir)
         ));
         if is_dir {
             match remove_synced_local(Path::new(local_path), &self.snapshot.db) {
@@ -436,11 +456,15 @@ where
             "sync: DELETE mirror-remote remote={} path={}",
             remote.name, remote_path
         );
-        self.status(tr::tr!(
+        self.progress(tr::tr!(
             "[{}/{}] Removing '{}' on remote…",
             self.pos,
             self.total,
-            remote_path
+            if is_dir {
+                format!("{remote_path}/")
+            } else {
+                remote_path.to_owned()
+            }
         ));
         let res = if is_dir {
             match remove_synced_remote(remote_path, &self.snapshot.db, remote, client, cancel) {
@@ -627,19 +651,25 @@ where
     }
 }
 
-/// The progress line every 16 actions, naming what the pass is doing.
+/// The count every 16 actions when none of them named a file, in the form of the actions' own lines: "[48/953] Uploading…".
 fn progress_text(activity: Option<SyncActivity>, done: usize, total: usize) -> String {
     match activity {
-        Some(SyncActivity::Downloading) => tr::tr!("Downloading: {} of {} done…", done, total),
-        Some(SyncActivity::Uploading) => tr::tr!("Uploading: {} of {} done…", done, total),
-        Some(SyncActivity::Deleting) => tr::tr!("Deleting: {} of {} done…", done, total),
+        Some(SyncActivity::Downloading) => tr::tr!("[{}/{}] Downloading…", done, total),
+        Some(SyncActivity::Uploading) => tr::tr!("[{}/{}] Uploading…", done, total),
+        Some(SyncActivity::Deleting) => tr::tr!("[{}/{}] Removing…", done, total),
         Some(SyncActivity::Resolving) => tr::tr!(
-            "Comparing files present on both sides: {} of {} done…",
+            "[{}/{}] Comparing files present on both sides…",
             done,
             total
         ),
-        Some(SyncActivity::Listing) | None => tr::tr!("{} of {} done…", done, total),
+        Some(SyncActivity::Listing) | None => tr::tr!("[{}/{}]…", done, total),
     }
+}
+
+/// A local path as the log shows it; a folder ends in a slash.
+fn shown(local_path: &str, is_dir: bool) -> String {
+    let path = util::fmt_home(local_path);
+    if is_dir { format!("{path}/") } else { path }
 }
 
 fn activity_of(action: &Action) -> Option<SyncActivity> {

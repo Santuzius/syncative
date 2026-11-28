@@ -23,6 +23,12 @@ pub enum SyncEvent {
         sync_dir_id: SyncDirId,
         text: String,
     },
+    /// What a pass is doing right now, e.g. "[3/10] Uploading '~/a.txt'…": shown as the folder's state, and kept in its log only with the detailed log.
+    SyncDirProgress {
+        remote_id: RemoteId,
+        sync_dir_id: SyncDirId,
+        text: String,
+    },
     /// Per-sync-dir error that should be surfaced in the error list.
     SyncDirError {
         remote_id: RemoteId,
