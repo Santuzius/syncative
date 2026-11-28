@@ -215,7 +215,7 @@ fn emit_line(sd: &SyncDir, text: String, emit: &impl Fn(SyncEvent)) {
 mod tests {
     use super::*;
     use crate::{
-        domain::{remote::Backend, sync::SyncMode},
+        domain::sync::SyncMode,
         infrastructure::stderr_capture,
         test_support::{
             FakeBackend, FakeRepo, TempDir, remote, remote_item, sync_dir, touch_mtime,
@@ -306,112 +306,6 @@ mod tests {
         assert!(backend.delete_file_calls.lock().unwrap().is_empty());
         let dir = repo.sync_dirs.lock().unwrap()[0].clone();
         assert_eq!((dir.mode, dir.pending), (SyncMode::Download, None));
-    }
-
-    const UPLOADED: i64 = 1_795_000_000;
-    const MODIFIED: i64 = 1_600_000_000;
-
-    /// A Proton folder with `damaged.jpg`, downloaded by an earlier version with the date of its upload, `own.jpg` with its own date, and `undated.jpg`, whose revision holds no date of its own.
-    fn proton_folder_with_upload_dates(
-        tmp: &TempDir,
-        backend: Backend,
-    ) -> (Arc<FakeRepo>, Arc<FakeBackend>) {
-        let repo = Arc::new(FakeRepo::new());
-        let mut one = remote(1, "One");
-        one.backend = backend;
-        *repo.remotes.lock().unwrap() = vec![one];
-        *repo.sync_dirs.lock().unwrap() = vec![sync_dir(1, 1, tmp.as_str(), "")];
-        let client = Arc::new(FakeBackend::default());
-        let mut listing = Vec::new();
-        for (name, local, row_local) in [
-            ("damaged.jpg", UPLOADED, UPLOADED),
-            ("own.jpg", MODIFIED + 7, MODIFIED + 7),
-            ("undated.jpg", UPLOADED, UPLOADED),
-        ] {
-            touch_mtime(&tmp.write_file(name, name.as_bytes()), local);
-            repo.insert_item(
-                SyncDirId(1),
-                &format!("{}/{name}", tmp.as_str()),
-                name,
-                row_local,
-                UPLOADED,
-            );
-            listing.push(remote_item(name, false, UPLOADED));
-            client.set_stat(name, Ok(Some(remote_item(name, false, UPLOADED))));
-        }
-        client.set_list("", Ok(listing));
-        let mut stored = client.details_time_map.lock().unwrap();
-        stored.insert("damaged.jpg".to_owned(), MODIFIED);
-        stored.insert("own.jpg".to_owned(), MODIFIED + 7);
-        drop(stored);
-        (repo, client)
-    }
-
-    fn mtime(tmp: &TempDir, name: &str) -> i64 {
-        let modified = std::fs::metadata(tmp.path.join(name))
-            .unwrap()
-            .modified()
-            .unwrap();
-        modified
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64
-    }
-
-    fn row_times(repo: &FakeRepo, name: &str) -> (i64, i64) {
-        let items = repo.items.lock().unwrap();
-        let row = items.iter().find(|i| i.remote_path == name).unwrap();
-        (row.last_local_timestamp, row.last_remote_timestamp)
-    }
-
-    /// Issue 25: a file that kept the date of its upload gets the date it was last modified back, once, and the next pass leaves it alone.
-    #[tokio::test]
-    async fn files_with_the_upload_date_get_their_own_date_back() {
-        let tmp = TempDir::new("pass_dates_repaired");
-        let (repo, client) = proton_folder_with_upload_dates(&tmp, Backend::NativeProton);
-
-        assert_eq!(run_pass(&repo, &client).await, PassVerdict::Clean);
-        assert_eq!(mtime(&tmp, "damaged.jpg"), MODIFIED);
-        assert_eq!(row_times(&repo, "damaged.jpg"), (MODIFIED, UPLOADED));
-        assert_eq!(mtime(&tmp, "own.jpg"), MODIFIED + 7);
-        assert_eq!(mtime(&tmp, "undated.jpg"), UPLOADED);
-        assert_eq!(row_times(&repo, "undated.jpg"), (UPLOADED, UPLOADED));
-        assert!(repo.sync_dirs.lock().unwrap()[0].dates_checked);
-
-        // The next pass transfers nothing and changes no date.
-        *client.details_error.lock().unwrap() = Some("asked again".to_owned());
-        assert_eq!(run_pass(&repo, &client).await, PassVerdict::Clean);
-        assert!(client.copy_to_remote_calls.lock().unwrap().is_empty());
-        assert!(client.copy_to_local_calls.lock().unwrap().is_empty());
-        assert_eq!(mtime(&tmp, "damaged.jpg"), MODIFIED);
-        assert_eq!(row_times(&repo, "damaged.jpg"), (MODIFIED, UPLOADED));
-    }
-
-    #[tokio::test]
-    async fn the_date_check_waits_for_the_dates() {
-        let tmp = TempDir::new("pass_dates_unanswered");
-        let (repo, client) = proton_folder_with_upload_dates(&tmp, Backend::NativeProton);
-        *client.details_error.lock().unwrap() = Some("rate limited".to_owned());
-
-        run_pass(&repo, &client).await;
-        assert_eq!(mtime(&tmp, "damaged.jpg"), UPLOADED);
-        assert!(!repo.sync_dirs.lock().unwrap()[0].dates_checked);
-
-        *client.details_error.lock().unwrap() = None;
-        run_pass(&repo, &client).await;
-        assert_eq!(mtime(&tmp, "damaged.jpg"), MODIFIED);
-        assert!(repo.sync_dirs.lock().unwrap()[0].dates_checked);
-    }
-
-    /// Only Proton listed the upload's date; other remotes list the date the file was last modified.
-    #[tokio::test]
-    async fn only_proton_folders_are_checked_for_upload_dates() {
-        let tmp = TempDir::new("pass_dates_rclone");
-        let (repo, client) = proton_folder_with_upload_dates(&tmp, Backend::Rclone);
-
-        run_pass(&repo, &client).await;
-        assert_eq!(mtime(&tmp, "damaged.jpg"), UPLOADED);
-        assert!(!repo.sync_dirs.lock().unwrap()[0].dates_checked);
     }
 
     #[tokio::test]

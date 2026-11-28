@@ -192,8 +192,6 @@ pub struct SyncDir {
     pub sync_deletions: bool,
     /// The mode and switch the user applied, which take over after the folder's next pass in [`Self::mode`] that ends without failures. That pass finishes what the current mode owes (a local backup downloads files deleted here again, a cloud backup uploads files deleted on the remote again), so the new mode doesn't read those as deletions. Until then the folder can't be changed.
     pub pending: Option<ModeChange>,
-    /// Whether a pass checked once for files here that kept the time Proton lists, the upload's, as the time they were last modified: Syncative gave downloads that date up to 0.28 (issue 25). See `engine::folder::dates`.
-    pub dates_checked: bool,
 }
 
 /// A sync folder's mode with its deletions switch, as the folder settings apply them.
@@ -484,7 +482,6 @@ mod tests {
             rows_mode: Default::default(),
             sync_deletions: false,
             pending: None,
-            dates_checked: false,
         };
         assert_eq!(dir("Docs").relative("Docs/a/b.txt"), "a/b.txt");
         assert_eq!(dir("Docs").relative("Docs"), "Docs");

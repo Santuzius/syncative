@@ -1,4 +1,4 @@
-//! Whether a sync folder had its one-time check for files that kept the upload's date Proton listed (see `domain::sync::SyncDir::dates_checked`).
+//! Whether a sync folder had its one-time check for files that kept the upload's date Proton listed; the repair was removed again, and `m20261128_000001_drop_dates_checked` drops the column.
 
 use sea_orm::{ConnectionTrait, Statement};
 use sea_orm_migration::prelude::*;

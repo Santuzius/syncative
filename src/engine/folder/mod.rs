@@ -24,7 +24,6 @@ use crate::domain::{
 
 mod applier;
 pub(crate) mod content_hash;
-mod dates;
 mod editor_temp;
 pub mod local_names;
 pub mod nomedia;
@@ -325,9 +324,6 @@ where
                 failed
             )
         });
-    }
-    if dates::needs_check(remote, sync_dir) && !is_cancelled() {
-        dates::check(remote, sync_dir, repo, client, cancel, emit_status);
     }
     emit_state(RunState::Synced);
     if failed == 0 {

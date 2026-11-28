@@ -30,8 +30,6 @@ pub struct Model {
     pub pending_mode: Option<String>,
     /// `sync_deletions` that comes with `pending_mode`.
     pub pending_sync_deletions: i32,
-    /// 1 once the folder had its check for files that kept the upload's date Proton listed, see `domain::sync::SyncDir::dates_checked`.
-    pub dates_checked: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

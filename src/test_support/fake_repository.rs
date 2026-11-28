@@ -232,17 +232,6 @@ impl Repository for FakeRepo {
         }
         Box::pin(async { Ok(()) })
     }
-    fn set_sync_dir_dates_checked(
-        &self,
-        sd: SyncDirId,
-    ) -> BoxFuture<'_, Result<(), RepositoryError>> {
-        for dir in self.sync_dirs.lock().unwrap().iter_mut() {
-            if dir.id == sd {
-                dir.dates_checked = true;
-            }
-        }
-        Box::pin(async { Ok(()) })
-    }
     fn list_sync_items(
         &self,
         sd: SyncDirId,

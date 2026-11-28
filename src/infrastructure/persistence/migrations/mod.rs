@@ -13,6 +13,7 @@ mod m20261120_000003_sync_modes;
 mod m20261123_000001_sync_deletions;
 mod m20261123_000002_pending_mode;
 mod m20261124_000001_dates_checked;
+mod m20261128_000001_drop_dates_checked;
 
 /// Legacy migration IDs we refuse to cohabit with. If any of these show
 /// up in `seaql_migrations` at startup, the old-config popup fires and
@@ -46,6 +47,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261123_000001_sync_deletions::Migration),
             Box::new(m20261123_000002_pending_mode::Migration),
             Box::new(m20261124_000001_dates_checked::Migration),
+            Box::new(m20261128_000001_drop_dates_checked::Migration),
         ]
     }
 }

@@ -206,12 +206,6 @@ mod tests {
         ) -> BoxFuture<'_, Result<(), RepositoryError>> {
             Box::pin(async { Ok(()) })
         }
-        fn set_sync_dir_dates_checked(
-            &self,
-            _sd: SyncDirId,
-        ) -> BoxFuture<'_, Result<(), RepositoryError>> {
-            Box::pin(async { Ok(()) })
-        }
         fn list_sync_items(
             &self,
             _sd: SyncDirId,
