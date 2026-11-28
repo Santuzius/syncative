@@ -235,6 +235,23 @@ impl SyncativeApp {
                     } else {
                         Box::new(move || auth::add_local_remote(&name, &folder, &*repo, &*rclone))
                     }
+                } else if kind.is_mega() {
+                    if draft.user.trim().is_empty() || draft.pass.is_empty() {
+                        draft.error = Some("E-mail and password are required.".to_owned());
+                        return Task::none();
+                    }
+                    let (user, pass, code) =
+                        (draft.user.clone(), draft.pass.clone(), draft.totp.clone());
+                    if draft.reauth {
+                        Box::new(move || {
+                            auth::reauth_mega_remote(&name, &user, &pass, &code, &*rclone)?;
+                            found()
+                        })
+                    } else {
+                        Box::new(move || {
+                            auth::add_mega_remote(&name, &user, &pass, &code, &*repo, &*rclone)
+                        })
+                    }
                 } else if kind.is_proton_drive() {
                     if draft.user.trim().is_empty() {
                         draft.error = Some("Username is required.".to_owned());
@@ -513,6 +530,17 @@ impl SyncativeApp {
             draft.user = field("user");
             draft.url = crate::services::auth::nextcloud::form_url(&field("url"), &draft.user);
             draft.provider = Some(ProviderKind::Nextcloud);
+        }
+        // MEGA: the account stays; the password and a fresh 2FA code are asked for again.
+        if let Some(user) = self
+            .rclone
+            .config(&name)
+            .filter(|c| {
+                c.get("type").and_then(|v| v.as_str()) == Some(ProviderKind::Mega.rclone_type())
+            })
+            .and_then(|c| c.get("user").and_then(|v| v.as_str()).map(str::to_owned))
+        {
+            draft.user = user;
         }
         if let Some(folder) = crate::services::auth::local_folder(&*self.rclone, &name) {
             draft.folder = folder;

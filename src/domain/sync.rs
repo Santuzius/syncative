@@ -369,7 +369,7 @@ pub struct ContentHash {
     pub value: String,
 }
 
-/// The hash a provider keeps of each file: SHA-1 on most, a hash of their own on Dropbox and OneDrive.
+/// The hash a provider keeps of each file: SHA-1 on most, a hash of their own on Dropbox, OneDrive and MEGA.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HashKind {
     Sha1,
@@ -377,6 +377,8 @@ pub enum HashKind {
     Dropbox,
     /// OneDrive's QuickXorHash.
     QuickXor,
+    /// The content part of MEGA's fingerprint: four CRC32s, over sampled windows of larger files.
+    Mega,
 }
 
 impl HashKind {
@@ -386,6 +388,8 @@ impl HashKind {
             Self::Sha1 => "sha1",
             Self::Dropbox => "dropbox",
             Self::QuickXor => "quickxor",
+            // Not an rclone hash: Syncative's MEGA backend reports it as metadata, as rclone can't compute it while streaming a file.
+            Self::Mega => "mega",
         }
     }
 }

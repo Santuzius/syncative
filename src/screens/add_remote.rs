@@ -3,6 +3,7 @@
 //! - Nextcloud — username + password
 //! - Proton Drive — username + password + optional mailbox password and TOTP
 //! - Local folder (beta) — a folder on this device
+//! - MEGA (beta) — e-mail + password + optional 2FA code
 //! - Dropbox / Google Drive / OneDrive — OAuth2 via `rclone authorize`
 //!   (launches the default browser; the user confirms, rclone prints
 //!   the token, we pass it to config/create)
@@ -91,6 +92,10 @@ impl ProviderKind {
         matches!(self, ProviderKind::Local)
     }
 
+    pub fn is_mega(self) -> bool {
+        matches!(self, ProviderKind::Mega)
+    }
+
     /// The name in the window, with the beta mark where it applies.
     pub fn label(self) -> String {
         crate::services::preferences::beta::marked(&self.to_string(), self.is_beta())
@@ -110,11 +115,12 @@ impl std::fmt::Display for ProviderOption {
 }
 
 /// Every provider the picker can offer, in its order; the beta ones only with the beta features on.
-const OFFERED: [ProviderKind; 6] = [
+const OFFERED: [ProviderKind; 7] = [
     ProviderKind::ProtonDrive,
     ProviderKind::GDrive,
     ProviderKind::Dropbox,
     ProviderKind::OneDrive,
+    ProviderKind::Mega,
     ProviderKind::Nextcloud,
     ProviderKind::Local,
 ];
@@ -148,6 +154,7 @@ impl std::fmt::Display for ProviderKind {
             ProviderKind::GDrive => "Google Drive",
             ProviderKind::OneDrive => "OneDrive",
             ProviderKind::Local => "Local",
+            ProviderKind::Mega => "MEGA",
         };
         f.write_str(label)
     }
@@ -159,10 +166,10 @@ pub struct Draft {
     pub provider: Option<ProviderKind>,
     // WebDAV-family:
     pub url: String,
-    // WebDAV + Proton Drive:
+    // WebDAV, Proton Drive, MEGA:
     pub user: String,
     pub pass: String,
-    // Proton Drive:
+    // Proton Drive, MEGA:
     pub totp: String,
     /// The second password of a Proton account in two-password mode.
     pub mailbox_pass: String,
@@ -377,6 +384,25 @@ pub fn view(draft: &Draft, beta: bool) -> Element<'_, Msg> {
             ));
             body = body.push(hint(
                 "With 2FA enabled, Proton eventually expires the session and Syncative can't renew it on its own (the code is single-use). You'll then be asked to sign in again.",
+            ));
+        }
+        Some(p) if p.is_mega() => {
+            body = body.push(third_party_notice("MEGA"));
+            body = body.push(field(
+                "E-mail",
+                input("example@mega.nz", &draft.user, Msg::UserChanged),
+            ));
+            body = body.push(field(
+                "Password",
+                input("password", &draft.pass, Msg::PassChanged).secure(true),
+            ));
+            body = body.push(field(
+                "2FA code",
+                input(
+                    "only if two-factor authentication is on",
+                    &draft.totp,
+                    Msg::TotpChanged,
+                ),
             ));
         }
         Some(p) if p.needs_own_client_id() => {

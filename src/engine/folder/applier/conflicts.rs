@@ -104,5 +104,5 @@ fn comparable_hash(local_path: &str, size: u64, details: &FileDetails) -> Option
     if details.size.is_some_and(|remote_size| remote_size != size) {
         return None;
     }
-    content_hash::of_file(Path::new(local_path), details.hash.as_ref()?.kind)
+    content_hash::matching(Path::new(local_path), details.hash.as_ref()?)
 }

@@ -6,6 +6,9 @@
 use serde::Deserialize;
 use time::OffsetDateTime;
 
+/// The metadata key under which the MEGA backend of Syncative's rclone fork reports the CRCs of a file's fingerprint, in hex.
+pub const MEGA_CRC_KEY: &str = "mega-crc";
+
 /// Error returned from Rclone.
 #[derive(Clone, Deserialize, Debug)]
 pub struct RcloneError {
@@ -96,7 +99,8 @@ pub enum BackendListFilter {
 /// RPC — the caller is expected to be on a blocking tokio task.
 pub mod sync {
     use super::{
-        BackendAbout, BackendList, BackendListFilter, BackendRemoteItem, BackendStat, RcloneError,
+        BackendAbout, BackendList, BackendListFilter, BackendRemoteItem, BackendStat, MEGA_CRC_KEY,
+        RcloneError,
     };
     use crate::{
         domain::{ports::Cancel, sync::HashKind},
@@ -210,12 +214,19 @@ pub mod sync {
         }
     }
 
-    /// The hashes the backend of `remote_name` keeps of each file, by their rclone names.
+    /// The hashes the backend of `remote_name` keeps of each file, by their [`HashKind::rclone_name`]s: rclone's hashes, and MEGA's CRCs where the backend reports them as metadata.
     pub fn hash_names(remote_name: &str, cancel: &Cancel) -> Result<Vec<String>, RcloneError> {
         #[derive(Deserialize)]
         struct Info {
             #[serde(rename = "Hashes", default)]
             hashes: Vec<String>,
+            #[serde(rename = "MetadataInfo", default)]
+            metadata: Option<MetadataInfo>,
+        }
+        #[derive(Deserialize)]
+        struct MetadataInfo {
+            #[serde(rename = "System", default)]
+            system: std::collections::HashMap<String, serde_json::Value>,
         }
         match run_cancellable(
             "operations/fsinfo",
@@ -223,7 +234,16 @@ pub mod sync {
             cancel,
         ) {
             Ok(json_str) => Ok(serde_json::from_str::<Info>(&json_str)
-                .map(|info| info.hashes)
+                .map(|info| {
+                    let mut names = info.hashes;
+                    if info
+                        .metadata
+                        .is_some_and(|m| m.system.contains_key(MEGA_CRC_KEY))
+                    {
+                        names.push(HashKind::Mega.rclone_name().to_owned());
+                    }
+                    names
+                })
                 .unwrap_or_default()),
             Err(reply) => Err(RcloneError::from_reply(&reply)),
         }
@@ -242,8 +262,9 @@ pub mod sync {
                 "fs": fs(remote_name)?,
                 "remote": util::strip_slashes(path),
                 "opt": {
-                    "showHash": kind.is_some(),
-                    "hashTypes": kind.map(HashKind::rclone_name).into_iter().collect::<Vec<_>>(),
+                    // MEGA's CRCs come with the metadata.
+                    "showHash": kind.is_some_and(|kind| kind != HashKind::Mega),
+                    "hashTypes": kind.filter(|kind| *kind != HashKind::Mega).map(HashKind::rclone_name).into_iter().collect::<Vec<_>>(),
                     "metadata": true
                 }
             })

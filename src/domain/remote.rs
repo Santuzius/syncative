@@ -9,16 +9,19 @@ pub enum ProviderKind {
     GDrive,
     /// A folder on this device (rclone's `alias` onto it), e.g. a USB disk or a network share mounted by the system.
     Local,
+    /// MEGA through rclone's backend in Syncative's fork, which keeps modification times, fingerprints and versions (doc/providers/mega.md).
+    Mega,
     Nextcloud,
     OneDrive,
     ProtonDrive,
 }
 
 impl ProviderKind {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Dropbox,
         Self::GDrive,
         Self::Local,
+        Self::Mega,
         Self::Nextcloud,
         Self::OneDrive,
         Self::ProtonDrive,
@@ -30,6 +33,7 @@ impl ProviderKind {
             Self::Dropbox => "dropbox",
             Self::GDrive => "drive",
             Self::Local => "alias",
+            Self::Mega => "mega",
             // Syncative's own Proton backend (src/go/proton/rclonefs).
             Self::ProtonDrive => "native-proton",
             // Nextcloud is the WebDAV remote Syncative sets up.
@@ -57,7 +61,7 @@ impl ProviderKind {
     pub fn is_beta(self) -> bool {
         matches!(
             self,
-            Self::Dropbox | Self::Nextcloud | Self::OneDrive | Self::Local
+            Self::Dropbox | Self::Nextcloud | Self::OneDrive | Self::Local | Self::Mega
         )
     }
 }

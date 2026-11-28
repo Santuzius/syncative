@@ -3,16 +3,42 @@
 //! - SHA-1: Google Drive, Nextcloud, Proton.
 //! - Dropbox's content hash: the SHA-256 of the SHA-256s of the file's 4 MiB blocks.
 //! - OneDrive's QuickXorHash: the bytes are XORed into a 160-bit value, each byte 11 bits further than the one before, then the length is XORed into the last 64 bits This follows rclone's implementation (backend/onedrive/quickxorhash), whose test vectors the tests use.
+//! - MEGA's fingerprint CRCs ([`super::mega_crc`]): read from sampled windows of the file rather than from all of it.
 
 use std::{fs, io::Read, path::Path};
 
 use sha1::Digest;
 
+use super::mega_crc;
 use crate::domain::sync::{ContentHash, HashKind};
+
+/// The hash of the file at `path` of the kind of `remote`, the hash of its remote copy: that one when the file matches it in any variant the provider writes, as MEGA's older CRC of large files.
+pub fn matching(path: &Path, remote: &ContentHash) -> Option<ContentHash> {
+    let local = of_file(path, remote.kind)?;
+    if local == *remote || remote.kind != HashKind::Mega {
+        return Some(local);
+    }
+    let mut file = fs::File::open(path).ok()?;
+    let size = file.metadata().ok()?.len();
+    let legacy = mega_crc::legacy(&mut file, size).ok().flatten();
+    Some(if legacy.is_some_and(|crc| hex(&crc) == remote.value) {
+        remote.clone()
+    } else {
+        local
+    })
+}
 
 /// The hash of kind `kind` of the file at `path`; `None` when it can't be read.
 pub fn of_file(path: &Path, kind: HashKind) -> Option<ContentHash> {
     let mut file = fs::File::open(path).ok()?;
+    if kind == HashKind::Mega {
+        let size = file.metadata().ok()?.len();
+        let crc = mega_crc::of(&mut file, size).ok()?;
+        return Some(ContentHash {
+            kind,
+            value: hex(&crc),
+        });
+    }
     let mut hasher = Hasher::new(kind);
     let mut buf = vec![0u8; 1 << 16];
     loop {
@@ -40,6 +66,7 @@ impl Hasher {
             HashKind::Sha1 => Self::Sha1(sha1::Sha1::new()),
             HashKind::Dropbox => Self::Dropbox(DropboxHasher::default()),
             HashKind::QuickXor => Self::QuickXor(Box::default()),
+            HashKind::Mega => unreachable!("of_file reads MEGA's CRCs from windows of the file"),
         }
     }
 
@@ -249,5 +276,31 @@ mod tests {
             })
         );
         assert_eq!(of_file(&dir.path.join("missing"), HashKind::Sha1), None);
+    }
+
+    #[test]
+    fn a_mega_copy_with_the_legacy_crc_matches() {
+        let dir = crate::test_support::TempDir::new("content_hash_mega");
+        // 40 MiB as MEGA's SDK test fills them; the two CRCs are that test's.
+        let mut x: u32 = 0xA5A5_A5A5;
+        let data: Vec<u8> = (0..40 << 20)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                x as u8
+            })
+            .collect();
+        let path = dir.write_file("big", &data);
+        let mega = |value: &str| ContentHash {
+            kind: HashKind::Mega,
+            value: value.to_owned(),
+        };
+        let current = mega("ea2aa9532ec37402b1e4d211837d62fe");
+        let legacy = mega("ea2aa9532ec37402b1e4d211197d4000");
+        assert_eq!(of_file(&path, HashKind::Mega), Some(current.clone()));
+        assert_eq!(matching(&path, &current), Some(current.clone()));
+        assert_eq!(matching(&path, &legacy), Some(legacy));
+        assert_eq!(matching(&path, &mega("00")), Some(current));
     }
 }

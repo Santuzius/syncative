@@ -545,6 +545,7 @@ mod tests {
             [
                 "Dropbox integration",
                 "OneDrive integration",
+                "MEGA integration",
                 "Nextcloud integration",
                 "Local folder as a remote",
                 "Network drive",

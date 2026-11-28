@@ -15,7 +15,7 @@ For users, see the [README](../README.md) and the [privacy policy](../PRIVACY.md
   - [Making a release](packaging/release.md): APK, AppImage, Nix, the Android forks, AppImageHub
   - [Snap](packaging/snap.md)
 - **Providers**
-  - [MEGA](providers/mega.md): research notes and plan
+  - [MEGA](providers/mega.md): research notes, plan and progress of the beta provider
   - [OneDrive](providers/onedrive.md): sign-in, change log, what is untested
 - [To do](todo.md)
 - [img/](img/): screenshots for the README and store pages

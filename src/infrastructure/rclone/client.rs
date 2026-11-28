@@ -73,9 +73,14 @@ impl LibrcloneClient {
 /// The hash the backend of `remote` keeps of each file, of the kinds the sync compares; SHA-1 where it keeps several (a local folder keeps them all). `None` for a backend without one, or when rclone can't say.
 pub(crate) fn hash_kind(remote: &str, cancel: &Cancel) -> Option<HashKind> {
     let names = rpc::sync::hash_names(remote, cancel).ok()?;
-    [HashKind::Sha1, HashKind::Dropbox, HashKind::QuickXor]
-        .into_iter()
-        .find(|kind| names.iter().any(|name| name == kind.rclone_name()))
+    [
+        HashKind::Sha1,
+        HashKind::Dropbox,
+        HashKind::QuickXor,
+        HashKind::Mega,
+    ]
+    .into_iter()
+    .find(|kind| names.iter().any(|name| name == kind.rclone_name()))
 }
 
 /// A file's details from rclone's `operations/stat` with the hash of kind `kind` and metadata.
@@ -89,8 +94,13 @@ pub(crate) fn file_details(item: BackendRemoteItem, kind: Option<HashKind>) -> F
             .and_then(|t| OffsetDateTime::parse(t, &Rfc3339).ok())
             .unwrap_or(item.mod_time),
         hash: kind.and_then(|kind| {
-            item.hashes
-                .get(kind.rclone_name())
+            // MEGA's CRCs come as metadata, rclone's hashes by their names.
+            let (found, key) = match kind {
+                HashKind::Mega => (&item.metadata, rpc::MEGA_CRC_KEY),
+                _ => (&item.hashes, kind.rclone_name()),
+            };
+            found
+                .get(key)
                 .filter(|h| !h.is_empty())
                 .map(|h| ContentHash {
                     kind,
@@ -481,6 +491,24 @@ mod tests {
             Some(HashKind::Sha1),
         );
         assert_eq!(details.mod_time.unix_timestamp(), 1_795_168_800);
+    }
+
+    #[test]
+    fn details_of_a_mega_file_take_its_crc_from_the_metadata() {
+        let details = file_details(
+            item(
+                r#"{"IsDir":false,"Path":"a.jpg","Name":"a.jpg","ModTime":"2026-11-20T10:00:00Z","Size":3,"Metadata":{"mtime":"2024-03-01T08:30:00Z","mega-crc":"EA2AA9532EC37402B1E4D211837D62FE"}}"#,
+            ),
+            Some(HashKind::Mega),
+        );
+        assert_eq!(details.mod_time.unix_timestamp(), 1_709_281_800);
+        assert_eq!(
+            details.hash,
+            Some(ContentHash {
+                kind: HashKind::Mega,
+                value: "ea2aa9532ec37402b1e4d211837d62fe".to_owned()
+            })
+        );
     }
 
     #[test]

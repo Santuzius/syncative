@@ -27,6 +27,8 @@ miniz_oxide = "0.8.9"
 
 [dependencies]
 clap = { version = "4.6.1", features = ["derive", "env"] }
+# The CRC32s of MEGA's file fingerprint (src/engine/folder/mega_crc.rs); already a transitive dependency.
+crc32fast = "1.5.0"
 futures = "0.3.32"
 # iced from the fork that runs it on Android (tagged with each iced_android release, see doc/packaging/release.md). `x11` only satisfies iced's check that Unix targets pick a display server; nothing of it is built for Android. The desktop-only features are added below.
 iced = { git = "https://github.com/Santuzius/iced", tag = "iced_android-v0.1.2", default-features = false, features = ["wgpu", "tiny-skia", "crisp", "web-colors", "tokio", "lazy", "svg", "x11"] }

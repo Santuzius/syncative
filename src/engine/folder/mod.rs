@@ -26,6 +26,7 @@ mod applier;
 pub(crate) mod content_hash;
 mod editor_temp;
 pub mod local_names;
+mod mega_crc;
 pub mod nomedia;
 mod planner;
 mod remote_view;

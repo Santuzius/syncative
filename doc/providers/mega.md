@@ -1,8 +1,8 @@
-# MEGA: research notes
+# MEGA: research notes and progress
 
-MEGA was requested in [issue 2](https://github.com/Santuzius/syncative/issues/2). These notes collect what was found in October 2026 before deciding whether to build it.
+MEGA was requested in [issue 2](https://github.com/Santuzius/syncative/issues/2). These notes collect what was found in October 2026 and the progress since November 2026, when work on a beta provider started.
 
-## Why not rclone's Mega backend
+## What rclone's Mega backend lacks upstream
 Checked against rclone master (`backend/mega/mega.go`, July 2026), which builds on [go-mega](https://github.com/t3rm1n4l/go-mega) (MIT):
 - **No content check:** `Hashes()` returns `hash.None`. go-mega's `FileAttr` decodes only the name (`n`), so MEGA's fingerprint attribute `c` is never read.
 - **No modification times:** `Precision()` returns `ModTimeNotSupported`, `SetModTime()` fails; `ModTime()` is the upload time.
@@ -12,18 +12,27 @@ Checked against rclone master (`backend/mega/mega.go`, July 2026), which builds 
 
 Without fingerprints, Syncative's `same_content` (`src/engine/folder/applier/conflicts.rs`) can't tell whether two files are equal, and the planner falls back to "newer wins" for files that are new on both sides.
 
-## Planned approach (not started)
-- **Go:** an own package `src/go/mega/` on top of go-mega, next to `src/go/proton/drive/` for Proton:
-  - sign-in with 2FA and session reuse
-  - upload with the fingerprint `c`
-  - versions through `ov`
-  - read-modify-write of all attributes on rename and move
-  - mtime through setattr
-  - deletes into the rubbish bin
-  - change detection through MEGA's event stream
-- **Rust:** a MEGA `BackendClient` (`src/domain/ports.rs`), the fingerprint computed locally and used by `same_content`, and an *Add remote* form with e-mail, password and 2FA code.
+## Plan
+MEGA goes through rclone's Mega backend, patched in Syncative's [rclone fork](https://github.com/Santuzius/rclone) (branch `syncative`), which uses a fork of go-mega ([Santuzius/go-mega](https://github.com/Santuzius/go-mega), branch `syncative`, by a `replace` in the rclone fork's `go.mod`). The network drive needs rclone anyway, and the MEGA SDK would add a large C++ build (Crypto++, curl, ICU, libsodium, SQLite) for desktop, Android, Nix, AppImage and Snap.
+- **go-mega fork:**
+  - package `fingerprint`: the fingerprint, a `Sampler` that collects it from an upload's chunks in any order, and the stored form `c`
+  - `FileAttr` keeps every attribute it doesn't know, so rename and move no longer wipe `c`
+  - uploads write `c` with the file's mtime; `SetModTime` rewrites it through setattr
+  - `Upload.SetReplaces` sends `ov`, so the upload becomes a new version of the old file
+- **rclone fork, `backend/mega`:** mtimes with one-second precision (`ModTime`, `SetModTime`), `Update` as a new version instead of upload and delete, and the metadata keys `mtime` and `mega-crc` (the 16 CRC bytes in hex).
+- **Syncative:** `ProviderKind::Mega` as a beta provider with e-mail, password and 2FA code (`src/services/auth/mega.rs`); `HashKind::Mega`, computed locally in `src/engine/folder/mega_crc.rs`.
 - **Checks** against MEGA's official web and Android apps: files uploaded there must show the same fingerprint and mtime as Syncative's, and the other way round.
-- **Effort:** about two weeks, plus one or two days for a disk cache, then a beta test with the requester.
+
+The fingerprint reaches the sync as metadata, not as an rclone hash: rclone's hash interface (`RegisterHash` in `fs/hash/hash.go`) streams a file from its start without knowing its size, while the sampled CRC needs the size to place its windows. A registered hash would also be offered by the local backend and compared by rclone itself, which would report files with the legacy CRC as corrupted. `operations/fsinfo` lists `mega-crc` among the metadata, so `hash_names` (`src/infrastructure/rclone/rpc.rs`) adds the pseudo-name `mega`, and `file_details` reads the CRC from the metadata; `content_hash::matching` accepts either variant as the same content.
+
+## Progress
+- **Done:** everything under *Plan* except the checks. The fingerprint passes the values of MEGA's SDK tests in Go and Rust, including the legacy variant. Syncative's `src/go/go.mod` points to the rclone fork by pseudo-version.
+- **Next:**
+  1. A throwaway MEGA account, then the remote checklist ([testing.md](../development/testing.md#checklist-for-a-remote)) and the checks against MEGA's own apps.
+  2. Change detection: whether rclone's polling is enough or MEGA's event stream is needed.
+  3. Memory for large accounts (see below), possibly a disk cache.
+  4. Before a release: tag the rclone fork, use the tag in `src/go/go.mod`, update `vendorHash` in `nix/package.nix`.
+- **Related open pull requests on go-mega:** [#65](https://github.com/t3rm1n4l/go-mega/pull/65) and [#66](https://github.com/t3rm1n4l/go-mega/pull/66) add the fingerprint and mtime; #65 encodes it in standard base64, where MEGA uses the URL alphabet without padding, and neither keeps attributes other than the name and fingerprint.
 
 The official desktop client [MEGAsync](https://github.com/meganz/MEGAsync) is under the "MEGA Limited Code Licence", which allows review but not reuse, so its code can't be used. The MEGA SDK ([meganz/sdk](https://github.com/meganz/sdk)) is BSD-2 and serves as the reference for the formats below.
 

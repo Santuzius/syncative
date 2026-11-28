@@ -20,11 +20,12 @@ import (
 
 	"github.com/rclone/rclone/librclone/librclone"
 
-	// Only the rclone backends Syncative can talk to: drive for Google Drive, dropbox, onedrive, webdav for Nextcloud, local for the folders on this computer, and alias for the Local folder remotes, which name a folder on this computer (beta). Every other backend (S3, Azure, …) only cost build time and binary size. Rclone's protondrive backend stays out in any case: it links henrybear327/go-proton-api, which collides with the ProtonMail/go-proton-api our own Drive layer (src/go/proton/drive/) uses.
+	// Only the rclone backends Syncative can talk to: drive for Google Drive, dropbox, mega (beta, patched in Syncative's fork), onedrive, webdav for Nextcloud, local for the folders on this computer, and alias for the Local folder remotes, which name a folder on this computer (beta). Every other backend (S3, Azure, …) only cost build time and binary size. Rclone's protondrive backend stays out in any case: it links henrybear327/go-proton-api, which collides with the ProtonMail/go-proton-api our own Drive layer (src/go/proton/drive/) uses.
 	_ "github.com/rclone/rclone/backend/alias"
 	_ "github.com/rclone/rclone/backend/drive"
 	_ "github.com/rclone/rclone/backend/dropbox"
 	_ "github.com/rclone/rclone/backend/local"
+	_ "github.com/rclone/rclone/backend/mega"
 	_ "github.com/rclone/rclone/backend/onedrive"
 	_ "github.com/rclone/rclone/backend/webdav"
 

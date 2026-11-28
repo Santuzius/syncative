@@ -79,6 +79,7 @@ require (
 	github.com/smarty/assertions v1.15.0 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/t3rm1n4l/go-mega v0.0.0-20260717075258-c6acd6a5bd04 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/unknwon/goconfig v1.0.0 // indirect
@@ -117,8 +118,11 @@ replace github.com/ProtonMail/go-proton-api => ./proton/api
 // in dependency go.mods are ignored; we have to mirror it here.
 replace github.com/go-resty/resty/v2 => github.com/ProtonMail/resty/v2 v2.0.0-20250929142426-e3dc6308c80b
 
-// Syncative's fork exports the one-off change-log query of drive, dropbox and onedrive (rclone/changes.go, rclone/onedrive.go) and drive's Untrash (rclone/trashbin.go), and drive retries a refused access token after renewing it; see doc/packaging/release.md.
-replace github.com/rclone/rclone => github.com/Santuzius/rclone v1.76.0-syncative.6
+// Syncative's fork exports the one-off change-log query of drive, dropbox and onedrive (rclone/changes.go, rclone/onedrive.go) and drive's Untrash (rclone/trashbin.go), drive retries a refused access token after renewing it, and mega keeps modification times, fingerprints and versions; see doc/packaging/release.md.
+replace github.com/rclone/rclone => github.com/Santuzius/rclone v1.76.0-syncative.6.0.20261128155939-aead39cabb47
 
 // gopenpgp's -proton release needs Proton's build of go-crypto (FlagForward), but rclone asks for upstream v1.5.2, which Go ranks above v1.5.2-proton.
 replace github.com/ProtonMail/go-crypto => github.com/ProtonMail/go-crypto v1.5.2-proton
+
+// Syncative's fork writes and reads MEGA's file fingerprint (modification time and content CRCs), keeps every attribute on rename and uploads changes as versions; see doc/providers/mega.md.
+replace github.com/t3rm1n4l/go-mega => github.com/Santuzius/go-mega v0.0.0-20261128155825-f83455e71f70
