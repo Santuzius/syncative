@@ -314,7 +314,7 @@ where
     // Close the pass in the log, but only when something happened —
     // an idle pass every few seconds would bury the useful lines.
     if total > 0 {
-        emit_status(done_text(total, failed));
+        emit_status(done_text(total, failed, applied.skipped));
     }
     emit_state(RunState::Synced);
     if failed == 0 {
@@ -324,16 +324,30 @@ where
     }
 }
 
-/// The line that closes a pass, or a network drive's transfers: how many of `total` changes went through.
-pub(crate) fn done_text(total: usize, failed: usize) -> String {
-    match (total, failed) {
-        (1, 0) => tr::tr!("Done — 1 change synced."),
-        (_, 0) => tr::tr!("Done — {} changes synced.", total),
-        _ => tr::tr!(
+/// The line that closes a pass, or a network drive's transfers: how many of `total` changes went through, failed, or were `skipped` because their file changed or went away during the pass.
+pub(crate) fn done_text(total: usize, failed: usize, skipped: usize) -> String {
+    let synced = total.saturating_sub(failed + skipped);
+    match (total, failed, skipped) {
+        (1, 0, 0) => tr::tr!("Done — 1 change synced."),
+        (_, 0, 0) => tr::tr!("Done — {} changes synced.", total),
+        (_, _, 0) => tr::tr!(
             "Done — {} of {} changes synced, {} failed.",
-            total - failed,
+            synced,
             total,
             failed
+        ),
+        (_, 0, _) => tr::tr!(
+            "Done — {} of {} changes synced, {} left for the next pass.",
+            synced,
+            total,
+            skipped
+        ),
+        _ => tr::tr!(
+            "Done — {} of {} changes synced, {} failed, {} left for the next pass.",
+            synced,
+            total,
+            failed,
+            skipped
         ),
     }
 }

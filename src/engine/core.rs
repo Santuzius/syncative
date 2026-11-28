@@ -575,7 +575,7 @@ impl Core {
                 .iter()
                 .filter(|f| log.failed.get(*f) == Some(&true))
                 .count();
-            lines.push(super::folder::done_text(log.seen.len(), failures));
+            lines.push(super::folder::done_text(log.seen.len(), failures, 0));
             log.seen.clear();
             log.failed.clear();
             log.logged.clear();

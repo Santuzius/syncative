@@ -36,6 +36,8 @@ use rows::{record_download, record_uploaded, record_upsert, save_row};
 /// What one apply step left behind.
 pub(super) struct Applied {
     pub failures: usize,
+    /// Uploads left for the next pass because their file changed or went away since the walk.
+    pub skipped: usize,
     /// Conflicts still waiting for the user. Only complete when the pass wasn't cancelled.
     pub conflicts: Vec<Conflict>,
     pub cancelled: bool,
@@ -66,6 +68,7 @@ where
         emit,
         cancel,
         failures: 0,
+        skipped: 0,
         conflicts: Vec::new(),
         pos: 0,
         total: actions.len(),
@@ -123,6 +126,7 @@ struct Run<'a, FE> {
     emit: &'a FE,
     cancel: &'a Cancel,
     failures: usize,
+    skipped: usize,
     conflicts: Vec<Conflict>,
     /// The number of the action being run, of `total`, for the status line.
     pos: usize,
@@ -136,6 +140,7 @@ where
     fn applied(self, cancelled: bool) -> Applied {
         Applied {
             failures: self.failures,
+            skipped: self.skipped,
             conflicts: self.conflicts,
             cancelled,
         }
@@ -226,6 +231,7 @@ where
         let (remote, client, cancel) = (self.remote, self.client, self.cancel);
         if !Path::new(local_path).exists() {
             // Raced with a local delete between planning and now.
+            self.skipped += 1;
             return;
         }
         if is_dir {
@@ -274,6 +280,7 @@ where
                 eprintln!(
                     "sync: copy_to_remote raced with local delete for '{local_path}' — swallowing '{err}'.",
                 );
+                self.skipped += 1;
                 return;
             }
             // rclone stops reading a file that is written into while it reads; the remote keeps its version.
@@ -281,6 +288,7 @@ where
                 eprintln!(
                     "sync: '{local_path}' changed during its upload; it is uploaded again in a later pass ({err})."
                 );
+                self.skipped += 1;
                 return;
             }
             self.error(SyncError::General(local_path.to_owned(), err));

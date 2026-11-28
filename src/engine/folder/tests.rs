@@ -1519,6 +1519,19 @@ fn an_upload_stopped_by_a_write_waits_for_the_next_pass() {
     assert_eq!(outcome, Outcome::Synced);
     assert!(errors(&events).is_empty());
     assert!(repo.items.lock().unwrap().is_empty());
+    // It isn't counted as synced.
+    assert_eq!(
+        done_line(&events).as_deref(),
+        Some("Done — 0 of 1 changes synced, 1 left for the next pass.")
+    );
+}
+
+/// The line that closes the pass, if it had changes.
+fn done_line(events: &[SyncEvent]) -> Option<String> {
+    events.iter().find_map(|e| match e {
+        SyncEvent::SyncDirStatus { text, .. } if text.starts_with("Done") => Some(text.clone()),
+        _ => None,
+    })
 }
 
 /// Upload that fails with "source gone" after planning — raced with a
