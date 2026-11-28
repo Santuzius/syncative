@@ -124,6 +124,16 @@ pub(crate) struct Core {
     uploads: Vec<UploadJob>,
     /// When the network drives are asked next.
     next_drive_check: Instant,
+    /// What each network drive moved since it was last idle, for its log (see [`Core::log_drive`]).
+    drive_logs: HashMap<SyncDirId, DriveLog>,
+}
+
+/// A network drive's files on their way as last seen, and how many arrived since the drive was last idle.
+#[derive(Default)]
+struct DriveLog {
+    /// Per file and direction (upload or not), how often its upload failed.
+    files: HashMap<(String, bool), u32>,
+    done: usize,
 }
 
 impl Core {
@@ -164,6 +174,7 @@ impl Core {
             usage_failed: HashSet::new(),
             uploads: Vec::new(),
             next_drive_check: Instant::now(),
+            drive_logs: HashMap::new(),
         }
     }
 
@@ -485,11 +496,70 @@ impl Core {
             let names: Vec<String> = drives.iter().map(|(_, _, fs)| fs.clone()).collect();
             network_drive::transfers(&names)
         };
-        let transfers: HashMap<SyncDirId, (RemoteId, DriveTransfers)> = drives
+        let reports: Vec<(SyncDir, RemoteId, network_drive::DriveReport)> = drives
             .iter()
-            .filter_map(|(d, r, fs)| Some((d.id, (r.id, *found.get(fs)?))))
+            .map(|(d, r, fs)| {
+                (
+                    (*d).clone(),
+                    r.id,
+                    found.get(fs).cloned().unwrap_or_default(),
+                )
+            })
+            .collect();
+        let transfers: HashMap<SyncDirId, (RemoteId, DriveTransfers)> = reports
+            .iter()
+            .filter(|(_, _, report)| !report.files.is_empty())
+            .map(|(d, r, report)| (d.id, (*r, report.transfers())))
             .collect();
         self.state.set_transfers(&transfers);
+        self.drive_logs
+            .retain(|id, _| reports.iter().any(|(d, _, _)| d.id == *id));
+        for (sync_dir, remote_id, report) in reports {
+            self.log_drive(&sync_dir, remote_id, &report.files);
+        }
+    }
+
+    /// Log what network drive `sync_dir` moves as a synced folder's pass logs it: a line when a file starts on its way, a problem line when its upload failed, and when the drive is idle again, how many files arrived.
+    pub(super) fn log_drive(
+        &mut self,
+        sync_dir: &SyncDir,
+        remote_id: RemoteId,
+        files: &[network_drive::DriveFile],
+    ) {
+        let log = self.drive_logs.entry(sync_dir.id).or_default();
+        let mut lines = Vec::new();
+        let mut failed = false;
+        for file in files {
+            let path = network_drive::file_display(sync_dir, &file.name);
+            match log.files.get(&(file.name.clone(), file.upload)) {
+                None if file.upload => lines.push(tr::tr!("Uploading '{}'…", path)),
+                None => lines.push(tr::tr!("Downloading '{}'…", path)),
+                Some(before) if file.failed > *before => {
+                    failed = true;
+                    lines.push(format!(
+                        "⚠ {path}: {}",
+                        tr::tr!("Upload failed; trying again.")
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+        let now: HashMap<(String, bool), u32> = files
+            .iter()
+            .map(|f| ((f.name.clone(), f.upload), f.failed))
+            .collect();
+        log.done += log.files.keys().filter(|k| !now.contains_key(*k)).count();
+        log.files = now;
+        if log.files.is_empty() && log.done > 0 {
+            lines.push(tr::tr!("Done — {} changes synced.", log.done));
+            log.done = 0;
+        }
+        for line in lines {
+            self.push_log_line(sync_dir.id, line);
+        }
+        if failed {
+            self.state.problem(remote_id, sync_dir.id);
+        }
     }
 
     /// Start every remote whose interval is up. Remotes inside a backoff window skip the turn instead: the counter goes down and the interval starts over.

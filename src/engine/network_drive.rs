@@ -165,30 +165,85 @@ pub fn poll(remote: &str, remote_path: &str, folder_id: i32, reset: bool) -> Res
         .unwrap_or(0))
 }
 
+/// A file a network drive moves: a download of what a file manager opened, or an upload of what it saved, on its way or waiting.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct DriveFile {
+    /// Its path in the drive.
+    pub name: String,
+    /// An upload; a download otherwise.
+    pub upload: bool,
+    /// How often its upload failed so far.
+    #[serde(default)]
+    pub failed: u32,
+}
+
+/// What one network drive moves right now.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DriveReport {
+    pub files: Vec<DriveFile>,
+    /// See [`DriveTransfers::moving`].
+    pub moving: bool,
+}
+
+impl DriveReport {
+    /// The counts the folder's state shows.
+    pub fn transfers(&self) -> DriveTransfers {
+        let uploading = self.files.iter().filter(|f| f.upload).count() as u64;
+        DriveTransfers {
+            downloading: self.files.len() as u64 - uploading,
+            uploading,
+            moving: self.moving,
+        }
+    }
+}
+
 /// The network drives among `drives` (each as [`mount_fs`] names it) that move files right now, by that name; empty when rclone can't say.
-pub fn transfers(drives: &[String]) -> HashMap<String, DriveTransfers> {
+pub fn transfers(drives: &[String]) -> HashMap<String, DriveReport> {
     let input = serde_json::json!({ "fs": drives });
     let Ok(reply) = syncative_go::rpc("syncative/drive-transfers", input.to_string()) else {
         return HashMap::new();
     };
-    let count = |v: &serde_json::Value, key: &str| v.get(key).and_then(serde_json::Value::as_u64);
-    serde_json::from_str::<serde_json::Value>(&reply)
+    parse_transfers(&reply)
+}
+
+fn parse_transfers(reply: &str) -> HashMap<String, DriveReport> {
+    serde_json::from_str::<serde_json::Value>(reply)
         .ok()
         .and_then(|v| v.get("drives")?.as_object().cloned())
         .unwrap_or_default()
         .into_iter()
         .map(|(fs, v)| {
-            let transfers = DriveTransfers {
-                downloading: count(&v, "downloading").unwrap_or(0),
-                uploading: count(&v, "uploading").unwrap_or(0),
+            let report = DriveReport {
+                files: v
+                    .get("files")
+                    .and_then(|f| serde_json::from_value(f.clone()).ok())
+                    .unwrap_or_default(),
                 moving: v
                     .get("moving")
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false),
             };
-            (fs, transfers)
+            (fs, report)
         })
         .collect()
+}
+
+/// File `name` of network drive `sync_dir` as its log names it: where the file manager shows it on Linux; on Android, where it is on the remote.
+pub fn file_display(sync_dir: &SyncDir, name: &str) -> String {
+    if sync_dir.is_android_drive() {
+        let base = sync_dir.remote_path.trim_end_matches('/');
+        if base.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{base}/{name}")
+        }
+    } else {
+        crate::util::fmt_home(
+            &std::path::Path::new(&sync_dir.local_path)
+                .join(name)
+                .to_string_lossy(),
+        )
+    }
 }
 
 /// The mount points rclone still serves, or `None` when it can't say.
@@ -377,6 +432,23 @@ mod tests {
             remote_path: remote_path.to_owned(),
             folder_id,
         }
+    }
+
+    /// The Go side's answer becomes the drive's files and the counts its state shows.
+    #[test]
+    fn transfers_name_the_files() {
+        let reply = r#"{"drives":{"G:x":{"files":[{"name":"a.txt","upload":true,"failed":2},{"name":"b.jpg","upload":false,"failed":0}],"moving":true}}}"#;
+        let report = &parse_transfers(reply)["G:x"];
+        assert_eq!(report.files[0].name, "a.txt");
+        assert_eq!(report.files[0].failed, 2);
+        assert_eq!(
+            report.transfers(),
+            DriveTransfers {
+                downloading: 1,
+                uploading: 1,
+                moving: true
+            }
+        );
     }
 
     #[test]

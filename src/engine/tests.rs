@@ -853,3 +853,36 @@ async fn a_shared_file_saved_during_its_upload_goes_up_again_under_the_same_name
     assert!(rig.snap().uploads.is_empty());
     assert!(!dir.exists());
 }
+
+/// A network drive's transfers go into its log as a synced folder's pass logs them: a line per file on its way, a problem line for a failed upload, and the count once the drive is idle again.
+#[tokio::test]
+async fn a_network_drive_logs_its_transfers_like_a_pass() {
+    use super::network_drive::DriveFile;
+    let mut rig = rig().await;
+    let dir = rig.repo.sync_dirs.lock().unwrap()[0].clone();
+    let file = |name: &str, upload: bool, failed: u32| DriveFile {
+        name: name.to_owned(),
+        upload,
+        failed,
+    };
+    let path = |name: &str| crate::util::fmt_home(&format!("{}/{name}", dir.local_path));
+
+    rig.core
+        .log_drive(&dir, R1, &[file("a.txt", true, 0), file("b.jpg", false, 0)]);
+    rig.core
+        .log_drive(&dir, R1, &[file("a.txt", true, 0), file("b.jpg", false, 0)]);
+    rig.core.log_drive(&dir, R1, &[file("a.txt", true, 1)]);
+    assert_eq!(rig.snap().state.dir_state(R1, D1), RunState::Warning);
+    rig.core.log_drive(&dir, R1, &[]);
+    rig.core.log_drive(&dir, R1, &[]);
+
+    assert_eq!(
+        rig.log(D1),
+        [
+            format!("Uploading '{}'…", path("a.txt")),
+            format!("Downloading '{}'…", path("b.jpg")),
+            format!("⚠ {}: Upload failed; trying again.", path("a.txt")),
+            "Done — 2 changes synced.".to_owned(),
+        ]
+    );
+}
