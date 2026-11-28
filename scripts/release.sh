@@ -56,7 +56,8 @@ code="$(echo "$version" | awk -F. '{print ($1 * 1000 + $2) * 1000 + $3}')"
 APK="$out/$apk" CERT="$APK_CERT_SHA256" CODE="$code" nix-shell android/shell.nix --run '
   bt="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)"
   "${bt}apksigner" verify --print-certs "$APK" | grep -q "SHA-256 digest: $CERT" || { echo "release: the APK is not signed with the release key" >&2; exit 1; }
-  "${bt}aapt2" dump badging "$APK" | grep -q "versionCode='"'"'$CODE'"'"'" || { echo "release: the APK'"'"'s versionCode is not $CODE" >&2; exit 1; }
+  badging="$("${bt}aapt2" dump badging "$APK" | head -1)"
+  [[ "$badging" == *"versionCode='"'"'$CODE'"'"'"* ]] || { echo "release: the APK'"'"'s versionCode is not $CODE: $badging" >&2; exit 1; }
 ' 2> >(grep -v 'making symlink' >&2)
 echo "APK: release key, versionCode $code"
 
