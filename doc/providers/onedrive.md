@@ -16,6 +16,10 @@ The delta listing also names every folder above a changed item. A folder rclone'
 
 OneDrive keeps no SHA-1 of files but its QuickXorHash. `details` asks each backend for the hash rclone lists for it (`operations/fsinfo`), and the sync hashes the local copy the same way (`src/engine/folder/content_hash.rs`) to tell identical files apart from changed ones; Dropbox has its content hash.
 
+## Personal Vault
+
+A personal drive has a Personal Vault in its root, named in the account's language ("Personal Vault", "Persönlicher Tresor"). No API call lists it: listing it fails with "invalidResourceId: ObjectHandle is Invalid" ([rclone#8736](https://github.com/rclone/rclone/issues/8736)), which made the full listing of a sync folder at the drive's root fail. The fork leaves it out of every listing and reports it as gone in the change log, so neither a sync folder nor the network drive shows it. It recognises the vault as a shortcut to a folder in the account's own site; a shortcut to a folder someone shared points into their site and stays.
+
 ## Tested
 
 The [remote checklist](../development/testing.md#checklist-for-a-remote) ran on the desktop test instance with a throwaway personal Microsoft account, rclone standing in for the web app and the Graph API's `restore` for the recycle bin: steps 1 to 7 pass. Network loss relies on the system reporting it, which cancels the pass for every provider; a provider that stops answering while the network stays up fails only after rclone's retries, minutes during an upload, as with the other rclone providers.
