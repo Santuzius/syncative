@@ -7,6 +7,7 @@ use std::{
 
 use crate::domain::{
     remote::Remote,
+    run_state::DriveTransfers,
     sync::{SyncDir, SyncMode},
 };
 
@@ -162,33 +163,6 @@ pub fn poll(remote: &str, remote_path: &str, folder_id: i32, reset: bool) -> Res
         .ok()
         .and_then(|v| v.get("changes")?.as_u64())
         .unwrap_or(0))
-}
-
-/// Files a network drive moves right now, outside a pass: downloads of what a file manager opened, uploads of what it saved.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct DriveTransfers {
-    pub downloading: u64,
-    pub uploading: u64,
-    /// A file moves now. Uploads that only wait in the queue, for their delay or to retry after a failure such as being offline, don't count, so they don't keep Android awake.
-    pub moving: bool,
-}
-
-impl DriveTransfers {
-    /// What the drive does, as the folder's line says it.
-    pub fn text(self) -> String {
-        let files = |n: u64| {
-            if n == 1 {
-                tr::tr!("1 file")
-            } else {
-                tr::tr!("{} files", n)
-            }
-        };
-        match (self.downloading, self.uploading) {
-            (0, up) => tr::tr!("Uploading {}…", files(up)),
-            (down, 0) => tr::tr!("Downloading {}…", files(down)),
-            (down, up) => tr::tr!("Downloading {}, uploading {}…", files(down), files(up)),
-        }
-    }
 }
 
 /// The network drives among `drives` (each as [`mount_fs`] names it) that move files right now, by that name; empty when rclone can't say.

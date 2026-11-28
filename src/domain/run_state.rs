@@ -79,6 +79,26 @@ impl RunState {
     }
 }
 
+/// Files a network drive moves right now, outside a pass: downloads of what a file manager opened, uploads of what it saved.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DriveTransfers {
+    pub downloading: u64,
+    pub uploading: u64,
+    /// A file moves now. Uploads that only wait in the queue, for their delay or to retry after a failure such as being offline, don't count, so they don't keep Android awake.
+    pub moving: bool,
+}
+
+impl DriveTransfers {
+    /// The activity the folder shows: saving waits for its upload more than reading for its download, so an upload shows first.
+    pub fn activity(self) -> SyncActivity {
+        if self.uploading > 0 {
+            SyncActivity::Uploading
+        } else {
+            SyncActivity::Downloading
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // RemoteState
 // ---------------------------------------------------------------------------
@@ -99,7 +119,7 @@ pub struct RemoteState {
     /// Dirs whose running pass hit a problem (a failed file, a conflict). They keep showing `Syncing` until the pass ends, then `Warning`: a triangle mid-pass looked like a finished pass that never came back.
     problems_in_pass: HashSet<SyncDirId>,
     /// Network drives moving files outside a pass, as the file manager opened or saved them, and what they do; they show it over an idle state.
-    transfers: HashMap<SyncDirId, SyncActivity>,
+    transfers: HashMap<SyncDirId, DriveTransfers>,
 }
 
 impl RemoteState {
@@ -129,7 +149,9 @@ impl RemoteState {
     /// `state` of dir `id` as shown: a network drive moving files shows that over an idle state, never over a problem.
     fn with_transfers(&self, id: SyncDirId, state: RunState) -> RunState {
         match (state, self.transfers.get(&id)) {
-            (RunState::Synced | RunState::Waiting, Some(activity)) => RunState::Syncing(*activity),
+            (RunState::Synced | RunState::Waiting, Some(transfers)) => {
+                RunState::Syncing(transfers.activity())
+            }
             _ => state,
         }
     }
@@ -328,15 +350,43 @@ impl AppState {
         }
     }
 
-    /// The network drives that move files right now, and what they do (see [`RemoteState::with_transfers`]); every other drive is idle.
-    pub fn set_transfers(&mut self, transfers: &HashMap<SyncDirId, (RemoteId, SyncActivity)>) {
+    /// The network drives that move files right now, with their remote (see [`RemoteState::with_transfers`]); every other drive is idle.
+    pub fn set_transfers(&mut self, transfers: &HashMap<SyncDirId, (RemoteId, DriveTransfers)>) {
         for (remote_id, rs) in &mut self.remotes {
             rs.transfers = transfers
                 .iter()
                 .filter(|(_, (r, _))| r == remote_id)
-                .map(|(dir, (_, activity))| (*dir, *activity))
+                .map(|(dir, (_, t))| (*dir, *t))
                 .collect();
         }
+    }
+
+    /// What network drive `dir_id` moves right now outside a pass; `None` when idle.
+    pub fn drive_transfers(
+        &self,
+        remote_id: RemoteId,
+        dir_id: SyncDirId,
+    ) -> Option<DriveTransfers> {
+        self.remotes
+            .get(&remote_id)?
+            .transfers
+            .get(&dir_id)
+            .copied()
+    }
+
+    /// The remotes with a network drive moving files.
+    pub fn remotes_with_transfers(&self) -> impl Iterator<Item = RemoteId> + '_ {
+        self.remotes
+            .iter()
+            .filter(|(_, rs)| !rs.transfers.is_empty())
+            .map(|(id, _)| *id)
+    }
+
+    /// Whether a network drive moves a file right now (see [`DriveTransfers::moving`]).
+    pub fn drives_moving(&self) -> bool {
+        self.remotes
+            .values()
+            .any(|rs| rs.transfers.values().any(|t| t.moving))
     }
 
     /// Mark `remote_id`'s session as dead.
@@ -523,10 +573,13 @@ mod tests {
         let mut state = AppState::default();
         state.transition_dir(remote, dir(1), RunState::Synced);
         state.transition_dir(remote, dir(2), RunState::Synced);
-        state.set_transfers(&HashMap::from([(
-            dir(1),
-            (remote, SyncActivity::Downloading),
-        )]));
+        let downloading = DriveTransfers {
+            downloading: 1,
+            uploading: 0,
+            moving: true,
+        };
+        state.set_transfers(&HashMap::from([(dir(1), (remote, downloading))]));
+        assert_eq!(state.drive_transfers(remote, dir(1)), Some(downloading));
         assert_eq!(
             state.dir_state(remote, dir(1)),
             RunState::Syncing(SyncActivity::Downloading)

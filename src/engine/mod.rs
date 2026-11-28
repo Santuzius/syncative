@@ -175,8 +175,6 @@ pub struct Snapshot {
     pub usage: HashMap<RemoteId, RemoteUsage>,
     /// Shared files waiting for or in their upload, per remote; absent when there are none.
     pub uploads: HashMap<RemoteId, UploadStatus>,
-    /// Network drives moving files outside a pass; absent when idle.
-    pub drive_transfers: HashMap<SyncDirId, network_drive::DriveTransfers>,
     /// How the remotes' intervals apply right now (see [`Command::Cadence`]).
     pub cadence: Cadence,
 }

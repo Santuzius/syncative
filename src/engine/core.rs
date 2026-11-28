@@ -17,7 +17,7 @@ use crate::{
         events::SyncEvent,
         ports::{BackendClient, Cancel, Repository, cancel_never},
         remote::{Remote, RemoteId, RemoteUsage},
-        run_state::{AppState, RunState, SyncActivity},
+        run_state::{AppState, DriveTransfers, RunState, SyncActivity},
         sync::{Conflict, Resolution, SyncDir, SyncDirId, SyncError, SyncMode},
     },
     infrastructure::errors::is_auth_failure,
@@ -31,8 +31,7 @@ use crate::{
 
 use super::{
     CONFLICT_LINE_PREFIXES, Cadence, Command, Input, LINK_LINE_PREFIX, LogLine, Logs,
-    MAX_LOG_LINES, NESTED_LINE_PREFIX, PassEnd, PassVerdict, Snapshot, UploadStatus,
-    network_drive::{self, DriveTransfers},
+    MAX_LOG_LINES, NESTED_LINE_PREFIX, PassEnd, PassVerdict, Snapshot, UploadStatus, network_drive,
     pass::Pass,
 };
 
@@ -123,8 +122,6 @@ pub(crate) struct Core {
     usage_failed: HashSet<RemoteId>,
     /// Shared files to upload, oldest first; one file per remote at a time.
     uploads: Vec<UploadJob>,
-    /// Network drives moving files outside a pass (see [`network_drive::transfers`]).
-    drive_transfers: HashMap<SyncDirId, DriveTransfers>,
     /// When the network drives are asked next.
     next_drive_check: Instant,
 }
@@ -166,7 +163,6 @@ impl Core {
             usage: HashMap::new(),
             usage_failed: HashSet::new(),
             uploads: Vec::new(),
-            drive_transfers: HashMap::new(),
             next_drive_check: Instant::now(),
         }
     }
@@ -493,25 +489,7 @@ impl Core {
             .iter()
             .filter_map(|(d, r, fs)| Some((d.id, (r.id, *found.get(fs)?))))
             .collect();
-        let current: HashMap<SyncDirId, DriveTransfers> =
-            transfers.iter().map(|(id, (_, t))| (*id, *t)).collect();
-        if current == self.drive_transfers {
-            return;
-        }
-        self.drive_transfers = current;
-        // Saving waits for its upload more than reading for its download, so an upload shows first.
-        let activities = transfers
-            .into_iter()
-            .map(|(id, (remote, t))| {
-                let activity = if t.uploading > 0 {
-                    SyncActivity::Uploading
-                } else {
-                    SyncActivity::Downloading
-                };
-                (id, (remote, activity))
-            })
-            .collect();
-        self.state.set_transfers(&activities);
+        self.state.set_transfers(&transfers);
     }
 
     /// Start every remote whose interval is up. Remotes inside a backoff window skip the turn instead: the counter goes down and the interval starts over.
@@ -893,7 +871,7 @@ impl Core {
     pub fn busy(&self) -> bool {
         !self.syncing.is_empty()
             || self.uploads.iter().any(|j| j.active)
-            || self.drive_transfers.values().any(|t| t.moving)
+            || self.state.drives_moving()
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -911,7 +889,6 @@ impl Core {
             offline: self.offline,
             usage: self.usage.clone(),
             uploads: self.upload_status(),
-            drive_transfers: self.drive_transfers.clone(),
             cadence: self.cadence,
         }
     }
@@ -1113,12 +1090,7 @@ impl Core {
                 .filter(|j| j.active)
                 .map(|j| j.upload.remote_id),
         );
-        syncing.extend(
-            self.sync_dirs
-                .iter()
-                .filter(|d| self.drive_transfers.contains_key(&d.id))
-                .map(|d| d.remote_id),
-        );
+        syncing.extend(self.state.remotes_with_transfers());
         let status = tray::compute_status(&self.state, &self.remotes, &syncing, &self.last_sync_at);
         if self.last_status.as_ref() == Some(&status) {
             return None;

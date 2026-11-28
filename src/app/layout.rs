@@ -349,7 +349,7 @@ impl SyncativeApp {
                 dir,
                 state: self.held(remote, self.snapshot.state.dir_state(remote.id, dir.id)),
                 latest_line: self.snapshot.pass_lines.get(&dir.id).map(String::as_str),
-                transfers: self.snapshot.drive_transfers.get(&dir.id).map(|t| t.text()),
+                transfers: self.snapshot.state.drive_transfers(remote.id, dir.id),
                 latest_problem: self.snapshot.problems.get(&dir.id).map(String::as_str),
                 log: self.sync_dir_log_content.get(&dir.id),
                 exclusions_open: self.exclusion_panel == Some(dir.id),

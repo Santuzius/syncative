@@ -8,7 +8,7 @@ use iced::{
 use crate::{
     domain::{
         remote::Remote,
-        run_state::RunState,
+        run_state::{DriveTransfers, RunState},
         sync::{SyncDir, SyncMode},
     },
     screens::main_page::status_label,
@@ -68,7 +68,7 @@ pub(super) fn folder_card<'a>(remote: &'a Remote, folder: Folder<'a>) -> Element
         RunState::Held if pending => "Pending changes — held on a metered network".to_owned(),
         _ if pending => "Pending changes".to_owned(),
         _ if applying && !blocked => "Applying changes…".to_owned(),
-        RunState::Syncing(_) => folder.transfers.clone().unwrap_or_else(|| {
+        RunState::Syncing(_) => folder.transfers.map(transfers_text).unwrap_or_else(|| {
             folder
                 .latest_line
                 .unwrap_or(status_label(folder.state))
@@ -330,4 +330,20 @@ fn folder_actions<'a>(
     .spacing(6)
     .align_y(Alignment::Center)
     .into()
+}
+
+/// What a network drive does, as the folder's line says it.
+fn transfers_text(transfers: DriveTransfers) -> String {
+    let files = |n: u64| {
+        if n == 1 {
+            tr::tr!("1 file")
+        } else {
+            tr::tr!("{} files", n)
+        }
+    };
+    match (transfers.downloading, transfers.uploading) {
+        (0, up) => tr::tr!("Uploading {}…", files(up)),
+        (down, 0) => tr::tr!("Downloading {}…", files(down)),
+        (down, up) => tr::tr!("Downloading {}, uploading {}…", files(down), files(up)),
+    }
 }
