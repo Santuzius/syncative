@@ -137,8 +137,6 @@ struct DriveLog {
     files: HashSet<network_drive::DriveFile>,
     /// Whether a file's last try failed, as far as rclone's finished transfers tell.
     failed: HashMap<network_drive::DriveFile, bool>,
-    /// The progress last logged per direction (upload or not): files done, of all.
-    logged: HashMap<bool, (usize, usize)>,
     /// When the newest transfer ended that was logged; `None` before the drive was first asked, whose earlier transfers aren't logged.
     seen_until: Option<i64>,
 }
@@ -526,7 +524,7 @@ impl Core {
         }
     }
 
-    /// Log what network drive `sync_dir` moves as a synced folder's pass logs its progress: per direction how many of the files on their way are done ("[3/10] Downloading…"), a problem line with the error when a transfer failed, and when the drive is idle again, how many went through.
+    /// Log what network drive `sync_dir` moves as a synced folder's pass logs its progress: a line per file that sets off, with how many files of its direction are done ("[3/10] Downloading '~/Drive/a.txt'…"), a problem line with the error when a transfer failed, and when the drive is idle again, how many went through.
     pub(super) fn log_drive(
         &mut self,
         sync_dir: &SyncDir,
@@ -555,19 +553,31 @@ impl Core {
         let newest = report.finished.iter().map(|f| f.at).max();
         log.seen_until = log.seen_until.max(newest).or(Some(i64::MIN));
         log.files = report.files.iter().cloned().collect();
-        log.seen.extend(log.files.iter().cloned());
-        for upload in [true, false] {
-            let total = log.seen.iter().filter(|f| f.upload == upload).count();
-            let moving = log.files.iter().filter(|f| f.upload == upload).count();
-            let progress = (total - moving, total);
-            if moving > 0 && log.logged.get(&upload) != Some(&progress) {
-                lines.push(if upload {
-                    tr::tr!("[{}/{}] Uploading…", progress.0, progress.1)
-                } else {
-                    tr::tr!("[{}/{}] Downloading…", progress.0, progress.1)
-                });
-                log.logged.insert(upload, progress);
-            }
+        let mut started: Vec<_> = report
+            .files
+            .iter()
+            .filter(|f| !log.seen.contains(*f))
+            .cloned()
+            .collect();
+        started.sort_by(|a, b| a.name.cmp(&b.name));
+        // Done: seen moving and no longer on its way. New files don't change it.
+        let done = |upload: bool| {
+            log.seen
+                .iter()
+                .filter(|f| f.upload == upload && !log.files.contains(*f))
+                .count()
+        };
+        let done = [done(false), done(true)];
+        for file in started {
+            log.seen.insert(file.clone());
+            let total = log.seen.iter().filter(|f| f.upload == file.upload).count();
+            let finished = done[usize::from(file.upload)];
+            let shown = network_drive::file_display(sync_dir, &file.name);
+            lines.push(if file.upload {
+                tr::tr!("[{}/{}] Uploading '{}'…", finished, total, shown)
+            } else {
+                tr::tr!("[{}/{}] Downloading '{}'…", finished, total, shown)
+            });
         }
         if log.files.is_empty() && !log.seen.is_empty() {
             let failures = log
@@ -578,7 +588,6 @@ impl Core {
             lines.push(super::folder::done_text(log.seen.len(), failures, 0));
             log.seen.clear();
             log.failed.clear();
-            log.logged.clear();
         }
         for line in lines {
             self.push_log_line(sync_dir.id, line);
