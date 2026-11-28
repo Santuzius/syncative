@@ -1,4 +1,4 @@
-// Package changes asks a remote once per sync pass what changed since the previous one, so a pass can skip listing it; the sync folders of a remote share the answer. SourceOf tells how a backend reports changes, for the sync and for mounts (package netdrive) alike: the change logs of Google Drive and Dropbox name paths, those of OneDrive and Proton items by ID, and Nextcloud renews a folder's ETag with every change below it (package nextcloud). The change-log calls come from Syncative's rclone fork (github.com/Santuzius/rclone, branch syncative), which exports the one-off query rclone's ChangeNotify otherwise runs on a timer.
+// Package changes asks a remote once per sync pass what changed since the previous one, so a pass can skip listing it; the sync folders of a remote share the answer. SourceOf tells how a backend reports changes, for the sync and for mounts (package netdrive) alike: the change logs of Google Drive and Dropbox name paths, those of OneDrive, MEGA and Proton items by ID, and Nextcloud renews a folder's ETag with every change below it (package nextcloud). The change-log calls come from Syncative's rclone fork (github.com/Santuzius/rclone, branch syncative), which exports the one-off query rclone's ChangeNotify otherwise runs on a timer.
 package changes
 
 import (
@@ -50,7 +50,7 @@ type ItemChanges struct {
 	Items  []ItemChange
 }
 
-// ItemLog is what Syncative's Proton backend (syncative/go/proton/rclonefs) offers, and the fork's onedrive backend through onedriveLog: a log of items by ID, kept across restarts.
+// ItemLog is what Syncative's Proton backend (syncative/go/proton/rclonefs) offers, and the fork's onedrive and mega backends through onedriveLog and megaLog: a log of items by ID, kept across restarts.
 type ItemLog interface {
 	// ChangesRoot returns the ID of folder `dir`; fs.ErrorDirNotFound when it is missing.
 	ChangesRoot(ctx context.Context, dir string) (string, error)
@@ -60,7 +60,7 @@ type ItemLog interface {
 
 // Source is how a backend reports what changed; at most one of Items and Tags is set.
 type Source struct {
-	// Items: a log by ID, kept across restarts (OneDrive, Proton); the sync prefers it.
+	// Items: a log by ID (OneDrive, Proton, MEGA; MEGA's starts anew with every run); the sync prefers it.
 	Items ItemLog
 	// Paths: a log by path (Google Drive, Dropbox; OneDrive and Proton too, which mounts use).
 	Paths PathLog

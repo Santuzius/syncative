@@ -27,13 +27,14 @@ A pass asks `syncative::changes_since`, one call for every backend; `SourceOf` i
 | Proton | last event of the volume's event log and the sync folder's link ID, asked through Syncative's Proton backend for rclone (`src/go/proton/rclonefs`) | the changed links with their decrypted names, placed by ID | kept |
 | Nextcloud | the sync folder's ETag, which the server renews with every change below it | a walk into the subfolders whose ETag changed (`src/go/rclone/nextcloud/tags.go`) | kept |
 | OneDrive | the delta token of the drive's change log and the sync folder's item ID, asked through Syncative's rclone fork (`backend/onedrive/syncative.go`, `src/go/rclone/changes/onedrive.go`) | the changed items with their names, placed by ID: the delta listing gives no paths | kept |
+| MEGA | the position (`sn`) of the account's event stream and the sync folder's node handle, asked through Syncative's rclone and go-mega forks (`backend/mega/syncative.go`, `src/go/rclone/changes/mega.go`) | the changed nodes with their names, placed by handle | one full listing: go-mega fetches the whole tree at sign-in and knows only the positions since |
 | Google Drive, Dropbox | the provider's change-log token, asked once per pass through Syncative's rclone fork | the folders holding the paths it reported (`src/go/rclone/changes/changes.go`) | one full listing: rclone names Drive's changes through the folders its backend has listed in this run |
 | Other rclone backends | none | | every pass lists |
 
 One answer per remote:
 
 - The sync folders of a remote ask one after the other in a pass and share one answer: an answer up to 3 s old stands in for the request (`AnswerReuse` in `src/go/rclone/call.go`). The window is shorter than the shortest interval (5 s), so every pass asks at least once.
-- Proton, OneDrive, Google Drive, Dropbox: the change log covers the whole remote, so a quiet pass makes one request for all folders. A folder whose cursor stayed behind gets the kept answers since its cursor.
+- Proton, OneDrive, MEGA, Google Drive, Dropbox: the change log covers the whole remote, so a quiet pass makes one request for all folders. A folder whose cursor stayed behind gets the kept answers since its cursor.
 - Nextcloud: the server renews the root's ETag with every change below it, also for a change by the owner of a folder shared with the user (tested on Nextcloud 34). A pass asks the root's ETag once; a folder whose ETag was read under the root's current ETag skips its own request (`tagGate` in `src/go/rclone/nextcloud/tags.go`). A quiet pass makes one request, a pass with changes one more than without the gate.
 - Every ETag request goes through one HTTP client, so its connection stays open between passes.
 
@@ -46,6 +47,11 @@ OneDrive:
 
 - An item names its parent by ID, which the sync matches against the IDs the listing recorded (`driveID#itemID`, as rclone's onedrive backend names items). A token too old for the drive (410 Gone, `resyncRequired`) starts the log anew and the pass lists in full.
 - A folder shared with the account and added to its OneDrive lives on the owner's drive, whose changes this drive's log doesn't report; the hourly full listing catches them.
+
+MEGA:
+
+- go-mega keeps the whole node tree in memory and follows the event stream in the background to keep it current, so neither a listing nor a change query asks the server. The fork's go-mega records which nodes each batch of events changed, only once the batch is applied, so a position never runs ahead of the tree; the last 4096 batches are kept.
+- A node in the rubbish bin, deleted, or an older version of a file (MEGA keeps versions as children of the file) is reported gone. A replaced file is a new node, so a new version shows as two changes: the new handle and the old one gone.
 
 More than 64 folders to fetch, a folder without an ETag, the sync folder itself renamed or gone, or a Proton event that can't be read make the pass list in full.
 

@@ -5,6 +5,7 @@ package changes
 import (
 	"context"
 
+	"github.com/rclone/rclone/backend/mega"
 	"github.com/rclone/rclone/backend/onedrive"
 	"github.com/rclone/rclone/fs"
 )
@@ -38,10 +39,13 @@ func (l onedriveLog) ItemChangesSince(ctx context.Context, event string) (ItemCh
 	return ItemChanges{Next: next, Relist: relist, Items: items}, nil
 }
 
-// itemLogOf is f's change log by ID, if it has one.
+// itemLogOf is f's change log by ID, if it has one: OneDrive's, MEGA's (mega.go) or one f offers itself (Proton).
 func itemLogOf(f fs.Fs) (ItemLog, bool) {
 	if od, ok := f.(*onedrive.Fs); ok {
 		return onedriveLog{od}, true
+	}
+	if m, ok := f.(*mega.Fs); ok {
+		return megaLog{m}, true
 	}
 	log, ok := f.(ItemLog)
 	return log, ok

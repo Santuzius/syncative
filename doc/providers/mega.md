@@ -35,10 +35,10 @@ The fingerprint reaches the sync as metadata, not as an rclone hash: rclone's ha
   - Trash and restore, the sync folder's own remote folder renamed or trashed, changes while the app was stopped, and a network loss during an upload behave as the checklist expects.
   - Removing the remote deletes its database rows and its `rclone.conf` section; MEGA keeps nothing else on disk.
 - **Noticed:** while offline, go-mega's event poll logs `pollEvents: Error fetching status` every 5 s.
+- **Change detection** through the account's event stream, like the change logs of the other remotes ([remote-changes.md](../development/remote-changes.md#mega)): tested on the desktop with new, renamed, moved and deleted files and folders, a folder trashed and restored, uploads, new versions and a time-only change; each arrived without a listing.
 - **Next:**
-  1. Change detection: whether rclone's polling is enough or MEGA's event stream is needed.
-  2. Memory for large accounts (see below), possibly a disk cache.
-  3. Before a release: tag the rclone fork, use the tag in `src/go/go.mod`, update `vendorHash` in `nix/package.nix`.
+  1. Memory for large accounts (see below), possibly a disk cache, which would also keep the event-stream position across restarts.
+  2. Before a release: tag the rclone fork, use the tag in `src/go/go.mod`, update `vendorHash` in `nix/package.nix`.
 - **Related open pull requests on go-mega:** [#65](https://github.com/t3rm1n4l/go-mega/pull/65) and [#66](https://github.com/t3rm1n4l/go-mega/pull/66) add the fingerprint and mtime; #65 encodes it in standard base64, where MEGA uses the URL alphabet without padding, and neither keeps attributes other than the name and fingerprint.
 
 The official desktop client [MEGAsync](https://github.com/meganz/MEGAsync) is under the "MEGA Limited Code Licence", which allows review but not reuse, so its code can't be used. The MEGA SDK ([meganz/sdk](https://github.com/meganz/sdk)) is BSD-2 and serves as the reference for the formats below.
