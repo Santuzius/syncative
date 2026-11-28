@@ -314,22 +314,27 @@ where
     // Close the pass in the log, but only when something happened —
     // an idle pass every few seconds would bury the useful lines.
     if total > 0 {
-        emit_status(if failed == 0 {
-            tr::tr!("Done — {} changes synced.", total)
-        } else {
-            tr::tr!(
-                "Done — {} of {} changes synced, {} failed.",
-                total - failed,
-                total,
-                failed
-            )
-        });
+        emit_status(done_text(total, failed));
     }
     emit_state(RunState::Synced);
     if failed == 0 {
         Outcome::Synced
     } else {
         Outcome::Incomplete
+    }
+}
+
+/// The line that closes a pass, or a network drive's transfers: how many of `total` changes went through.
+pub(crate) fn done_text(total: usize, failed: usize) -> String {
+    match (total, failed) {
+        (1, 0) => tr::tr!("Done — 1 change synced."),
+        (_, 0) => tr::tr!("Done — {} changes synced.", total),
+        _ => tr::tr!(
+            "Done — {} of {} changes synced, {} failed.",
+            total - failed,
+            total,
+            failed
+        ),
     }
 }
 

@@ -166,21 +166,31 @@ pub fn poll(remote: &str, remote_path: &str, folder_id: i32, reset: bool) -> Res
 }
 
 /// A file a network drive moves: a download of what a file manager opened, or an upload of what it saved, on its way or waiting.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Deserialize)]
 pub struct DriveFile {
     /// Its path in the drive.
     pub name: String,
     /// An upload; a download otherwise.
     pub upload: bool,
-    /// How often its upload failed so far.
-    #[serde(default)]
-    pub failed: u32,
 }
 
-/// What one network drive moves right now.
+/// A transfer of a network drive that ended: one try of an upload, or a download.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct FinishedFile {
+    #[serde(flatten)]
+    pub file: DriveFile,
+    /// Why it failed; empty when it went through.
+    pub error: String,
+    /// When it ended, in nanoseconds since 1970.
+    pub at: i64,
+}
+
+/// What one network drive moves right now, and its transfers that ended lately.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DriveReport {
     pub files: Vec<DriveFile>,
+    /// Among rclone's last completed transfers, oldest first.
+    pub finished: Vec<FinishedFile>,
     /// See [`DriveTransfers::moving`].
     pub moving: bool,
 }
@@ -216,6 +226,10 @@ fn parse_transfers(reply: &str) -> HashMap<String, DriveReport> {
             let report = DriveReport {
                 files: v
                     .get("files")
+                    .and_then(|f| serde_json::from_value(f.clone()).ok())
+                    .unwrap_or_default(),
+                finished: v
+                    .get("finished")
                     .and_then(|f| serde_json::from_value(f.clone()).ok())
                     .unwrap_or_default(),
                 moving: v
@@ -437,10 +451,11 @@ mod tests {
     /// The Go side's answer becomes the drive's files and the counts its state shows.
     #[test]
     fn transfers_name_the_files() {
-        let reply = r#"{"drives":{"G:x":{"files":[{"name":"a.txt","upload":true,"failed":2},{"name":"b.jpg","upload":false,"failed":0}],"moving":true}}}"#;
+        let reply = r#"{"drives":{"G:x":{"files":[{"name":"a.txt","upload":true},{"name":"b.jpg","upload":false}],"finished":[{"name":"c.txt","upload":true,"error":"quota exceeded","at":7}],"moving":true}}}"#;
         let report = &parse_transfers(reply)["G:x"];
         assert_eq!(report.files[0].name, "a.txt");
-        assert_eq!(report.files[0].failed, 2);
+        assert_eq!(report.finished[0].file.name, "c.txt");
+        assert_eq!(report.finished[0].error, "quota exceeded");
         assert_eq!(
             report.transfers(),
             DriveTransfers {

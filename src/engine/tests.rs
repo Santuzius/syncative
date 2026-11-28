@@ -854,35 +854,90 @@ async fn a_shared_file_saved_during_its_upload_goes_up_again_under_the_same_name
     assert!(!dir.exists());
 }
 
-/// A network drive's transfers go into its log as a synced folder's pass logs them: a line per file on its way, a problem line for a failed upload, and the count once the drive is idle again.
+/// A network drive's transfers go into its log as a synced folder's pass logs them: a line per file on its way, a problem line with the error for a failed transfer, and the count once the drive is idle again. What ended before the drive was first asked stays out.
 #[tokio::test]
 async fn a_network_drive_logs_its_transfers_like_a_pass() {
-    use super::network_drive::DriveFile;
+    use super::network_drive::{DriveFile, DriveReport, FinishedFile};
     let mut rig = rig().await;
     let dir = rig.repo.sync_dirs.lock().unwrap()[0].clone();
-    let file = |name: &str, upload: bool, failed: u32| DriveFile {
+    let file = |name: &str, upload: bool| DriveFile {
         name: name.to_owned(),
         upload,
-        failed,
+    };
+    let end = |name: &str, upload: bool, error: &str, at: i64| FinishedFile {
+        file: file(name, upload),
+        error: error.to_owned(),
+        at,
+    };
+    let report = |files: Vec<DriveFile>, finished: Vec<FinishedFile>| DriveReport {
+        files,
+        finished,
+        moving: true,
     };
     let path = |name: &str| crate::util::fmt_home(&format!("{}/{name}", dir.local_path));
+    let earlier = end("old.txt", true, "", 1);
 
-    rig.core
-        .log_drive(&dir, R1, &[file("a.txt", true, 0), file("b.jpg", false, 0)]);
-    rig.core
-        .log_drive(&dir, R1, &[file("a.txt", true, 0), file("b.jpg", false, 0)]);
-    rig.core.log_drive(&dir, R1, &[file("a.txt", true, 1)]);
+    rig.core.log_drive(
+        &dir,
+        R1,
+        &report(
+            vec![file("a.txt", true), file("b.jpg", false)],
+            vec![earlier.clone()],
+        ),
+    );
+    rig.core.log_drive(
+        &dir,
+        R1,
+        &report(
+            vec![file("a.txt", true), file("b.jpg", false)],
+            vec![earlier.clone()],
+        ),
+    );
+    // The upload's first try fails and it waits for the next; the download fails; a short download comes and goes between two looks.
+    let failed_try = end("a.txt", true, "quota exceeded", 2);
+    let failed_download = end("b.jpg", false, "connection reset", 3);
+    let short = end("c.png", false, "", 4);
+    rig.core.log_drive(
+        &dir,
+        R1,
+        &report(
+            vec![file("a.txt", true)],
+            vec![
+                earlier.clone(),
+                failed_try.clone(),
+                failed_download.clone(),
+                short.clone(),
+            ],
+        ),
+    );
     assert_eq!(rig.snap().state.dir_state(R1, D1), RunState::Warning);
-    rig.core.log_drive(&dir, R1, &[]);
-    rig.core.log_drive(&dir, R1, &[]);
+    let second_try = end("a.txt", true, "", 5);
+    rig.core.log_drive(
+        &dir,
+        R1,
+        &report(
+            vec![],
+            vec![
+                earlier,
+                failed_try,
+                failed_download,
+                short,
+                second_try.clone(),
+            ],
+        ),
+    );
+    rig.core
+        .log_drive(&dir, R1, &report(vec![], vec![second_try]));
 
     assert_eq!(
         rig.log(D1),
         [
             format!("Uploading '{}'…", path("a.txt")),
             format!("Downloading '{}'…", path("b.jpg")),
-            format!("⚠ {}: Upload failed; trying again.", path("a.txt")),
-            "Done — 2 changes synced.".to_owned(),
+            format!("⚠ {}: quota exceeded", path("a.txt")),
+            format!("⚠ {}: connection reset", path("b.jpg")),
+            format!("Downloading '{}'…", path("c.png")),
+            "Done — 2 of 3 changes synced, 1 failed.".to_owned(),
         ]
     );
 }

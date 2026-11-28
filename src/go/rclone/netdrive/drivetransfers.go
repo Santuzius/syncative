@@ -4,8 +4,10 @@ package netdrive
 
 import (
 	"context"
+	"errors"
 	"slices"
 
+	"github.com/rclone/rclone/fs/accounting"
 	"github.com/rclone/rclone/fs/cache"
 	"github.com/rclone/rclone/fs/rc"
 	"github.com/rclone/rclone/vfs/vfscache/writeback"
@@ -15,8 +17,8 @@ func init() {
 	rc.Add(rc.Call{
 		Path:  "syncative/drive-transfers",
 		Fn:    rcDriveTransfers,
-		Title: "Which files the network drives download and upload right now.",
-		Help:  `Parameters: fs, the drives' "remote:path" as mounted, a list. Returns drives: per fs that moves files or has uploads waiting, files, each with name (its path in the drive), upload (false for a download) and failed (how often its upload failed so far), and moving, whether a file moves now rather than only waiting in the upload queue (as when offline).`,
+		Title: "Which files the network drives download and upload right now, and which finished.",
+		Help:  `Parameters: fs, the drives' "remote:path" as mounted, a list. Returns drives: per fs with files on their way or finished, files, each with name (its path in the drive) and upload (false for a download); finished, the transfers among rclone's last completed ones, each with name, upload, error (empty when it went through) and at (when it ended, in nanoseconds since 1970); and moving, whether a file moves now rather than only waiting in the upload queue (as when offline).`,
 	})
 }
 
@@ -24,7 +26,14 @@ func init() {
 type driveFile struct {
 	Name   string `json:"name"`
 	Upload bool   `json:"upload"`
-	Failed int    `json:"failed"`
+}
+
+// finishedFile is a transfer of a network drive that ended, one try of an upload or a download.
+type finishedFile struct {
+	Name   string `json:"name"`
+	Upload bool   `json:"upload"`
+	Error  string `json:"error"`
+	At     int64  `json:"at"`
 }
 
 func rcDriveTransfers(ctx context.Context, in rc.Params) (rc.Params, error) {
@@ -42,6 +51,11 @@ func rcDriveTransfers(ctx context.Context, in rc.Params) (rc.Params, error) {
 		return nil, err
 	}
 	transferring, _ := stats["transferring"].([]rc.Params)
+	completed, err := rc.Calls.Get("core/transferred").Fn(ctx, rc.Params{})
+	if err != nil {
+		return nil, err
+	}
+	transferred, _ := completed["transferred"].([]accounting.TransferSnapshot)
 	out := rc.Params{}
 	for _, drive := range drives {
 		// The VFS goes by the name rclone's cache gave the drive's backend.
@@ -49,56 +63,63 @@ func rcDriveTransfers(ctx context.Context, in rc.Params) (rc.Params, error) {
 		if !slices.Contains(active, name) {
 			continue
 		}
-		files := driveTransfers(transferring, name)
+		files := []driveFile{}
+		for _, tr := range transferring {
+			src, _ := tr["srcFs"].(string)
+			dst, _ := tr["dstFs"].(string)
+			file, _ := tr["name"].(string)
+			if upload, ok := direction(src, dst, name); ok {
+				files = addFile(files, driveFile{Name: file, Upload: upload})
+			}
+		}
 		moving := len(files) > 0
 		if queued, err := rc.Calls.Get("vfs/queue").Fn(ctx, rc.Params{"fs": name}); err == nil {
 			items, _ := queued["queue"].([]writeback.QueueInfo)
-			files, moving = withQueue(files, items, moving)
+			for _, item := range items {
+				moving = moving || item.Uploading
+				files = addFile(files, driveFile{Name: item.Name, Upload: true})
+			}
 		}
-		if len(files) > 0 {
-			out[drive] = rc.Params{"files": files, "moving": moving}
+		finished := finishedFiles(transferred, name)
+		if len(files) > 0 || len(finished) > 0 {
+			out[drive] = rc.Params{"files": files, "finished": finished, "moving": moving}
 		}
 	}
 	return rc.Params{"drives": out}, nil
 }
 
-// driveTransfers lists the transfers of the VFS `name` in rclone's transfer list, each file once: a download reads from its backend into the cache, which no transfer names; an upload writes to its backend from the cache. A synced folder's downloads write to a local folder, so they don't count.
-func driveTransfers(transferring []rc.Params, name string) []driveFile {
-	files := []driveFile{}
-	for _, tr := range transferring {
-		src, _ := tr["srcFs"].(string)
-		dst, _ := tr["dstFs"].(string)
-		file, _ := tr["name"].(string)
-		var upload bool
-		switch {
-		case src == name && dst == "":
-		case dst == name && src != name:
-			upload = true
-		default:
-			continue
-		}
-		if !slices.ContainsFunc(files, func(f driveFile) bool { return f.Name == file && f.Upload == upload }) {
-			files = append(files, driveFile{Name: file, Upload: upload})
-		}
+// direction tells whether a transfer from `src` to `dst` belongs to the VFS `name`, and whether it is an upload: a download reads from its backend into the cache, which no transfer names; an upload writes to its backend from the cache. A synced folder's downloads write to a local folder, so they don't count.
+func direction(src, dst, name string) (upload, ok bool) {
+	switch {
+	case src == name && dst == "":
+		return false, true
+	case dst == name && src != name:
+		return true, true
 	}
-	return files
+	return false, false
 }
 
-// withQueue adds the uploads waiting in the VFS's write-back queue to `files`, with how often each failed; one being uploaded counts as moving.
-func withQueue(files []driveFile, queue []writeback.QueueInfo, moving bool) ([]driveFile, bool) {
-	for _, item := range queue {
-		moving = moving || item.Uploading
-		// The queue counts the tries started, the one running too.
-		failed := item.Tries
-		if item.Uploading {
-			failed--
-		}
-		i := slices.IndexFunc(files, func(f driveFile) bool { return f.Name == item.Name && f.Upload })
-		if i < 0 {
-			files = append(files, driveFile{Name: item.Name, Upload: true, Failed: failed})
-		} else {
-			files[i].Failed = failed
-		}
+// addFile adds `file` to `files` unless it is there already.
+func addFile(files []driveFile, file driveFile) []driveFile {
+	if slices.Contains(files, file) {
+		return files
 	}
-	return files, moving
+	return append(files, file)
+}
+
+// finishedFiles are the transfers of the VFS `name` among rclone's last completed ones. An upload rclone cancelled to start it again with the file's newer content didn't fail, so it is left out.
+func finishedFiles(transferred []accounting.TransferSnapshot, name string) []finishedFile {
+	finished := []finishedFile{}
+	for _, tr := range transferred {
+		upload, ok := direction(tr.SrcFs, tr.DstFs, name)
+		if !ok || errors.Is(tr.Error, context.Canceled) {
+			continue
+		}
+		file := finishedFile{Name: tr.Name, Upload: upload, At: tr.CompletedAt.UnixNano()}
+		if tr.Error != nil {
+			file.Error = tr.Error.Error()
+		}
+		finished = append(finished, file)
+	}
+	return finished
 }

@@ -2,16 +2,18 @@ package netdrive
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/rclone/rclone/fs/accounting"
 	"github.com/rclone/rclone/fs/cache"
 	"github.com/rclone/rclone/fs/rc"
 	"github.com/rclone/rclone/vfs"
-	"github.com/rclone/rclone/vfs/vfscache/writeback"
 	"github.com/rclone/rclone/vfs/vfscommon"
 )
 
@@ -50,21 +52,26 @@ func TestDriveTransfersNameTheDrive(t *testing.T) {
 		t.Fatalf("downloading: %v", drives)
 	}
 	tr.Done(ctx, nil)
-	if drives := transfers(); len(drives) != 0 {
+	drives = transfers()
+	if got, ok := drives[dir].(rc.Params); !ok || len(got["files"].([]driveFile)) != 0 || len(got["finished"].([]finishedFile)) != 1 {
 		t.Fatalf("done: %v", drives)
 	}
 }
 
-// TestQueuedUploadsJoinTheTransfers: an upload in the transfer list and in the queue is one file with the failed tries, the running one not counted; one only waiting in the queue doesn't count as moving.
-func TestQueuedUploadsJoinTheTransfers(t *testing.T) {
-	files := []driveFile{{Name: "b.txt", Upload: true}, {Name: "a.txt"}}
-	queue := []writeback.QueueInfo{{Name: "b.txt", Tries: 1, Uploading: true}, {Name: "c.txt", Tries: 2}}
-	got, moving := withQueue(files, queue, false)
-	want := []driveFile{{Name: "b.txt", Upload: true}, {Name: "a.txt"}, {Name: "c.txt", Upload: true, Failed: 2}}
-	if !reflect.DeepEqual(got, want) || !moving {
-		t.Fatalf("got %v, moving %v", got, moving)
+// TestFinishedTransfersKeepTheirError: a failed transfer of the drive comes with its error, a cancelled upload and other drives' transfers are left out.
+func TestFinishedTransfersKeepTheirError(t *testing.T) {
+	at := time.Unix(1700000000, 0)
+	transferred := []accounting.TransferSnapshot{
+		{Name: "a.txt", SrcFs: "cache", DstFs: "G:x", CompletedAt: at, Error: errors.New("quota exceeded")},
+		{Name: "b.txt", SrcFs: "G:x", CompletedAt: at},
+		{Name: "c.txt", SrcFs: "cache", DstFs: "G:x", CompletedAt: at, Error: fmt.Errorf("upload: %w", context.Canceled)},
+		{Name: "d.txt", SrcFs: "G:y", CompletedAt: at},
 	}
-	if _, moving := withQueue(nil, queue[1:], false); moving {
-		t.Fatal("a waiting upload counts as moving")
+	want := []finishedFile{
+		{Name: "a.txt", Upload: true, Error: "quota exceeded", At: at.UnixNano()},
+		{Name: "b.txt", At: at.UnixNano()},
+	}
+	if got := finishedFiles(transferred, "G:x"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v", got)
 	}
 }

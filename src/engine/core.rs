@@ -128,12 +128,15 @@ pub(crate) struct Core {
     drive_logs: HashMap<SyncDirId, DriveLog>,
 }
 
-/// A network drive's files on their way as last seen, and how many arrived since the drive was last idle.
+/// A network drive's transfers since it was last idle, for its log (see [`Core::log_drive`]).
 #[derive(Default)]
 struct DriveLog {
-    /// Per file and direction (upload or not), how often its upload failed.
-    files: HashMap<(String, bool), u32>,
-    done: usize,
+    /// The files on their way as last seen.
+    files: HashSet<network_drive::DriveFile>,
+    /// The files that ended since the drive was last idle, and whether their last try failed.
+    ended: HashMap<network_drive::DriveFile, bool>,
+    /// When the newest transfer ended that was logged; `None` before the drive was first asked, whose earlier transfers aren't logged.
+    seen_until: Option<i64>,
 }
 
 impl Core {
@@ -515,44 +518,58 @@ impl Core {
         self.drive_logs
             .retain(|id, _| reports.iter().any(|(d, _, _)| d.id == *id));
         for (sync_dir, remote_id, report) in reports {
-            self.log_drive(&sync_dir, remote_id, &report.files);
+            self.log_drive(&sync_dir, remote_id, &report);
         }
     }
 
-    /// Log what network drive `sync_dir` moves as a synced folder's pass logs it: a line when a file starts on its way, a problem line when its upload failed, and when the drive is idle again, how many files arrived.
+    /// Log what network drive `sync_dir` moves as a synced folder's pass logs it: a line when a file starts on its way, a problem line with the error when a transfer failed, and when the drive is idle again, how many files went through.
     pub(super) fn log_drive(
         &mut self,
         sync_dir: &SyncDir,
         remote_id: RemoteId,
-        files: &[network_drive::DriveFile],
+        report: &network_drive::DriveReport,
     ) {
         let log = self.drive_logs.entry(sync_dir.id).or_default();
-        let mut lines = Vec::new();
-        let mut failed = false;
-        for file in files {
+        let started = |file: &network_drive::DriveFile| {
             let path = network_drive::file_display(sync_dir, &file.name);
-            match log.files.get(&(file.name.clone(), file.upload)) {
-                None if file.upload => lines.push(tr::tr!("Uploading '{}'…", path)),
-                None => lines.push(tr::tr!("Downloading '{}'…", path)),
-                Some(before) if file.failed > *before => {
-                    failed = true;
-                    lines.push(format!(
-                        "⚠ {path}: {}",
-                        tr::tr!("Upload failed; trying again.")
-                    ));
-                }
-                Some(_) => {}
+            if file.upload {
+                tr::tr!("Uploading '{}'…", path)
+            } else {
+                tr::tr!("Downloading '{}'…", path)
+            }
+        };
+        let mut lines = Vec::new();
+        for file in &report.files {
+            if !log.files.contains(file) && !log.ended.contains_key(file) {
+                lines.push(started(file));
             }
         }
-        let now: HashMap<(String, bool), u32> = files
-            .iter()
-            .map(|f| ((f.name.clone(), f.upload), f.failed))
-            .collect();
-        log.done += log.files.keys().filter(|k| !now.contains_key(*k)).count();
-        log.files = now;
-        if log.files.is_empty() && log.done > 0 {
-            lines.push(tr::tr!("Done — {} changes synced.", log.done));
-            log.done = 0;
+        let newest = report.finished.iter().map(|f| f.at).max();
+        let mut failed = false;
+        if let Some(seen_until) = log.seen_until {
+            for end in report.finished.iter().filter(|f| f.at > seen_until) {
+                // A transfer too short to be seen on its way still gets its line.
+                if !log.files.contains(&end.file) && !log.ended.contains_key(&end.file) {
+                    lines.push(started(&end.file));
+                }
+                let error = !end.error.is_empty();
+                if error {
+                    failed = true;
+                    lines.push(format!(
+                        "⚠ {}: {}",
+                        network_drive::file_display(sync_dir, &end.file.name),
+                        end.error
+                    ));
+                }
+                log.ended.insert(end.file.clone(), error);
+            }
+        }
+        log.seen_until = log.seen_until.max(newest).or(Some(i64::MIN));
+        log.files = report.files.iter().cloned().collect();
+        if log.files.is_empty() && !log.ended.is_empty() {
+            let failures = log.ended.values().filter(|e| **e).count();
+            lines.push(super::folder::done_text(log.ended.len(), failures));
+            log.ended.clear();
         }
         for line in lines {
             self.push_log_line(sync_dir.id, line);
