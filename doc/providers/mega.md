@@ -26,12 +26,19 @@ MEGA goes through rclone's Mega backend, patched in Syncative's [rclone fork](ht
 The fingerprint reaches the sync as metadata, not as an rclone hash: rclone's hash interface (`RegisterHash` in `fs/hash/hash.go`) streams a file from its start without knowing its size, while the sampled CRC needs the size to place its windows. A registered hash would also be offered by the local backend and compared by rclone itself, which would report files with the legacy CRC as corrupted. `operations/fsinfo` lists `mega-crc` among the metadata, so `hash_names` (`src/infrastructure/rclone/rpc.rs`) adds the pseudo-name `mega`, and `file_details` reads the CRC from the metadata; `content_hash::matching` accepts either variant as the same content.
 
 ## Progress
-- **Done:** everything under *Plan* except the checks. The fingerprint passes the values of MEGA's SDK tests in Go and Rust, including the legacy variant. Syncative's `src/go/go.mod` points to the rclone fork by pseudo-version.
+- **Done:** everything under *Plan*. The fingerprint passes the values of MEGA's SDK tests in Go and Rust, including the legacy variant. Syncative's `src/go/go.mod` points to the rclone fork by pseudo-version.
+- **Remote checklist** ([testing.md](../development/testing.md#checklist-for-a-remote)) passed on the desktop (root sync) and on Android (one folder), with a throwaway account and the web app as the other client:
+  - Fingerprints Syncative writes (5 B to 150 MB, including sizes past the legacy overflow) equal those the web app writes for the same files, and the web app shows the uploaded modification times.
+  - A changed file becomes a new version of the old one (`ov`), as in the web app.
+  - Time-only changes settle in one pass on both sides; a remote one counts as `download=1` in the plan line but only takes over the time.
+  - Renames and moves arrive as a download plus a local delete, as with every provider.
+  - Trash and restore, the sync folder's own remote folder renamed or trashed, changes while the app was stopped, and a network loss during an upload behave as the checklist expects.
+  - Removing the remote deletes its database rows and its `rclone.conf` section; MEGA keeps nothing else on disk.
+- **Noticed:** while offline, go-mega's event poll logs `pollEvents: Error fetching status` every 5 s.
 - **Next:**
-  1. A throwaway MEGA account, then the remote checklist ([testing.md](../development/testing.md#checklist-for-a-remote)) and the checks against MEGA's own apps.
-  2. Change detection: whether rclone's polling is enough or MEGA's event stream is needed.
-  3. Memory for large accounts (see below), possibly a disk cache.
-  4. Before a release: tag the rclone fork, use the tag in `src/go/go.mod`, update `vendorHash` in `nix/package.nix`.
+  1. Change detection: whether rclone's polling is enough or MEGA's event stream is needed.
+  2. Memory for large accounts (see below), possibly a disk cache.
+  3. Before a release: tag the rclone fork, use the tag in `src/go/go.mod`, update `vendorHash` in `nix/package.nix`.
 - **Related open pull requests on go-mega:** [#65](https://github.com/t3rm1n4l/go-mega/pull/65) and [#66](https://github.com/t3rm1n4l/go-mega/pull/66) add the fingerprint and mtime; #65 encodes it in standard base64, where MEGA uses the URL alphabet without padding, and neither keeps attributes other than the name and fingerprint.
 
 The official desktop client [MEGAsync](https://github.com/meganz/MEGAsync) is under the "MEGA Limited Code Licence", which allows review but not reuse, so its code can't be used. The MEGA SDK ([meganz/sdk](https://github.com/meganz/sdk)) is BSD-2 and serves as the reference for the formats below.
@@ -53,9 +60,9 @@ From the SDK's `src/filefingerprint.cpp`:
 - **Disk cache idea:** keep the node tree in SQLite with the keys still encrypted as received, the master key in the keyring, and the event-stream position, so the full fetch happens only once. Names outside synced folders stay encrypted on disk.
 
 ## Open questions
-- Fingerprint compatibility, including the old overflow variant and files over 4 GB.
+- Fingerprint compatibility with files from old clients (legacy variant) and files over 4 GB.
 - mtime precision and every attribute key MEGA's apps write.
-- `ov` versions, and whether an account can switch versioning off.
+- Whether an account can switch versioning off, and what `ov` does then.
 - Event stream reliability, rate limits and the transfer quota.
 - Sign-in: v2 accounts, 2FA, resuming sessions.
 - Duplicate names in one folder and MEGA's name rules.
